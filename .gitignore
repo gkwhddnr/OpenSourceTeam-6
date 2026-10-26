@@ -107,3 +107,15 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Team local tools and private configuration
+.codex/
+.Codex/
+.claude/
+.Claude/
+.opencode/
+.OpenCode/
+.env
+.env.*
+*.xlsx
+/[Pp]rofilerCaptures/
