@@ -119,3 +119,6 @@ InitTestScene*.unity*
 .env.*
 *.xlsx
 /[Pp]rofilerCaptures/
+
+# LlamaLib
+/Assets/StreamingAssets/LlamaLib-v2.0.5/
