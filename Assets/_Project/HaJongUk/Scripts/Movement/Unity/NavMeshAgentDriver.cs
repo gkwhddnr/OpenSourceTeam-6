@@ -3,12 +3,12 @@ using UnityEngine.AI;
 
 namespace OpenSourceTeam6.Movement.Unity
 {
-    [DisallowMultipleComponent, RequireComponent(typeof(NavMeshAgent))]
-    public sealed class NavMeshAgentDriver : MonoBehaviour
+    public sealed class NavMeshAgentDriver
     {
         private NavMeshAgent agent;
-        private NavMeshAgent Agent => agent != null ? agent : (agent = GetComponent<NavMeshAgent>());
-        public bool IsReady => isActiveAndEnabled && Agent.enabled && Agent.isOnNavMesh;
+        public NavMeshAgentDriver(NavMeshAgent agent) { this.agent = agent; }
+        private NavMeshAgent Agent => agent;
+        public bool IsReady => Agent != null && Agent.isActiveAndEnabled && Agent.isOnNavMesh;
         public bool PathPending => Agent.pathPending;
         public bool HasPath => Agent.hasPath;
         public NavMeshPathStatus PathStatus => Agent.pathStatus;

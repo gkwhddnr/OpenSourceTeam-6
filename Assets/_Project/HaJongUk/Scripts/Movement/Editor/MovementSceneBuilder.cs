@@ -95,14 +95,9 @@ namespace OpenSourceTeam6.Movement.Editor
             var view = camera.AddComponent<UnityEngine.Camera>();
             view.nearClipPlane = 0.05f; view.farClipPlane = 100f; view.fieldOfView = 75f;
             camera.AddComponent<AudioListener>();
-            var presenter = root.AddComponent<FirstPersonCameraPresenter>();
-            Assign(presenter, "eyePivot", eye.transform); Assign(presenter, "viewCamera", view);
-            var reader = root.AddComponent<PlayerInputReader>(); Assign(reader, "actions", input);
-            var gate = root.AddComponent<PlayerInputGate>();
-            var motor = root.AddComponent<CharacterControllerMotor>();
             var rig = root.AddComponent<PlayerRigController>();
-            Assign(rig, "profile", profile); Assign(rig, "input", reader); Assign(rig, "inputGate", gate);
-            Assign(rig, "motor", motor); Assign(rig, "cameraPresenter", presenter);
+            Assign(rig, "profile", profile); Assign(rig, "actions", input);
+            Assign(rig, "eyePivot", eye.transform); Assign(rig, "viewCamera", view);
             PrefabUtility.SaveAsPrefabAsset(root, PlayerPrefab);
             UnityEngine.Object.DestroyImmediate(root);
         }
@@ -118,9 +113,8 @@ namespace OpenSourceTeam6.Movement.Editor
             visual.transform.localPosition = new Vector3(0, 0.9f, 0);
             visual.transform.localScale = new Vector3(0.6f, 0.9f, 0.6f);
             visual.GetComponent<Renderer>().sharedMaterial = material;
-            var driver = root.AddComponent<NavMeshAgentDriver>();
             var controller = root.AddComponent<EmployeeMovementController>();
-            Assign(controller, "profile", profile); Assign(controller, "driver", driver);
+            Assign(controller, "profile", profile);
             PrefabUtility.SaveAsPrefabAsset(root, EmployeePrefab);
             UnityEngine.Object.DestroyImmediate(root);
         }

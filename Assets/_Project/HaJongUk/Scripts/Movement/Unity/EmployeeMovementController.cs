@@ -5,11 +5,11 @@ using UnityEngine.AI;
 
 namespace OpenSourceTeam6.Movement.Unity
 {
-    [DisallowMultipleComponent, RequireComponent(typeof(NavMeshAgentDriver))]
+    [DisallowMultipleComponent, RequireComponent(typeof(NavMeshAgent))]
     public sealed class EmployeeMovementController : MonoBehaviour, IAgentMovement
     {
         [SerializeField] private MovementProfile profile;
-        [SerializeField] private NavMeshAgentDriver driver;
+        private NavMeshAgentDriver driver;
         private readonly MoveRequestTracker tracker = new MoveRequestTracker();
         private float elapsed;
         private float planningElapsed;
@@ -35,7 +35,8 @@ namespace OpenSourceTeam6.Movement.Unity
         private void Awake()
         {
             mainThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
-            if (profile == null || !profile.IsValid || driver == null)
+            driver = new NavMeshAgentDriver(GetComponent<NavMeshAgent>());
+            if (profile == null || !profile.IsValid || GetComponent<NavMeshAgent>() == null)
             { Debug.LogError("EmployeeMovement requires a valid profile and driver.", this); enabled = false; return; }
             driver.Configure(profile);
         }

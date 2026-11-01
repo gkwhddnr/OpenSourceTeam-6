@@ -5,15 +5,14 @@ using UnityEngine.InputSystem;
 
 namespace OpenSourceTeam6.Movement.Unity
 {
-    [DisallowMultipleComponent]
-    public sealed class PlayerInputGate : MonoBehaviour, IPlayerInputGate
+    public sealed class PlayerInputGate : IPlayerInputGate
     {
         private readonly InputLockSet locks = new InputLockSet();
         private IDisposable focusLock;
         private IDisposable pauseLock;
         private IDisposable menuLock;
         private bool wasLocked = true;
-        public bool IsLocked => !isActiveAndEnabled || locks.IsLocked;
+        public bool IsLocked => locks.IsLocked;
         public IDisposable AcquireLock(string reason) => locks.AcquireLock(reason);
 
         // The rig calls this before reading input; one writer owns the cursor.
@@ -39,7 +38,7 @@ namespace OpenSourceTeam6.Movement.Unity
             if (!required && token != null) { token.Dispose(); token = null; }
         }
 
-        private void OnDisable()
+        public void Disable()
         {
             SetLock(ref focusLock, false, "Focus");
             SetLock(ref pauseLock, false, "Pause");

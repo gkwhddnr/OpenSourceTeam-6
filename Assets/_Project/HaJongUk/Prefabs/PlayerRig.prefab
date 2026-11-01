@@ -134,10 +134,6 @@ GameObject:
   m_Component:
   - component: {fileID: 342873650378224401}
   - component: {fileID: 2680409407210892259}
-  - component: {fileID: 2031817274191017383}
-  - component: {fileID: 899316499152082248}
-  - component: {fileID: 6313549144944568678}
-  - component: {fileID: 8959823802546674513}
   - component: {fileID: 6809938455488212766}
   m_Layer: 0
   m_Name: PlayerRig
@@ -187,58 +183,6 @@ CharacterController:
   m_SkinWidth: 0.03
   m_MinMoveDistance: 0
   m_Center: {x: 0, y: 0.9, z: 0}
---- !u!114 &2031817274191017383
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5996673872487112722}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 8c8c8e080a03ee34ea6cc12c03a7bd81, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: OpenSourceTeam6.Camera.Unity::OpenSourceTeam6.Camera.Unity.FirstPersonCameraPresenter
-  eyePivot: {fileID: 3325286069246643594}
-  viewCamera: {fileID: 8730339482084441354}
-  localVisuals: []
---- !u!114 &899316499152082248
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5996673872487112722}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: f6aa273b82a555e4bba1f49369abc2a2, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: OpenSourceTeam6.Movement.Unity::OpenSourceTeam6.Movement.Unity.PlayerInputReader
-  actions: {fileID: -944628639613478452, guid: 0c845c08ea0d2164992ddc9d7904026c, type: 3}
---- !u!114 &6313549144944568678
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5996673872487112722}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: dd521903c0301624c87f89086958fb5e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: OpenSourceTeam6.Movement.Unity::OpenSourceTeam6.Movement.Unity.PlayerInputGate
---- !u!114 &8959823802546674513
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 5996673872487112722}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 0e0ec737d56cf0744b984be011213d99, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: OpenSourceTeam6.Movement.Unity::OpenSourceTeam6.Movement.Unity.CharacterControllerMotor
 --- !u!114 &6809938455488212766
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -252,7 +196,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: OpenSourceTeam6.Movement.Unity::OpenSourceTeam6.Movement.Unity.PlayerRigController
   profile: {fileID: 11400000, guid: 7d2d236f432f6d344afee60152ffc033, type: 2}
-  input: {fileID: 899316499152082248}
-  inputGate: {fileID: 6313549144944568678}
-  motor: {fileID: 8959823802546674513}
-  cameraPresenter: {fileID: 2031817274191017383}
+  actions: {fileID: -944628639613478452, guid: 0c845c08ea0d2164992ddc9d7904026c, type: 3}
+  eyePivot: {fileID: 3325286069246643594}
+  viewCamera: {fileID: 8730339482084441354}
+  localVisuals: []

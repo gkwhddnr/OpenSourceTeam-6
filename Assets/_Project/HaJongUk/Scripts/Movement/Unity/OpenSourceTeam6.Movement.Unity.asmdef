@@ -1,5 +1,5 @@
 {
   "name": "OpenSourceTeam6.Movement.Unity",
   "rootNamespace": "OpenSourceTeam6.Movement.Unity",
-  "references": ["OpenSourceTeam6.Movement.Core", "OpenSourceTeam6.Camera.Core", "OpenSourceTeam6.Camera.Unity", "Unity.InputSystem"]
+  "references": ["OpenSourceTeam6.Movement.Core", "OpenSourceTeam6.Camera.Core", "OpenSourceTeam6.Camera.Unity", "Unity.InputSystem", "Unity.AI.Navigation"]
 }

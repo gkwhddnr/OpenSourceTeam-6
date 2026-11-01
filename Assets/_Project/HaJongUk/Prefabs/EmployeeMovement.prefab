@@ -124,7 +124,6 @@ GameObject:
   m_Component:
   - component: {fileID: 9220195794438924335}
   - component: {fileID: 3960233186372172052}
-  - component: {fileID: 1727714296989226111}
   - component: {fileID: 5413106920357502462}
   m_Layer: 0
   m_Name: EmployeeMovement
@@ -171,18 +170,6 @@ NavMeshAgent:
   m_BaseOffset: 0
   m_WalkableMask: 4294967295
   m_ObstacleAvoidanceType: 4
---- !u!114 &1727714296989226111
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 4864828073026994060}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: dd398d9c39c6c284c80c66ddf8d60e6a, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: OpenSourceTeam6.Movement.Unity::OpenSourceTeam6.Movement.Unity.NavMeshAgentDriver
 --- !u!114 &5413106920357502462
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -196,4 +183,4 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: OpenSourceTeam6.Movement.Unity::OpenSourceTeam6.Movement.Unity.EmployeeMovementController
   profile: {fileID: 11400000, guid: 7d2d236f432f6d344afee60152ffc033, type: 2}
-  driver: {fileID: 1727714296989226111}
+  driver: {fileID: 0}

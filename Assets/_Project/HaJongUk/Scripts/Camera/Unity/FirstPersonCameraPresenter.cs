@@ -3,24 +3,25 @@ using UnityEngine;
 
 namespace OpenSourceTeam6.Camera.Unity
 {
-    [DisallowMultipleComponent]
-    public sealed class FirstPersonCameraPresenter : MonoBehaviour
+    public sealed class FirstPersonCameraPresenter
     {
-        [SerializeField] private Transform eyePivot;
-        [SerializeField] private UnityEngine.Camera viewCamera;
-        [SerializeField] private Renderer[] localVisuals = new Renderer[0];
+        private readonly Transform eyePivot;
+        private readonly UnityEngine.Camera viewCamera;
+        private readonly Renderer[] localVisuals;
+        public FirstPersonCameraPresenter(Transform eye, UnityEngine.Camera camera, Renderer[] visuals)
+        { eyePivot = eye; viewCamera = camera; localVisuals = visuals ?? new Renderer[0]; }
         private LookState state;
 
         public bool IsConfigured => eyePivot != null && viewCamera != null && viewCamera.transform.IsChildOf(eyePivot);
         public void Present(LookState next) { state = next; }
 
-        private void Awake()
+        public void Initialize()
         {
-            if (!IsConfigured) { Debug.LogError("Assign the eye pivot and its child camera.", this); enabled = false; return; }
+            if (!IsConfigured) throw new System.InvalidOperationException("Assign the eye pivot and its child camera.");
             foreach (var visual in localVisuals) if (visual != null) visual.enabled = false;
         }
 
-        private void LateUpdate()
+        public void Apply()
         {
             eyePivot.localRotation = Quaternion.Euler(state.PitchDegrees, 0f, 0f);
         }
