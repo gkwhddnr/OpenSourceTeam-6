@@ -49,6 +49,9 @@ MonoBehaviour:
   personality:
     employeeName: Employee 1
     traits: 성실하지만 가끔 지시를 잘못 이해한다.
+    diligence: 70
+    literalness: 20
+    laziness: 20
     stress: 20
     fatigue: 10
     loyalty: 70
