@@ -11,6 +11,7 @@ using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.InputSystem;
 using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
@@ -23,6 +24,34 @@ namespace OpenSourceTeam6.Movement.Tests
         private EmployeeMovementController employee;
         private readonly List<MoveOutcome> results = new List<MoveOutcome>();
         private NavMeshSurface surface;
+
+        [UnityTest]
+        public IEnumerator InvalidInputMapCanBeFixedAndInitializedAgain()
+        {
+            var asset = ScriptableObject.CreateInstance<InputActionAsset>();
+            var reader = new PlayerInputReader(asset);
+            try
+            {
+                Assert.Catch<Exception>(() => reader.Initialize());
+                var map = new InputActionMap("Gameplay");
+                map.AddAction("Move", InputActionType.Value, expectedControlLayout: "Vector2");
+                map.AddAction("Look", InputActionType.Value, expectedControlLayout: "Vector2");
+                asset.AddActionMap(map);
+                Assert.DoesNotThrow(() => reader.Initialize());
+                Assert.Throws<InvalidOperationException>(() => reader.Initialize());
+                reader.Enable();
+                Assert.That(reader.ReadMove(), Is.EqualTo(Vector2.zero));
+                reader.Disable();
+                reader.Dispose();
+                Assert.DoesNotThrow(() => reader.Dispose());
+            }
+            finally
+            {
+                reader.Dispose();
+                Object.Destroy(asset);
+            }
+            yield return null;
+        }
 
         [UnitySetUp]
         public IEnumerator SetUp()

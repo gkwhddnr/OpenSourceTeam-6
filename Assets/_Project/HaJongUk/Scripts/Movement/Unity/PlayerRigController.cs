@@ -33,8 +33,18 @@ namespace OpenSourceTeam6.Movement.Unity
             inputGate = new PlayerInputGate();
             motor = new CharacterControllerMotor(controller);
             cameraPresenter = new FirstPersonCameraPresenter(eyePivot, viewCamera, localVisuals);
-            input.Initialize();
-            cameraPresenter.Initialize();
+            try
+            {
+                input.Initialize();
+                cameraPresenter.Initialize();
+            }
+            catch (System.Exception exception)
+            {
+                input.Dispose();
+                Debug.LogError($"PlayerRig initialization failed: {exception.Message}", this);
+                enabled = false;
+                return;
+            }
             look = new LookState(transform.eulerAngles.y, 0f);
         }
 

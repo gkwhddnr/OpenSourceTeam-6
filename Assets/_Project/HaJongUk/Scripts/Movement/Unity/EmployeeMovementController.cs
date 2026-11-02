@@ -82,20 +82,33 @@ namespace OpenSourceTeam6.Movement.Unity
             if (elapsed >= profile.RequestTimeout) { Finish(MoveState.Failed, MoveFailure.DeadlineExceeded); return; }
             // Never read the previous path's arrival state in the request frame.
             if (Time.frameCount <= requestedFrame) return;
+            if (!ResolvePath()) return;
+            UpdateMovementProgress();
+        }
+
+        // Path readiness is separate from movement progress so that callers only
+        // observe completed outcomes, never an implementation-specific path state.
+        private bool ResolvePath()
+        {
             if (!pathResolved || driver.PathPending)
             {
                 tracker.SetPhase(MoveState.Planning);
                 planningElapsed += Time.deltaTime;
                 if (planningElapsed >= profile.PlanningTimeout)
-                { Finish(MoveState.Failed, MoveFailure.PlanningTimeout); return; }
-                if (driver.PathPending) return;
+                { Finish(MoveState.Failed, MoveFailure.PlanningTimeout); return false; }
+                if (driver.PathPending) return false;
                 // A zero-length request may have no stored path after resolution.
                 if (Vector3.Distance(transform.position, destination) <= profile.ArrivalDistance &&
                     driver.Velocity.sqrMagnitude <= 0.0025f)
-                { Finish(MoveState.Arrived); return; }
-                if (!ValidatePath()) return;
+                { Finish(MoveState.Arrived); return false; }
+                if (!ValidatePath()) return false;
                 pathResolved = true;
             }
+            return true;
+        }
+
+        private void UpdateMovementProgress()
+        {
             tracker.SetPhase(MoveState.Moving);
             float distance = driver.RemainingDistance;
             // Unity may release hasPath once the completed path reaches its end.
