@@ -1,0 +1,21 @@
+{
+    "name": "OpenSourceTeam6.UI.Editor",
+    "rootNamespace": "OpenSourceTeam6.UI.Editor",
+    "references": [
+        "OpenSourceTeam6.UI.Core",
+        "OpenSourceTeam6.UI.Unity",
+        "UnityEngine.UI",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
