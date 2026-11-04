@@ -41,16 +41,23 @@ namespace EmployeeVoice
         [SerializeField] private string whisperModelPath = "";
         [SerializeField] private string llmModelPath = "";
         [SerializeField] private EmployeePersonality personality = new EmployeePersonality();
+        [SerializeField] private EmployeePersonality secondEmployee = new EmployeePersonality
+        {
+            employeeName = "지수", traits = "엉뚱하고 말을 문자 그대로 받아들인다.",
+            diligence = 30, literalness = 80, laziness = 20
+        };
         [SerializeField, Range(1, 30)] private int maxRecordingSeconds = 10;
 
         private WhisperManager whisper;
         private MicrophoneRecord microphone;
         private LLMAgent agent;
         private LLMAgent behaviorAgent;
+        private EmployeeDemoActor[] employees;
+        private DemoTable demoTable;
         private readonly System.Random random = new System.Random();
         private Stage stage;
         private int generation;
-        private string commandText = "3번 테이블 치워";
+        private string commandText = "민수야 3번 테이블 치워";
         private string status = "Loading models...";
 
         private void Start()
@@ -202,6 +209,15 @@ namespace EmployeeVoice
         {
             if (stage != Stage.Idle) return;
             if (string.IsNullOrWhiteSpace(command)) { RequestClarification(false); return; }
+            int employeeIndex = FindEmployeeIndex(command, employees[0].Personality.employeeName, employees[1].Personality.employeeName);
+            if (employeeIndex < 0)
+            {
+                SetStatus(employeeIndex == -2 ? "직원 이름이 여러 개입니다. 한 명을 선택해 주세요." : "대상 직원 이름을 말씀해 주세요.");
+                return;
+            }
+            EmployeeDemoActor employeeActor = employees[employeeIndex];
+            if (employeeActor.IsBusy) { SetStatus(employeeActor.Personality.employeeName + " 직원은 작업 중입니다."); return; }
+            EmployeePersonality employee = employeeActor.Personality;
             if (agent == null || agent.llmAgent == null) { SetStatus("LLM unavailable or still loading."); return; }
             int request = generation;
             stage = Stage.Deciding;
@@ -236,6 +252,11 @@ namespace EmployeeVoice
                     Debug.LogWarning("[EmployeeVoice] LLM intent " + intent + " corrected to " + verified.Value + " by explicit command check.");
                 intent = verified.Value;
                 string target = intent == CommandIntent.CLEAN_TABLE ? FindTableTarget(command) : "unspecified";
+                if (intent == CommandIntent.CLEAN_TABLE && (target == "unspecified" || !int.TryParse(target, out int tableNumber) || tableNumber != demoTable.Number || demoTable.IsRemoved))
+                {
+                    SetStatus("사용 가능한 테이블 번호를 다시 말씀해 주세요. (현재 데모: 3번)");
+                    return;
+                }
                 EmployeeAction action;
                 string proposal = "not applicable";
                 if (intent == CommandIntent.CLEAN_TABLE)
@@ -246,9 +267,9 @@ namespace EmployeeVoice
                         return;
                     }
                     string behaviorPrompt = "Command: clean table " + target + ". " +
-                        "Personality: " + personality.traits + "; diligence=" + personality.diligence +
-                        ", literalness=" + personality.literalness + ", laziness=" + personality.laziness +
-                        ", stress=" + personality.stress + ", fatigue=" + personality.fatigue + ", loyalty=" + personality.loyalty +
+                        "Personality: " + employee.traits + "; diligence=" + employee.diligence +
+                        ", literalness=" + employee.literalness + ", laziness=" + employee.laziness +
+                        ", stress=" + employee.stress + ", fatigue=" + employee.fatigue + ", loyalty=" + employee.loyalty +
                         ". Choose CLEAN_TABLE (clean normally), THROW_AWAY_TABLE (misunderstand and move table away), " +
                         "IGNORE_COMMAND, COMPLAIN or REST. Only one code.";
                     timer.Restart();
@@ -262,17 +283,22 @@ namespace EmployeeVoice
                         SetStatus("Employee behavior decision failed; please retry.");
                         return;
                     }
-                    action = SelectTableAction(personality, candidate, random.NextDouble());
+                    action = SelectTableAction(employee, candidate, random.NextDouble());
                 }
-                else action = SelectAction(intent, personality);
+                else action = SelectAction(intent, employee);
                 Debug.Log("[EmployeeVoice] Intent: " + intent + " | target: " + target);
-                Debug.Log("[EmployeeVoice] " + personality.employeeName + " | command: " + command +
-                    " | requested: " + intent + " | target: " + target + " | stress: " + personality.stress +
-                    " | fatigue: " + personality.fatigue + " | loyalty: " + personality.loyalty +
-                    " | traits: " + personality.traits + " | diligence: " + personality.diligence +
-                    " | literalness: " + personality.literalness + " | laziness: " + personality.laziness +
+                Debug.Log("[EmployeeVoice] " + employee.employeeName + " | command: " + command +
+                    " | requested: " + intent + " | target: " + target + " | stress: " + employee.stress +
+                    " | fatigue: " + employee.fatigue + " | loyalty: " + employee.loyalty +
+                    " | traits: " + employee.traits + " | diligence: " + employee.diligence +
+                    " | literalness: " + employee.literalness + " | laziness: " + employee.laziness +
                     " | LLM proposal: " + proposal + " | action: " + action + " | category: " + ActionCategory(action));
-                SetStatus("Action: " + action);
+                if (intent == CommandIntent.CLEAN_TABLE)
+                {
+                    if (!employeeActor.TryStart(action, demoTable))
+                        SetStatus("직원이나 테이블이 작업 중이거나 사용할 수 없습니다.");
+                }
+                else SetStatus("Action selected: " + action + " (demo execution not implemented)");
             }
             catch (Exception ex)
             {
@@ -344,6 +370,23 @@ namespace EmployeeVoice
             Match match = Regex.Match(command, @"(?<!\d)(\d{1,3})\s*번\s*(?:테이블|식탁)");
             if (!match.Success) match = Regex.Match(command, @"(?:테이블|식탁)\s*(?:번호\s*)?(\d{1,3})\s*번?");
             return match.Success ? match.Groups[1].Value : "unspecified";
+        }
+
+        // -1: no unambiguous target, -2: more than one matching employee.
+        public static int FindEmployeeIndex(string command, params string[] names)
+        {
+            if (string.IsNullOrWhiteSpace(command) || names == null) return -1;
+            int found = -1;
+            for (int i = 0; i < names.Length; i++)
+            {
+                string name = names[i];
+                if (string.IsNullOrWhiteSpace(name)) continue;
+                string pattern = @"(?<![가-힣A-Za-z0-9])" + Regex.Escape(name.Trim()) + @"(?=$|[^가-힣A-Za-z0-9]|(?:아|야|님|씨)(?:\s|,|$))";
+                if (!Regex.IsMatch(command, pattern, RegexOptions.IgnoreCase)) continue;
+                if (found != -1) return -2;
+                found = i;
+            }
+            return found;
         }
 
         public static bool IsTableAction(EmployeeAction action)
@@ -431,8 +474,10 @@ namespace EmployeeVoice
 
         private void OnGUI()
         {
+            if (employees == null || employees.Length < 2 || employees[0] == null || employees[1] == null) return;
             GUILayout.BeginArea(new Rect(20, 20, 520, 220), GUI.skin.box);
             GUILayout.Label("Employee voice demo  |  " + status);
+            GUILayout.Label("Employees: " + employees[0].Personality.employeeName + ", " + employees[1].Personality.employeeName + " | table: 3");
             GUI.enabled = stage == Stage.Idle || stage == Stage.Recording;
             if (GUILayout.Button(stage == Stage.Recording ? "Stop recording" : "Record command", GUILayout.Height(35))) ToggleRecording();
             GUI.enabled = stage == Stage.Idle;
@@ -445,21 +490,74 @@ namespace EmployeeVoice
 
         private void CreateEmployeeVisual()
         {
-            var employee = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            employee.name = personality.employeeName + " (placeholder)";
-            employee.transform.SetParent(transform);
-            employee.transform.position = Vector3.zero;
+            if (string.IsNullOrWhiteSpace(personality.employeeName) || personality.employeeName == "Employee 1") personality.employeeName = "민수";
+            employees = new EmployeeDemoActor[2];
+            EmployeePersonality[] profiles = { personality, secondEmployee };
+            for (int i = 0; i < employees.Length; i++)
+            {
+                var employee = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                employee.name = profiles[i].employeeName + " (placeholder)";
+                employee.transform.SetParent(transform);
+                employee.transform.position = new Vector3(-2.5f, 1f, i == 0 ? -1.5f : 1.5f);
+                employees[i] = employee.AddComponent<EmployeeDemoActor>();
+                employees[i].Initialize(profiles[i], SetStatus, OnEmployeeActionCompleted);
+            }
+            var table = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            table.name = "Table 3 (placeholder)";
+            table.transform.SetParent(transform);
+            table.transform.position = new Vector3(1.5f, 0.4f, 0f);
+            table.transform.localScale = new Vector3(2f, 0.8f, 1.5f);
+            demoTable = table.AddComponent<DemoTable>();
+            demoTable.Initialize(3);
+            var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            ground.name = "Demo Floor";
+            ground.transform.SetParent(transform);
             var cameraObject = new GameObject("Demo Camera");
             cameraObject.transform.SetParent(transform);
             var camera = cameraObject.AddComponent<Camera>();
-            camera.transform.position = new Vector3(0, 1, -6);
-            camera.transform.LookAt(new Vector3(0, 0.5f, 0));
+            camera.transform.position = new Vector3(0, 7, -9);
+            camera.transform.LookAt(new Vector3(0, 0, 0));
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0.12f, 0.16f, 0.2f);
             var light = new GameObject("Demo Light");
             light.transform.SetParent(transform);
             light.AddComponent<Light>().type = LightType.Directional;
             light.transform.rotation = Quaternion.Euler(45, -30, 0);
+        }
+
+        private void OnEmployeeActionCompleted(EmployeeDemoActor actor, EmployeeAction action)
+        {
+            EmployeePersonality employee = actor.Personality;
+            ApplyEmployeeOutcome(employee, action);
+            if (action == EmployeeAction.THROW_AWAY_TABLE)
+            {
+                foreach (EmployeeDemoActor coworker in employees)
+                {
+                    if (coworker == null || coworker == actor) continue;
+                    ApplyCoworkerOutcome(coworker.Personality, action);
+                    Debug.Log("[EmployeeVoice] Table removed: coworker " + coworker.Personality.employeeName +
+                        " stress=" + coworker.Personality.stress);
+                }
+            }
+            Debug.Log("[EmployeeVoice] " + employee.employeeName + " state: fatigue=" + employee.fatigue + " stress=" + employee.stress);
+        }
+
+        public static void ApplyEmployeeOutcome(EmployeePersonality employee, EmployeeAction action)
+        {
+            if (employee == null) throw new ArgumentNullException(nameof(employee));
+            if (action == EmployeeAction.CLEAN_TABLE || action == EmployeeAction.THROW_AWAY_TABLE)
+                employee.fatigue = Math.Max(0, Math.Min(100, employee.fatigue + 5));
+            if (action == EmployeeAction.REST) employee.fatigue = Math.Max(0, Math.Min(100, employee.fatigue - 20));
+            if (action == EmployeeAction.COMPLAIN) employee.stress = Math.Max(0, Math.Min(100, employee.stress - 5));
+            if (action == EmployeeAction.THROW_AWAY_TABLE)
+                employee.stress = Math.Max(0, Math.Min(100, employee.stress + 10));
+        }
+
+        public static void ApplyCoworkerOutcome(EmployeePersonality coworker, EmployeeAction action)
+        {
+            if (coworker == null) throw new ArgumentNullException(nameof(coworker));
+            if (action == EmployeeAction.THROW_AWAY_TABLE)
+                coworker.stress = Math.Max(0, Math.Min(100, coworker.stress + 5));
         }
     }
 }
