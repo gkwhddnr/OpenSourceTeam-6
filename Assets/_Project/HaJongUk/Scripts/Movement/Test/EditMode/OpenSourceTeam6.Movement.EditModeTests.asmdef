@@ -1,0 +1,6 @@
+{
+  "name": "OpenSourceTeam6.Movement.EditModeTests",
+  "references": ["OpenSourceTeam6.Movement.Core", "OpenSourceTeam6.Camera.Core"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}

@@ -1,0 +1,5 @@
+{
+  "name": "OpenSourceTeam6.Movement.PlayModeTests",
+  "references": ["OpenSourceTeam6.Movement.Core", "OpenSourceTeam6.Camera.Core", "OpenSourceTeam6.Camera.Unity", "OpenSourceTeam6.Movement.Unity", "Unity.AI.Navigation", "Unity.InputSystem"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}
