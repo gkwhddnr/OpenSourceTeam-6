@@ -322,7 +322,8 @@ namespace EmployeeVoice
             bool serve = Regex.IsMatch(text, "(음식|요리|식사)") && Regex.IsMatch(text, "(제공|서빙|가져다|갖다|전달|내어|줘)");
             bool clean = Regex.IsMatch(text, "(테이블|식탁)") && Regex.IsMatch(text, "(치워|치우|정리|닦|청소)");
             bool trash = Regex.IsMatch(text, "쓰레기") && Regex.IsMatch(text, "(버려|버리|비워|비우|내다|치워|치우)");
-            bool restock = Regex.IsMatch(text, "(재고|물품)") && Regex.IsMatch(text, "(채워|채우|보충)");
+            bool restock = text.Contains("진열") ||
+                (Regex.IsMatch(text, "(재고|물품)") && Regex.IsMatch(text, "(채워|채우|보충|정리)"));
             int count = (order ? 1 : 0) + (serve ? 1 : 0) + (clean ? 1 : 0) + (trash ? 1 : 0) + (restock ? 1 : 0);
             if (count != 1) return null;
             if (order) return CommandIntent.TAKE_ORDER;
