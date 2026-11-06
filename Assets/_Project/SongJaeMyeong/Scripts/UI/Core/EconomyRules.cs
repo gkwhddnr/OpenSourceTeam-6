@@ -35,6 +35,27 @@ namespace OpenSourceTeam6.UI.Core
             };
         }
 
+        /// <summary>
+        /// 1차 통합 데모 규격서(4.2절) 기준 120초 시연용 정산 밸런스 프리셋.
+        /// </summary>
+        public static DaySettlementSettings CreateDemoPreset()
+        {
+            return new DaySettlementSettings
+            {
+                DayDurationSeconds = 120f,
+                StartingBalanceWon = 50000,
+                TargetBalanceWon = 80000,
+                CheckoutWonPerEffectiveSecond = 1000f,
+                RestockWonPerEffectiveSecond = 650f,
+                MinEffectiveRestockSeconds = 15f,
+                RestockShortageMultiplier = 0.8f,
+                CostOfGoodsRatio = 0.3f,
+                FixedOperatingCostWon = 20000,
+                AngerStressThreshold = 80f,
+                MaxAllowedAngerRefusals = 2
+            };
+        }
+
         public void Validate()
         {
             if (!IsFinitePositive(DayDurationSeconds))
@@ -113,6 +134,7 @@ namespace OpenSourceTeam6.UI.Core
         public int TargetBalanceWon { get; }
         public float EffectiveCheckoutSeconds { get; }
         public float EffectiveRestockSeconds { get; }
+        public float MinEffectiveRestockSeconds { get; }
         public int CheckoutRevenueWon { get; }
         public int RestockRevenueWon { get; }
         public int GrossBaseRevenueWon { get; }
@@ -143,13 +165,15 @@ namespace OpenSourceTeam6.UI.Core
             int finalBalanceWon,
             float endingStress,
             int angerRefusalCount,
-            DayOutcomeGrade outcomeGrade)
+            DayOutcomeGrade outcomeGrade,
+            float minEffectiveRestockSeconds = 25f)
         {
             DayNumber = dayNumber;
             StartingBalanceWon = startingBalanceWon;
             TargetBalanceWon = targetBalanceWon;
             EffectiveCheckoutSeconds = effectiveCheckoutSeconds;
             EffectiveRestockSeconds = effectiveRestockSeconds;
+            MinEffectiveRestockSeconds = minEffectiveRestockSeconds;
             CheckoutRevenueWon = checkoutRevenueWon;
             RestockRevenueWon = restockRevenueWon;
             GrossBaseRevenueWon = grossBaseRevenueWon;
@@ -217,7 +241,8 @@ namespace OpenSourceTeam6.UI.Core
                 finalBalanceWon,
                 input.EndingStress,
                 input.AngerRefusalCount,
-                grade);
+                grade,
+                settings.MinEffectiveRestockSeconds);
         }
 
         private static int RoundToWon(float value)
@@ -233,6 +258,7 @@ namespace OpenSourceTeam6.UI.Core
 
         public int DayNumber { get; private set; }
         public int StartingBalanceWon { get; private set; }
+        public int TargetBalanceWon => settings.TargetBalanceWon;
         public float RawCheckoutSeconds { get; private set; }
         public float RawRestockSeconds { get; private set; }
         public float EffectiveCheckoutSeconds { get; private set; }

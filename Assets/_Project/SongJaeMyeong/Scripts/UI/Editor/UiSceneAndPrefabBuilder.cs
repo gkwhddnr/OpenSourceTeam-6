@@ -16,6 +16,7 @@ namespace OpenSourceTeam6.UI.Editor
         private const string UiAssetDir = "Assets/_Project/SongJaeMyeong/Assets/UI";
         private const string WhiteSpritePath = UiAssetDir + "/Spr_WhiteFill.png";
         private const string PrefabPath = "Assets/_Project/SongJaeMyeong/Prefabs/PF_StoreUIRoot.prefab";
+        private const string WorldUiPrefabPath = "Assets/_Project/SongJaeMyeong/Prefabs/PF_EmployeeWorldStatusUI.prefab";
         private const string WorkScenePath = "Assets/_Project/SongJaeMyeong/Scenes/SJM_UI_Work.unity";
 
         [MenuItem(MenuPath, priority = 200)]
@@ -29,11 +30,15 @@ namespace OpenSourceTeam6.UI.Editor
             GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(tempRoot, PrefabPath);
             Object.DestroyImmediate(tempRoot);
 
-            BuildWorkScene(savedPrefab, koreanFont);
+            GameObject tempWorldUi = BuildWorldStatusHierarchy(koreanFont, fillSprite);
+            GameObject savedWorldUiPrefab = PrefabUtility.SaveAsPrefabAsset(tempWorldUi, WorldUiPrefabPath);
+            Object.DestroyImmediate(tempWorldUi);
+
+            BuildWorkScene(savedPrefab, savedWorldUiPrefab, koreanFont, fillSprite);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            Debug.Log($"[OpenSourceTeam6.UI] UI 프리팹 및 검증 씬 생성 완료: {PrefabPath}, {WorkScenePath}");
+            Debug.Log($"[OpenSourceTeam6.UI] 데모 규격 반영 UI 프리팹 및 검증 씬 생성 완료: {PrefabPath}, {WorldUiPrefabPath}, {WorkScenePath}");
         }
 
         private static void EnsureFolders()
@@ -98,10 +103,14 @@ namespace OpenSourceTeam6.UI.Editor
             InGameHudPresenter hudPresenter = BuildInGameHud(root.transform, font, whiteSprite);
             CommandOverlayPresenter overlayPresenter = BuildCommandOverlay(root.transform, font, whiteSprite);
             SettlementPanelPresenter settlementPresenter = BuildSettlementPanel(root.transform, font, whiteSprite);
+            PausePanelPresenter pausePresenter = BuildPausePanel(root.transform, font, whiteSprite);
+            SettingsPanelPresenter settingsPresenter = BuildSettingsPanel(root.transform, font, whiteSprite);
 
             hudPresenter.SetVisible(false);
             overlayPresenter.SetOpen(false);
             settlementPresenter.SetVisible(false);
+            pausePresenter.SetOpen(false);
+            settingsPresenter.SetOpen(false);
             lobbyPresenter.SetVisible(true);
 
             SerializedObject so = new SerializedObject(sessionController);
@@ -109,6 +118,8 @@ namespace OpenSourceTeam6.UI.Editor
             so.FindProperty("inGameHud").objectReferenceValue = hudPresenter;
             so.FindProperty("commandOverlay").objectReferenceValue = overlayPresenter;
             so.FindProperty("settlementPanel").objectReferenceValue = settlementPresenter;
+            so.FindProperty("pausePanel").objectReferenceValue = pausePresenter;
+            so.FindProperty("settingsPanel").objectReferenceValue = settingsPresenter;
             so.FindProperty("standaloneFallbackGate").objectReferenceValue = fallbackGate;
             so.ApplyModifiedPropertiesWithoutUndo();
 
@@ -121,35 +132,37 @@ namespace OpenSourceTeam6.UI.Editor
             StretchFull(panelObj.GetComponent<RectTransform>());
             LobbyPanelPresenter presenter = panelObj.AddComponent<LobbyPanelPresenter>();
 
-            // Storefront stripe accent at top
             GameObject topStripeMint = CreatePanel("BrandStripe_Mint", panelObj.transform, new Color(0.05f, 0.66f, 0.58f, 1f), sprite);
             SetRect(topStripeMint.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, 0f), new Vector2(0f, 14f));
 
             GameObject topStripeAmber = CreatePanel("BrandStripe_Amber", panelObj.transform, new Color(0.96f, 0.58f, 0.18f, 1f), sprite);
             SetRect(topStripeAmber.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -14f), new Vector2(0f, 8f));
 
-            // Center card
             GameObject card = CreatePanel("LobbyCard", panelObj.transform, new Color(0.11f, 0.15f, 0.22f, 0.98f), sprite);
-            SetRect(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(680f, 460f));
+            SetRect(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(680f, 520f));
 
-            Text tagText = CreateText("TagText", card.transform, font, "24H AI CONVENIENCE STORE  ·  MVP PROTOTYPE", 16, FontStyle.Bold, new Color(0.22f, 0.85f, 0.74f, 1f), TextAnchor.MiddleCenter);
-            SetRect(tagText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -48f), new Vector2(600f, 28f));
+            Text tagText = CreateText("TagText", card.transform, font, "24H AI CONVENIENCE STORE  ·  1ST INTEGRATED DEMO", 16, FontStyle.Bold, new Color(0.22f, 0.85f, 0.74f, 1f), TextAnchor.MiddleCenter);
+            SetRect(tagText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -44f), new Vector2(600f, 28f));
 
             Text titleText = CreateText("TitleText", card.transform, font, "편의점 AI 매니저", 46, FontStyle.Bold, new Color(0.96f, 0.98f, 1f, 1f), TextAnchor.MiddleCenter);
-            SetRect(titleText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -92f), new Vector2(600f, 62f));
+            SetRect(titleText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -88f), new Vector2(600f, 62f));
 
-            Text descText = CreateText("SubtitleText", card.transform, font, "음성 지시와 감정 관리에 따라 직원의 반응과 정산 결말이 달라지는 편의점 운영 시뮬레이션", 18, FontStyle.Normal, new Color(0.73f, 0.79f, 0.87f, 1f), TextAnchor.MiddleCenter);
-            SetRect(descText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -168f), new Vector2(580f, 52f));
+            Text descText = CreateText("SubtitleText", card.transform, font, "음성 지시와 감정 관리에 따라 알바의 반응과 정산 결말이 달라지는 편의점 운영 시뮬레이션", 18, FontStyle.Normal, new Color(0.73f, 0.79f, 0.87f, 1f), TextAnchor.MiddleCenter);
+            SetRect(descText.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -162f), new Vector2(580f, 52f));
 
-            Button startBtn = CreateButton("StartGameButton", card.transform, font, sprite, "게임 시작  (1일차 영업)", 23, new Color(0.06f, 0.65f, 0.57f, 1f), Color.white);
-            SetRect(startBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 132f), new Vector2(380f, 64f));
+            Button startBtn = CreateButton("StartGameButton", card.transform, font, sprite, "게임 시작  (1일차 영업)", 22, new Color(0.06f, 0.65f, 0.57f, 1f), Color.white);
+            SetRect(startBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 184f), new Vector2(380f, 60f));
 
-            Button quitBtn = CreateButton("QuitGameButton", card.transform, font, sprite, "게임 종료", 20, new Color(0.20f, 0.25f, 0.33f, 1f), new Color(0.86f, 0.90f, 0.95f, 1f));
-            SetRect(quitBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 52f), new Vector2(380f, 54f));
+            Button settingsBtn = CreateButton("SettingsButton", card.transform, font, sprite, "환경 설정  (소리 · 마이크)", 19, new Color(0.18f, 0.28f, 0.42f, 1f), new Color(0.92f, 0.96f, 1f, 1f));
+            SetRect(settingsBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 112f), new Vector2(380f, 52f));
+
+            Button quitBtn = CreateButton("QuitGameButton", card.transform, font, sprite, "게임 종료", 19, new Color(0.20f, 0.25f, 0.33f, 1f), new Color(0.86f, 0.90f, 0.95f, 1f));
+            SetRect(quitBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 44f), new Vector2(380f, 52f));
 
             SerializedObject so = new SerializedObject(presenter);
             so.FindProperty("panelRoot").objectReferenceValue = panelObj;
             so.FindProperty("startGameButton").objectReferenceValue = startBtn;
+            so.FindProperty("settingsButton").objectReferenceValue = settingsBtn;
             so.FindProperty("quitGameButton").objectReferenceValue = quitBtn;
             so.ApplyModifiedPropertiesWithoutUndo();
 
@@ -163,23 +176,23 @@ namespace OpenSourceTeam6.UI.Editor
             StretchFull(hudObj.GetComponent<RectTransform>());
             InGameHudPresenter presenter = hudObj.AddComponent<InGameHudPresenter>();
 
-            // 1. Top Store Bar
+            // 1. Top Store Bar (기능정의서 UI-08: 좌측 일차 / 중앙 시간 / 우측 현재 및 목표 금액)
             GameObject topBar = CreatePanel("TopStoreBar", hudObj.transform, new Color(0.08f, 0.11f, 0.17f, 0.90f), sprite);
             SetRect(topBar.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -16f), new Vector2(-48f, 64f));
 
             GameObject dayBadge = CreatePanel("DayBadge", topBar.transform, new Color(0.06f, 0.58f, 0.51f, 1f), sprite);
-            SetRect(dayBadge.GetComponent<RectTransform>(), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(18f, 0f), new Vector2(170f, 40f));
+            SetRect(dayBadge.GetComponent<RectTransform>(), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(18f, 0f), new Vector2(176f, 40f));
             Text dayText = CreateText("DayLabelText", dayBadge.transform, font, "1일차 영업 중", 19, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
             StretchFull(dayText.rectTransform);
 
-            Text timerText = CreateText("TimerText", topBar.transform, font, "남은 시간  03:00", 25, FontStyle.Bold, new Color(0.95f, 0.97f, 1f, 1f), TextAnchor.MiddleCenter);
-            SetRect(timerText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-120f, 0f), new Vector2(280f, 44f));
+            Button cmdBtn = CreateButton("OpenCommandOverlayBtn", topBar.transform, font, sprite, "[Tab] 텍스트 지시", 16, new Color(0.18f, 0.25f, 0.35f, 1f), new Color(0.88f, 0.94f, 1f, 1f));
+            SetRect(cmdBtn.GetComponent<RectTransform>(), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(208f, 0f), new Vector2(184f, 40f));
 
-            Text balanceText = CreateText("BalanceText", topBar.transform, font, "예상 잔액  50,000원", 23, FontStyle.Bold, new Color(0.98f, 0.82f, 0.32f, 1f), TextAnchor.MiddleCenter);
-            SetRect(balanceText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(210f, 0f), new Vector2(330f, 44f));
+            Text timerText = CreateText("TimerText", topBar.transform, font, "남은 시간  02:00", 25, FontStyle.Bold, new Color(0.95f, 0.97f, 1f, 1f), TextAnchor.MiddleCenter);
+            SetRect(timerText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(300f, 44f));
 
-            Button cmdBtn = CreateButton("OpenCommandOverlayBtn", topBar.transform, font, sprite, "[Tab] 텍스트 지시창", 17, new Color(0.18f, 0.25f, 0.35f, 1f), new Color(0.88f, 0.94f, 1f, 1f));
-            SetRect(cmdBtn.GetComponent<RectTransform>(), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-18f, 0f), new Vector2(210f, 42f));
+            Text balanceText = CreateText("BalanceText", topBar.transform, font, "현재 50,000원  /  목표 80,000원", 21, FontStyle.Bold, new Color(0.98f, 0.82f, 0.32f, 1f), TextAnchor.MiddleRight);
+            SetRect(balanceText.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-24f, 0f), new Vector2(460f, 44f));
 
             // 2. Center subtle crosshair dot for 1st-person store view
             GameObject crosshair = CreatePanel("CrosshairDot", hudObj.transform, new Color(1f, 1f, 1f, 0.65f), sprite);
@@ -203,31 +216,31 @@ namespace OpenSourceTeam6.UI.Editor
 
             Image stressFill;
             Text stressVal;
-            BuildStatRow(empCard.transform, font, sprite, "스트레스", -102f, new Color(0.20f, 0.78f, 0.52f, 1f), "20 (안정)", out stressFill, out stressVal);
+            BuildStatRow(empCard.transform, font, sprite, "스트레스", -102f, new Color(0.20f, 0.78f, 0.52f, 1f), "25 (안정)", out stressFill, out stressVal);
 
             Image fatigueFill;
             Text fatigueVal;
-            BuildStatRow(empCard.transform, font, sprite, "피로도", -148f, new Color(0.94f, 0.58f, 0.20f, 1f), "10", out fatigueFill, out fatigueVal);
+            BuildStatRow(empCard.transform, font, sprite, "피로도", -148f, new Color(0.94f, 0.58f, 0.20f, 1f), "15", out fatigueFill, out fatigueVal);
 
             Image loyaltyFill;
             Text loyaltyVal;
-            BuildStatRow(empCard.transform, font, sprite, "충성도", -194f, new Color(0.24f, 0.62f, 0.96f, 1f), "75", out loyaltyFill, out loyaltyVal);
+            BuildStatRow(empCard.transform, font, sprite, "충성도", -194f, new Color(0.24f, 0.62f, 0.96f, 1f), "70", out loyaltyFill, out loyaltyVal);
 
-            // 4. Bottom Voice & Command Feedback Dock
+            // 4. Bottom Voice & Command Feedback Dock (UI-10)
             GameObject voiceDock = CreatePanel("VoiceFeedbackDock", hudObj.transform, new Color(0.08f, 0.11f, 0.17f, 0.92f), sprite);
-            SetRect(voiceDock.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 24f), new Vector2(980f, 128f));
+            SetRect(voiceDock.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 24f), new Vector2(1040f, 134f));
 
             GameObject stageBadge = CreatePanel("VoiceStageBadge", voiceDock.transform, new Color(0.24f, 0.29f, 0.36f, 0.95f), sprite);
-            SetRect(stageBadge.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, -14f), new Vector2(260f, 38f));
-            Text stageTxt = CreateText("VoiceStageText", stageBadge.transform, font, "마이크 대기 중", 17, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+            SetRect(stageBadge.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, -14f), new Vector2(270f, 38f));
+            Text stageTxt = CreateText("VoiceStageText", stageBadge.transform, font, "[V] 마이크 대기 중", 17, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
             StretchFull(stageTxt.rectTransform);
 
             Text transcriptTxt = CreateText("TranscriptText", voiceDock.transform, font, "인식 문장: -", 18, FontStyle.Normal, new Color(0.90f, 0.94f, 0.98f, 1f), TextAnchor.MiddleLeft);
-            SetRect(transcriptTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(294f, -14f), new Vector2(-312f, 38f));
+            SetRect(transcriptTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(304f, -14f), new Vector2(-322f, 38f));
 
             GameObject bannerObj = CreatePanel("FeedbackBanner", voiceDock.transform, new Color(0.15f, 0.20f, 0.27f, 0.92f), sprite);
-            SetRect(bannerObj.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 14f), new Vector2(-36f, 52f));
-            Text bannerTxt = CreateText("FeedbackBannerText", bannerObj.transform, font, "[안내]  마이크로 업무를 지시하거나 [Tab] 키를 눌러 텍스트 명령창을 여세요.", 18, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
+            SetRect(bannerObj.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 14f), new Vector2(-36f, 56f));
+            Text bannerTxt = CreateText("FeedbackBannerText", bannerObj.transform, font, "[안내]  [V] 키를 눌러 음성으로 지시하거나 [Tab] 키로 텍스트 명령창을 여세요.", 17, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
             SetRect(bannerTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-28f, 0f));
 
             SerializedObject so = new SerializedObject(presenter);
@@ -300,12 +313,11 @@ namespace OpenSourceTeam6.UI.Editor
             Button closeBtn = CreateButton("CloseOverlayButton", modal.transform, font, sprite, "닫기 [Esc]", 16, new Color(0.25f, 0.30f, 0.38f, 1f), Color.white);
             SetRect(closeBtn.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -20f), new Vector2(112f, 38f));
 
-            // InputField
             GameObject inputBg = CreatePanel("CommandInputField", modal.transform, new Color(0.06f, 0.09f, 0.14f, 1f), sprite);
             SetRect(inputBg.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(28f, -86f), new Vector2(510f, 54f));
             InputField inputField = inputBg.AddComponent<InputField>();
 
-            Text placeholder = CreateText("Placeholder", inputBg.transform, font, "예: 민수야 계산대 좀 봐줘 / 진열대에 물건 채워줘...", 18, FontStyle.Italic, new Color(0.50f, 0.57f, 0.66f, 1f), TextAnchor.MiddleLeft);
+            Text placeholder = CreateText("Placeholder", inputBg.transform, font, "예: 민수야 계산대 좀 봐줘 / 진열대 채워줘 / 잠깐 쉬어...", 18, FontStyle.Italic, new Color(0.50f, 0.57f, 0.66f, 1f), TextAnchor.MiddleLeft);
             SetRect(placeholder.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-28f, -10f));
 
             Text inputText = CreateText("InputText", inputBg.transform, font, string.Empty, 19, FontStyle.Normal, Color.white, TextAnchor.MiddleLeft);
@@ -319,7 +331,7 @@ namespace OpenSourceTeam6.UI.Editor
             Button submitBtn = CreateButton("SubmitCommandButton", modal.transform, font, sprite, "지시 전달", 19, new Color(0.06f, 0.65f, 0.57f, 1f), Color.white);
             SetRect(submitBtn.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -86f), new Vector2(142f, 54f));
 
-            Text quickLabel = CreateText("QuickTitle", modal.transform, font, "시제품 빠른 업무 지시 버튼:", 16, FontStyle.Normal, new Color(0.72f, 0.79f, 0.88f, 1f), TextAnchor.MiddleLeft);
+            Text quickLabel = CreateText("QuickTitle", modal.transform, font, "편의점 공통 업무 빠른 지시 버튼:", 16, FontStyle.Normal, new Color(0.72f, 0.79f, 0.88f, 1f), TextAnchor.MiddleLeft);
             SetRect(quickLabel.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 0f), new Vector2(28f, 96f), new Vector2(-56f, 28f));
 
             Button qCheckout = CreateButton("QuickCheckoutButton", modal.transform, font, sprite, "계산 지시 (Checkout)", 17, new Color(0.16f, 0.44f, 0.74f, 1f), Color.white);
@@ -328,7 +340,7 @@ namespace OpenSourceTeam6.UI.Editor
             Button qRestock = CreateButton("QuickRestockButton", modal.transform, font, sprite, "진열 지시 (Restock)", 17, new Color(0.16f, 0.54f, 0.44f, 1f), Color.white);
             SetRect(qRestock.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-2f, 32f), new Vector2(208f, 50f));
 
-            Button qCancel = CreateButton("CancelWorkButton", modal.transform, font, sprite, "작업 취소 · 기본 대기", 17, new Color(0.52f, 0.25f, 0.25f, 1f), Color.white);
+            Button qCancel = CreateButton("CancelWorkButton", modal.transform, font, sprite, "휴식 · 대기 (Rest)", 17, new Color(0.46f, 0.34f, 0.20f, 1f), Color.white);
             SetRect(qCancel.GetComponent<RectTransform>(), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 32f), new Vector2(212f, 50f));
 
             SerializedObject so = new SerializedObject(presenter);
@@ -375,7 +387,7 @@ namespace OpenSourceTeam6.UI.Editor
             Text finalBalTxt = CreateText("FinalBalanceHighlightText", highlightBar.transform, font, "당일 최종 잔액 :  80,000원", 22, FontStyle.Bold, new Color(0.98f, 0.84f, 0.34f, 1f), TextAnchor.MiddleCenter);
             StretchFull(finalBalTxt.rectTransform);
 
-            Text staffSummaryTxt = CreateText("StaffSummaryText", card.transform, font, "직원 상태 기록  —  종료 스트레스: 20 / 100   ·   분노 거부 누적: 0회", 17, FontStyle.Normal, new Color(0.75f, 0.82f, 0.90f, 1f), TextAnchor.MiddleCenter);
+            Text staffSummaryTxt = CreateText("StaffSummaryText", card.transform, font, "직원 상태 기록  —  종료 스트레스: 25 / 100   ·   분노 거부 누적: 0회", 17, FontStyle.Normal, new Color(0.75f, 0.82f, 0.90f, 1f), TextAnchor.MiddleCenter);
             SetRect(staffSummaryTxt.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 104f), new Vector2(716f, 34f));
 
             Button retryBtn = CreateButton("RetryDayButton", card.transform, font, sprite, "다시 영업 시작 (재도전)", 20, new Color(0.06f, 0.65f, 0.57f, 1f), Color.white);
@@ -399,7 +411,167 @@ namespace OpenSourceTeam6.UI.Editor
             return presenter;
         }
 
-        private static void BuildWorkScene(GameObject savedUiPrefab, Font font)
+        private static PausePanelPresenter BuildPausePanel(Transform parent, Font font, Sprite sprite)
+        {
+            GameObject dimBg = CreatePanel("PausePanel", parent, new Color(0.03f, 0.05f, 0.09f, 0.76f), sprite);
+            StretchFull(dimBg.GetComponent<RectTransform>());
+            PausePanelPresenter presenter = dimBg.AddComponent<PausePanelPresenter>();
+
+            GameObject card = CreatePanel("PauseCard", dimBg.transform, new Color(0.11f, 0.15f, 0.22f, 0.99f), sprite);
+            SetRect(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(460f, 340f));
+
+            Text title = CreateText("PauseTitle", card.transform, font, "영업 일시정지", 28, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+            SetRect(title.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -34f), new Vector2(380f, 42f));
+
+            Button resumeBtn = CreateButton("ResumeButton", card.transform, font, sprite, "영업 계속하기 [Esc]", 19, new Color(0.06f, 0.65f, 0.57f, 1f), Color.white);
+            SetRect(resumeBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 176f), new Vector2(340f, 52f));
+
+            Button settingsBtn = CreateButton("OpenSettingsButton", card.transform, font, sprite, "환경 설정", 19, new Color(0.18f, 0.28f, 0.42f, 1f), Color.white);
+            SetRect(settingsBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 108f), new Vector2(340f, 52f));
+
+            Button lobbyBtn = CreateButton("ReturnLobbyButton", card.transform, font, sprite, "메인 로비로 이동", 19, new Color(0.26f, 0.30f, 0.38f, 1f), Color.white);
+            SetRect(lobbyBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(340f, 52f));
+
+            SerializedObject so = new SerializedObject(presenter);
+            so.FindProperty("panelRoot").objectReferenceValue = dimBg;
+            so.FindProperty("resumeButton").objectReferenceValue = resumeBtn;
+            so.FindProperty("openSettingsButton").objectReferenceValue = settingsBtn;
+            so.FindProperty("returnLobbyButton").objectReferenceValue = lobbyBtn;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            return presenter;
+        }
+
+        private static SettingsPanelPresenter BuildSettingsPanel(Transform parent, Font font, Sprite sprite)
+        {
+            GameObject dimBg = CreatePanel("SettingsPanel", parent, new Color(0.03f, 0.05f, 0.09f, 0.82f), sprite);
+            StretchFull(dimBg.GetComponent<RectTransform>());
+            SettingsPanelPresenter presenter = dimBg.AddComponent<SettingsPanelPresenter>();
+
+            GameObject card = CreatePanel("SettingsCard", dimBg.transform, new Color(0.11f, 0.15f, 0.22f, 0.99f), sprite);
+            SetRect(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(640f, 380f));
+
+            Text title = CreateText("SettingsTitle", card.transform, font, "환경 설정   (사운드 · 감도 · 마이크 장치)", 24, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
+            SetRect(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(28f, -24f), new Vector2(-160f, 38f));
+
+            Button closeBtn = CreateButton("CloseSettingsButton", card.transform, font, sprite, "닫기 [Esc]", 16, new Color(0.25f, 0.30f, 0.38f, 1f), Color.white);
+            SetRect(closeBtn.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-24f, -22f), new Vector2(112f, 38f));
+
+            Slider volSlider;
+            Text volValue;
+            BuildSliderRow(card.transform, font, sprite, "마스터 볼륨", -104f, 0f, 1f, 1f, "100%", out volSlider, out volValue);
+
+            Slider sensSlider;
+            Text sensValue;
+            BuildSliderRow(card.transform, font, sprite, "마우스 감도", -174f, 0.2f, 2.0f, 1.0f, "1.0x", out sensSlider, out sensValue);
+
+            Button micBtn = CreateButton("CycleMicButton", card.transform, font, sprite, "마이크 입력 장치 확인 중...", 16, new Color(0.16f, 0.23f, 0.33f, 1f), new Color(0.90f, 0.95f, 1f, 1f));
+            SetRect(micBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 64f), new Vector2(584f, 56f));
+            Text micBtnLabel = micBtn.transform.Find("Label").GetComponent<Text>();
+
+            SerializedObject so = new SerializedObject(presenter);
+            so.FindProperty("panelRoot").objectReferenceValue = dimBg;
+            so.FindProperty("masterVolumeSlider").objectReferenceValue = volSlider;
+            so.FindProperty("masterVolumeValueText").objectReferenceValue = volValue;
+            so.FindProperty("mouseSensitivitySlider").objectReferenceValue = sensSlider;
+            so.FindProperty("mouseSensitivityValueText").objectReferenceValue = sensValue;
+            so.FindProperty("cycleMicrophoneButton").objectReferenceValue = micBtn;
+            so.FindProperty("microphoneDeviceText").objectReferenceValue = micBtnLabel;
+            so.FindProperty("closeButton").objectReferenceValue = closeBtn;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            return presenter;
+        }
+
+        private static void BuildSliderRow(
+            Transform parent,
+            Font font,
+            Sprite sprite,
+            string label,
+            float topOffset,
+            float minVal,
+            float maxVal,
+            float defaultVal,
+            string defaultText,
+            out Slider slider,
+            out Text valueText)
+        {
+            Text lbl = CreateText(label + "_Label", parent, font, label, 18, FontStyle.Bold, new Color(0.84f, 0.89f, 0.95f, 1f), TextAnchor.MiddleLeft);
+            SetRect(lbl.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(28f, topOffset), new Vector2(140f, 32f));
+
+            GameObject sliderObj = new GameObject(label + "_Slider", typeof(RectTransform));
+            sliderObj.transform.SetParent(parent, false);
+            SetRect(sliderObj.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(176f, topOffset - 6f), new Vector2(340f, 22f));
+
+            GameObject bg = CreatePanel("Background", sliderObj.transform, new Color(0.18f, 0.22f, 0.30f, 1f), sprite);
+            StretchFull(bg.GetComponent<RectTransform>());
+
+            GameObject fillArea = new GameObject("Fill Area", typeof(RectTransform));
+            fillArea.transform.SetParent(sliderObj.transform, false);
+            StretchFull(fillArea.GetComponent<RectTransform>());
+
+            GameObject fill = CreatePanel("Fill", fillArea.transform, new Color(0.06f, 0.65f, 0.57f, 1f), sprite);
+            StretchFull(fill.GetComponent<RectTransform>());
+
+            GameObject handleArea = new GameObject("Handle Slide Area", typeof(RectTransform));
+            handleArea.transform.SetParent(sliderObj.transform, false);
+            StretchFull(handleArea.GetComponent<RectTransform>());
+
+            GameObject handle = CreatePanel("Handle", handleArea.transform, Color.white, sprite);
+            SetRect(handle.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(16f, 28f));
+
+            slider = sliderObj.AddComponent<Slider>();
+            slider.minValue = minVal;
+            slider.maxValue = maxVal;
+            slider.value = defaultVal;
+            slider.fillRect = fill.GetComponent<RectTransform>();
+            slider.handleRect = handle.GetComponent<RectTransform>();
+            slider.targetGraphic = handle.GetComponent<Image>();
+
+            valueText = CreateText(label + "_Value", parent, font, defaultText, 18, FontStyle.Bold, new Color(0.96f, 0.84f, 0.36f, 1f), TextAnchor.MiddleRight);
+            SetRect(valueText.rectTransform, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-28f, topOffset), new Vector2(86f, 32f));
+        }
+
+        private static GameObject BuildWorldStatusHierarchy(Font font, Sprite sprite)
+        {
+            GameObject root = new GameObject("PF_EmployeeWorldStatusUI");
+            Canvas worldCanvas = root.AddComponent<Canvas>();
+            worldCanvas.renderMode = RenderMode.WorldSpace;
+            RectTransform rootRect = root.GetComponent<RectTransform>();
+            rootRect.sizeDelta = new Vector2(420f, 130f);
+            root.transform.localScale = new Vector3(0.0045f, 0.0045f, 0.0045f);
+
+            EmployeeWorldStatusPresenter presenter = root.AddComponent<EmployeeWorldStatusPresenter>();
+
+            GameObject headerBg = CreatePanel("StatusHeaderBadge", root.transform, new Color(0.10f, 0.42f, 0.32f, 0.92f), sprite);
+            headerBg.GetComponent<Image>().raycastTarget = false;
+            SetRect(headerBg.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 6f), new Vector2(310f, 44f));
+
+            Text headerTxt = CreateText("StatusHeaderText", headerBg.transform, font, "김민수  ·  대기/휴식 [안정]", 21, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+            headerTxt.raycastTarget = false;
+            StretchFull(headerTxt.rectTransform);
+
+            GameObject bubbleObj = CreatePanel("SpeechBubble", root.transform, new Color(0.12f, 0.18f, 0.26f, 0.95f), sprite);
+            bubbleObj.GetComponent<Image>().raycastTarget = false;
+            SetRect(bubbleObj.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(410f, 62f));
+
+            Text bubbleTxt = CreateText("SpeechBubbleText", bubbleObj.transform, font, "\"네! 바로 계산대 보겠습니다.\"", 19, FontStyle.Bold, new Color(0.96f, 0.98f, 1f, 1f), TextAnchor.MiddleCenter);
+            bubbleTxt.raycastTarget = false;
+            SetRect(bubbleTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-20f, -8f));
+            bubbleObj.SetActive(false);
+
+            SerializedObject so = new SerializedObject(presenter);
+            so.FindProperty("statusHeaderBg").objectReferenceValue = headerBg.GetComponent<Image>();
+            so.FindProperty("statusHeaderText").objectReferenceValue = headerTxt;
+            so.FindProperty("speechBubbleRoot").objectReferenceValue = bubbleObj;
+            so.FindProperty("speechBubbleBg").objectReferenceValue = bubbleObj.GetComponent<Image>();
+            so.FindProperty("speechBubbleText").objectReferenceValue = bubbleTxt;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            return root;
+        }
+
+        private static void BuildWorkScene(GameObject savedUiPrefab, GameObject savedWorldUiPrefab, Font font, Sprite whiteSprite)
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
@@ -408,7 +580,8 @@ namespace OpenSourceTeam6.UI.Editor
             Camera cam = camObj.AddComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.14f, 0.18f, 0.24f, 1f);
-            camObj.transform.position = new Vector3(0f, 1.6f, -4f);
+            camObj.transform.position = new Vector3(0f, 2.2f, -5.8f);
+            camObj.transform.eulerAngles = new Vector3(12f, 0f, 0f);
             camObj.AddComponent<AudioListener>();
 
             GameObject lightObj = new GameObject("Directional Light");
@@ -421,14 +594,43 @@ namespace OpenSourceTeam6.UI.Editor
             eventSystemObj.AddComponent<EventSystem>();
             eventSystemObj.AddComponent<InputSystemUIInputModule>();
 
+            // Simple 3D Convenience Store Stage & Zone Targets for visual verification
+            GameObject stageRoot = new GameObject("Demo_StoreStage");
+            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+            floor.name = "StoreFloor";
+            floor.transform.SetParent(stageRoot.transform);
+            floor.transform.localScale = new Vector3(1.2f, 1f, 0.9f);
+
+            Transform counterTarget = CreateZoneMarker(stageRoot.transform, "Target_Counter", new Vector3(-2.6f, 0f, 0.8f), new Vector3(1.5f, 0.9f, 0.8f));
+            Transform shelfTarget = CreateZoneMarker(stageRoot.transform, "Target_Shelf", new Vector3(2.6f, 0f, 1.2f), new Vector3(1.4f, 1.6f, 0.6f));
+            Transform restTarget = CreateZoneMarker(stageRoot.transform, "Target_Rest", new Vector3(0f, 0f, -0.8f), new Vector3(1.1f, 0.45f, 0.8f));
+
+            GameObject npcCapsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            npcCapsule.name = "Demo_Employee_NPC";
+            npcCapsule.transform.SetParent(stageRoot.transform);
+            npcCapsule.transform.position = new Vector3(0f, 1.0f, -0.8f);
+
+            GameObject worldUiInstance = (GameObject)PrefabUtility.InstantiatePrefab(savedWorldUiPrefab);
+            EmployeeWorldStatusPresenter worldPresenter = worldUiInstance.GetComponent<EmployeeWorldStatusPresenter>();
+            SerializedObject worldSo = new SerializedObject(worldPresenter);
+            worldSo.FindProperty("followTarget").objectReferenceValue = npcCapsule.transform;
+            worldSo.ApplyModifiedPropertiesWithoutUndo();
+
             GameObject uiInstance = (GameObject)PrefabUtility.InstantiatePrefab(savedUiPrefab);
             StoreUiSessionController uiController = uiInstance.GetComponent<StoreUiSessionController>();
+            SerializedObject uiCtrlSo = new SerializedObject(uiController);
+            uiCtrlSo.FindProperty("worldStatusPresenter").objectReferenceValue = worldPresenter;
+            uiCtrlSo.ApplyModifiedPropertiesWithoutUndo();
 
-            // Demo driver + non-intrusive bottom-left shortcut guide (kept outside PF_StoreUIRoot prefab!)
+            // Demo driver + non-intrusive bottom-left shortcut guide (UI-06, kept outside PF_StoreUIRoot prefab!)
             GameObject demoObj = new GameObject("UI_PrototypeDemo");
             UiPrototypeDemoDriver driver = demoObj.AddComponent<UiPrototypeDemoDriver>();
             SerializedObject driverSo = new SerializedObject(driver);
             driverSo.FindProperty("uiController").objectReferenceValue = uiController;
+            driverSo.FindProperty("demoEmployeeTransform").objectReferenceValue = npcCapsule.transform;
+            driverSo.FindProperty("counterTarget").objectReferenceValue = counterTarget;
+            driverSo.FindProperty("shelfTarget").objectReferenceValue = shelfTarget;
+            driverSo.FindProperty("restTarget").objectReferenceValue = restTarget;
             driverSo.ApplyModifiedPropertiesWithoutUndo();
 
             Canvas demoHintCanvas = demoObj.AddComponent<Canvas>();
@@ -439,19 +641,19 @@ namespace OpenSourceTeam6.UI.Editor
             hintScaler.referenceResolution = new Vector2(1920f, 1080f);
             hintScaler.matchWidthOrHeight = 0.5f;
 
-            Sprite whiteSprite = AssetDatabase.LoadAssetAtPath<Sprite>(WhiteSpritePath);
             GameObject hintBox = CreatePanel("DemoShortcutGuide", demoObj.transform, new Color(0.05f, 0.08f, 0.13f, 0.78f), whiteSprite);
             hintBox.GetComponent<Image>().raycastTarget = false;
-            SetRect(hintBox.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(20f, 168f), new Vector2(410f, 132f));
+            SetRect(hintBox.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(20f, 174f), new Vector2(440f, 152f));
 
             Text hintTxt = CreateText(
                 "ShortcutText",
                 hintBox.transform,
                 font,
-                "[개인 씬 검증 단축키 (통합 시 비활성화)]\n" +
-                "• Tab : 보조 텍스트 명령창   • F1 : 음성 수락 시뮬레이션\n" +
-                "• F2 : ①단순 오인식   • F3 : ②감정 거부   • F4 : ③이동 오류\n" +
-                "• F5 : 스트레스 +25   • F6 : 즉시 일차 종료 및 정산",
+                "[조작 가이드 · 시연 단축키 (통합 시 비활성화)]\n" +
+                "• V : 음성 녹음 시작/종료   • Tab : 보조 텍스트창   • Esc : 일시정지\n" +
+                "• F1 : 음성 명령 시뮬레이션 (현재 스트레스 확률 반영)\n" +
+                "• F2 : ①단순 오인식   • F3 : ②분노 거부   • F4 : ③이동 오류\n" +
+                "• F5 : 스트레스 +25 가산   • F6 : 즉시 영업 종료·정산",
                 14,
                 FontStyle.Normal,
                 new Color(0.76f, 0.86f, 0.96f, 1f),
@@ -461,6 +663,21 @@ namespace OpenSourceTeam6.UI.Editor
             SetRect(hintTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-24f, -14f));
 
             EditorSceneManager.SaveScene(scene, WorkScenePath);
+        }
+
+        private static Transform CreateZoneMarker(Transform parent, string markerName, Vector3 pos, Vector3 propScale)
+        {
+            GameObject marker = new GameObject(markerName);
+            marker.transform.SetParent(parent);
+            marker.transform.position = new Vector3(pos.x, 1.0f, pos.z);
+
+            GameObject prop = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            prop.name = markerName + "_Prop";
+            prop.transform.SetParent(parent);
+            prop.transform.position = new Vector3(pos.x, propScale.y * 0.5f, pos.z + 0.95f);
+            prop.transform.localScale = propScale;
+
+            return marker.transform;
         }
 
         private static GameObject CreatePanel(string name, Transform parent, Color color, Sprite sprite)

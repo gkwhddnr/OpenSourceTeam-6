@@ -12,56 +12,54 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private InGameHudPresenter inGameHud;
         [SerializeField] private CommandOverlayPresenter commandOverlay;
         [SerializeField] private SettlementPanelPresenter settlementPanel;
+        [SerializeField] private PausePanelPresenter pausePanel;
+        [SerializeField] private SettingsPanelPresenter settingsPanel;
+
+        [Header("Optional World-Space NPC Status UI (UI-09)")]
+        [SerializeField] private EmployeeWorldStatusPresenter worldStatusPresenter;
 
         [Header("Cursor Lock Gate (External Adapter or Standalone Fallback)")]
         [SerializeField] private MonoBehaviour externalCursorLockGateComponent;
         [SerializeField] private StandaloneCursorLockGate standaloneFallbackGate;
 
-        [Header("Settlement & Day Settings")]
-        [SerializeField] private DaySettlementSettings settlementSettings = new DaySettlementSettings
-        {
-            DayDurationSeconds = 180f,
-            StartingBalanceWon = 50000,
-            TargetBalanceWon = 80000,
-            CheckoutWonPerEffectiveSecond = 800f,
-            RestockWonPerEffectiveSecond = 500f,
-            MinEffectiveRestockSeconds = 25f,
-            RestockShortageMultiplier = 0.8f,
-            CostOfGoodsRatio = 0.3f,
-            FixedOperatingCostWon = 25000,
-            AngerStressThreshold = 80f,
-            MaxAllowedAngerRefusals = 2
-        };
+        [Header("Settlement & Day Settings (1차 데모 120초 규격 기본값)")]
+        [SerializeField] private DaySettlementSettings settlementSettings = DaySettlementSettings.CreateDemoPreset();
 
         private DaySettlementSession settlementSession;
         private ICursorLockGate activeLockGate;
         private IDisposable screenLockToken;
         private IDisposable overlayLockToken;
+        private IDisposable pauseLockToken;
+        private IDisposable settingsLockToken;
 
         private float remainingDaySeconds;
         private EmployeeHudSnapshot lastEmployeeSnapshot;
 
         public UiScreenMode CurrentMode { get; private set; } = UiScreenMode.Lobby;
         public bool IsCommandOverlayOpen => commandOverlay != null && commandOverlay.IsOpen;
+        public bool IsPauseMenuOpen => pausePanel != null && pausePanel.IsOpen;
+        public bool IsSettingsOpen => settingsPanel != null && settingsPanel.IsOpen;
         public float RemainingDaySeconds => remainingDaySeconds;
 
         public event Action<string> TextCommandSubmitted;
         public event Action CancelWorkRequested;
+        public event Action VoiceRecordToggleRequested;
         public event Action DayStarted;
 
         private void Awake()
         {
             settlementSession = new DaySettlementSession(settlementSettings);
             ResolveCursorLockGate();
+            EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
             lastEmployeeSnapshot = new EmployeeHudSnapshot(
                 "김민수",
                 "성실함",
                 StaffWorkRole.Idle,
                 "IDLE",
                 StaffMoveBadge.Idle,
-                20f,
-                10f,
-                75f);
+                demoRates.InitialStress,
+                demoRates.InitialFatigue,
+                demoRates.InitialLoyalty);
         }
 
         private void OnEnable()
@@ -71,6 +69,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (lobbyPanel != null)
             {
                 lobbyPanel.StartClicked += HandleLobbyStartClicked;
+                lobbyPanel.SettingsClicked += OpenSettingsPanel;
                 lobbyPanel.QuitClicked += HandleLobbyQuitClicked;
             }
 
@@ -84,6 +83,18 @@ namespace OpenSourceTeam6.UI.Unity
                 commandOverlay.CommandSubmitted += HandleOverlayCommandSubmitted;
                 commandOverlay.CancelWorkClicked += HandleOverlayCancelClicked;
                 commandOverlay.CloseRequested += CloseCommandOverlay;
+            }
+
+            if (pausePanel != null)
+            {
+                pausePanel.ResumeClicked += ClosePauseMenu;
+                pausePanel.OpenSettingsClicked += OpenSettingsPanel;
+                pausePanel.ReturnLobbyClicked += ShowLobby;
+            }
+
+            if (settingsPanel != null)
+            {
+                settingsPanel.CloseRequested += CloseSettingsPanel;
             }
 
             if (settlementPanel != null)
@@ -100,6 +111,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (lobbyPanel != null)
             {
                 lobbyPanel.StartClicked -= HandleLobbyStartClicked;
+                lobbyPanel.SettingsClicked -= OpenSettingsPanel;
                 lobbyPanel.QuitClicked -= HandleLobbyQuitClicked;
             }
 
@@ -115,19 +127,36 @@ namespace OpenSourceTeam6.UI.Unity
                 commandOverlay.CloseRequested -= CloseCommandOverlay;
             }
 
+            if (pausePanel != null)
+            {
+                pausePanel.ResumeClicked -= ClosePauseMenu;
+                pausePanel.OpenSettingsClicked -= OpenSettingsPanel;
+                pausePanel.ReturnLobbyClicked -= ShowLobby;
+            }
+
+            if (settingsPanel != null)
+            {
+                settingsPanel.CloseRequested -= CloseSettingsPanel;
+            }
+
             if (settlementPanel != null)
             {
                 settlementPanel.RetryDayClicked -= HandleRetryDayClicked;
                 settlementPanel.ReturnLobbyClicked -= ShowLobby;
             }
 
+            RestoreTimeScale();
+            ReleaseSettingsLock();
+            ReleasePauseLock();
             ReleaseOverlayLock();
             ReleaseScreenLock();
         }
 
         private void Update()
         {
-            if (CurrentMode != UiScreenMode.InGame) return;
+            HandleGlobalEscapeHotkey();
+
+            if (CurrentMode != UiScreenMode.InGame || IsPauseMenuOpen || IsSettingsOpen) return;
 
             HandleInGameHotkeys();
 
@@ -143,8 +172,19 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
+        public void SetWorldStatusPresenter(EmployeeWorldStatusPresenter presenter)
+        {
+            worldStatusPresenter = presenter;
+            if (worldStatusPresenter != null)
+            {
+                worldStatusPresenter.RenderSnapshot(lastEmployeeSnapshot);
+            }
+        }
+
         public void SetExternalCursorLockGate(ICursorLockGate externalGate)
         {
+            ReleaseSettingsLock();
+            ReleasePauseLock();
             ReleaseOverlayLock();
             ReleaseScreenLock();
             activeLockGate = externalGate;
@@ -159,7 +199,11 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void ShowLobby()
         {
+            CloseSettingsPanel();
+            ClosePauseMenu();
             CloseCommandOverlay();
+            RestoreTimeScale();
+
             CurrentMode = UiScreenMode.Lobby;
 
             if (lobbyPanel != null) lobbyPanel.SetVisible(true);
@@ -179,8 +223,11 @@ namespace OpenSourceTeam6.UI.Unity
             settlementSession.Reset(dayNumber, startingBalanceWon);
             remainingDaySeconds = durationSeconds > 0f ? durationSeconds : settlementSettings.DayDurationSeconds;
 
+            CloseSettingsPanel();
+            ClosePauseMenu();
             CloseCommandOverlay();
             ReleaseScreenLock();
+            RestoreTimeScale();
 
             CurrentMode = UiScreenMode.InGame;
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
@@ -194,7 +241,13 @@ namespace OpenSourceTeam6.UI.Unity
                     CommandFeedbackKind.Info,
                     string.Empty,
                     string.Empty,
-                    "마이크로 업무를 지시하거나 [Tab] 키를 눌러 텍스트 명령창을 여세요."));
+                    "[V] 키를 눌러 음성으로 지시하거나 [Tab] 키로 텍스트 명령창을 여세요."));
+            }
+
+            if (worldStatusPresenter != null)
+            {
+                worldStatusPresenter.RenderSnapshot(lastEmployeeSnapshot);
+                worldStatusPresenter.ShowSpeechBubble(string.Empty, CommandFeedbackKind.Info);
             }
 
             RefreshTopBar();
@@ -207,6 +260,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud != null)
             {
                 inGameHud.RenderEmployee(snapshot);
+            }
+
+            if (worldStatusPresenter != null)
+            {
+                worldStatusPresenter.RenderSnapshot(snapshot);
             }
         }
 
@@ -223,6 +281,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud != null)
             {
                 inGameHud.RenderFeedback(feedback);
+            }
+
+            if (worldStatusPresenter != null && !string.IsNullOrWhiteSpace(feedback.EmployeeDialogue))
+            {
+                worldStatusPresenter.ShowSpeechBubble(feedback.EmployeeDialogue, feedback.Kind);
             }
         }
 
@@ -246,7 +309,11 @@ namespace OpenSourceTeam6.UI.Unity
                 settlementSession = new DaySettlementSession(settlementSettings);
             }
 
+            CloseSettingsPanel();
+            ClosePauseMenu();
             CloseCommandOverlay();
+            RestoreTimeScale();
+
             DaySettlementResult result = settlementSession.SettleOnce(endingStress);
             CurrentMode = UiScreenMode.Settlement;
 
@@ -264,7 +331,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void ToggleCommandOverlay()
         {
-            if (CurrentMode != UiScreenMode.InGame || commandOverlay == null) return;
+            if (CurrentMode != UiScreenMode.InGame || IsPauseMenuOpen || IsSettingsOpen || commandOverlay == null) return;
             if (commandOverlay.IsOpen) CloseCommandOverlay();
             else OpenCommandOverlay();
         }
@@ -288,6 +355,73 @@ namespace OpenSourceTeam6.UI.Unity
             ReleaseOverlayLock();
         }
 
+        public void OpenPauseMenu()
+        {
+            if (CurrentMode != UiScreenMode.InGame || pausePanel == null) return;
+            CloseCommandOverlay();
+            pausePanel.SetOpen(true);
+            Time.timeScale = 0f;
+            if (pauseLockToken == null && activeLockGate != null)
+            {
+                pauseLockToken = activeLockGate.AcquireLock("PauseMenuUI");
+            }
+        }
+
+        public void ClosePauseMenu()
+        {
+            if (pausePanel != null)
+            {
+                pausePanel.SetOpen(false);
+            }
+            ReleasePauseLock();
+            RestoreTimeScale();
+        }
+
+        public void OpenSettingsPanel()
+        {
+            if (settingsPanel == null) return;
+            settingsPanel.SetOpen(true);
+            if (settingsLockToken == null && activeLockGate != null)
+            {
+                settingsLockToken = activeLockGate.AcquireLock("SettingsPanelUI");
+            }
+        }
+
+        public void CloseSettingsPanel()
+        {
+            if (settingsPanel != null)
+            {
+                settingsPanel.SetOpen(false);
+            }
+            ReleaseSettingsLock();
+        }
+
+        private void HandleGlobalEscapeHotkey()
+        {
+            Keyboard kb = Keyboard.current;
+            if (kb == null || !kb.escapeKey.wasPressedThisFrame) return;
+
+            if (IsSettingsOpen)
+            {
+                CloseSettingsPanel();
+                return;
+            }
+
+            if (CurrentMode != UiScreenMode.InGame) return;
+
+            if (IsCommandOverlayOpen)
+            {
+                CloseCommandOverlay();
+                return;
+            }
+
+            if (pausePanel != null)
+            {
+                if (IsPauseMenuOpen) ClosePauseMenu();
+                else OpenPauseMenu();
+            }
+        }
+
         private void HandleInGameHotkeys()
         {
             Keyboard kb = Keyboard.current;
@@ -297,9 +431,9 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 ToggleCommandOverlay();
             }
-            else if (kb.escapeKey.wasPressedThisFrame && IsCommandOverlayOpen)
+            else if (kb.vKey.wasPressedThisFrame && !IsCommandOverlayOpen)
             {
-                CloseCommandOverlay();
+                VoiceRecordToggleRequested?.Invoke();
             }
         }
 
@@ -307,7 +441,11 @@ namespace OpenSourceTeam6.UI.Unity
         {
             if (inGameHud == null || settlementSession == null) return;
             int liveEstimatedBalance = settlementSession.StartingBalanceWon + settlementSession.EstimateLiveGrossSalesWon();
-            inGameHud.UpdateTopBar(settlementSession.DayNumber, remainingDaySeconds, liveEstimatedBalance);
+            inGameHud.UpdateTopBar(
+                settlementSession.DayNumber,
+                remainingDaySeconds,
+                liveEstimatedBalance,
+                settlementSession.TargetBalanceWon);
         }
 
         private void ResolveCursorLockGate()
@@ -348,6 +486,28 @@ namespace OpenSourceTeam6.UI.Unity
             overlayLockToken = null;
         }
 
+        private void ReleasePauseLock()
+        {
+            if (pauseLockToken == null) return;
+            pauseLockToken.Dispose();
+            pauseLockToken = null;
+        }
+
+        private void ReleaseSettingsLock()
+        {
+            if (settingsLockToken == null) return;
+            settingsLockToken.Dispose();
+            settingsLockToken = null;
+        }
+
+        private static void RestoreTimeScale()
+        {
+            if (Time.timeScale == 0f)
+            {
+                Time.timeScale = 1f;
+            }
+        }
+
         private void ReapplyCurrentLocks()
         {
             if (CurrentMode == UiScreenMode.Lobby)
@@ -358,9 +518,20 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 AcquireScreenLock("SettlementScreen");
             }
-            else if (IsCommandOverlayOpen && activeLockGate != null)
+
+            if (IsCommandOverlayOpen && activeLockGate != null)
             {
                 overlayLockToken = activeLockGate.AcquireLock("CommandOverlayUI");
+            }
+
+            if (IsPauseMenuOpen && activeLockGate != null)
+            {
+                pauseLockToken = activeLockGate.AcquireLock("PauseMenuUI");
+            }
+
+            if (IsSettingsOpen && activeLockGate != null)
+            {
+                settingsLockToken = activeLockGate.AcquireLock("SettingsPanelUI");
             }
         }
 

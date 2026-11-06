@@ -6,7 +6,9 @@ using UnityEngine.InputSystem;
 namespace OpenSourceTeam6.UI.Unity
 {
     /// <summary>
-    /// 개인 검증 씬(SJM_UI_Work.unity)에서 외부 음성·이동 시스템 없이 모든 UI 동작과 정산을 검증하기 위한 시뮬레이션 드라이버.
+    /// 개인 검증 씬(SJM_UI_Work.unity)에서 외부 음성·이동 시스템 없이
+    /// 1차 통합 데모 규격(음성 녹음 V 토글, 스트레스 구간별 반응 확률, 대사·말풍선 출력, 구역 이동, 120초 정산)을
+    /// 전부 단독 검증하기 위한 시뮬레이션 드라이버.
     /// 공용 통합 씬(Team_Integration.unity)에 UI 프리팹을 연결할 때는 본 오브젝트를 포함하지 않거나 비활성화한다.
     /// </summary>
     public sealed class UiPrototypeDemoDriver : MonoBehaviour
@@ -14,15 +16,37 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private StoreUiSessionController uiController;
         [SerializeField] private string demoEmployeeName = "김민수";
         [SerializeField] private string demoPersonality = "성실함";
-        [SerializeField] private float simulatedInferenceDelaySeconds = 1.1f;
+        [SerializeField, Range(0f, 100f)] private float diligence = 70f;
+        [SerializeField, Range(0f, 100f)] private float laziness = 20f;
+        [SerializeField] private float simulatedInferenceDelaySeconds = 0.9f;
+        [SerializeField] private EmotionStatRates statRates = EmotionStatRates.CreateDemoDefault();
+
+        [Header("Optional 3D Placeholder Staff & Zone Targets (SJM_UI_Work)")]
+        [SerializeField] private Transform demoEmployeeTransform;
+        [SerializeField] private Transform counterTarget;
+        [SerializeField] private Transform shelfTarget;
+        [SerializeField] private Transform restTarget;
+        [SerializeField] private float demoWalkSpeed = 3.2f;
+
+        private static readonly string[] SampleVoiceUtterances =
+        {
+            "민수야 계산대 좀 봐줘",
+            "진열대에 물건 좀 채워줘",
+            "계산대 손님 결제 도와줘",
+            "잠깐 쉬어"
+        };
 
         private StaffWorkRole currentRole = StaffWorkRole.Idle;
         private string currentActionCode = "IDLE";
         private StaffMoveBadge currentMoveBadge = StaffMoveBadge.Idle;
-        private float stress = 20f;
-        private float fatigue = 10f;
-        private float loyalty = 75f;
-        private float moveArrivalTimer;
+        private float stress = 25f;
+        private float fatigue = 15f;
+        private float loyalty = 70f;
+        private float fallbackArrivalTimer;
+        private Transform activeMoveDestination;
+
+        private bool isRecordingVoice;
+        private int sampleUtteranceIndex;
         private Coroutine voiceSimCoroutine;
 
         private void OnEnable()
@@ -31,6 +55,7 @@ namespace OpenSourceTeam6.UI.Unity
             uiController.DayStarted += HandleDayStarted;
             uiController.TextCommandSubmitted += HandleTextCommandSubmitted;
             uiController.CancelWorkRequested += HandleCancelWorkRequested;
+            uiController.VoiceRecordToggleRequested += HandleVoiceRecordToggleRequested;
         }
 
         private void OnDisable()
@@ -39,17 +64,15 @@ namespace OpenSourceTeam6.UI.Unity
             uiController.DayStarted -= HandleDayStarted;
             uiController.TextCommandSubmitted -= HandleTextCommandSubmitted;
             uiController.CancelWorkRequested -= HandleCancelWorkRequested;
+            uiController.VoiceRecordToggleRequested -= HandleVoiceRecordToggleRequested;
 
-            if (voiceSimCoroutine != null)
-            {
-                StopCoroutine(voiceSimCoroutine);
-                voiceSimCoroutine = null;
-            }
+            StopActiveVoiceCoroutine();
+            isRecordingVoice = false;
         }
 
         private void Update()
         {
-            if (uiController == null || uiController.CurrentMode != UiScreenMode.InGame) return;
+            if (uiController == null || uiController.CurrentMode != UiScreenMode.InGame || uiController.IsPauseMenuOpen) return;
 
             SimulateContinuousWorkAndStats(Time.deltaTime);
             HandleSimulationHotkeys();
@@ -57,13 +80,23 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleDayStarted()
         {
+            StopActiveVoiceCoroutine();
+            isRecordingVoice = false;
+
             currentRole = StaffWorkRole.Idle;
             currentActionCode = "IDLE";
             currentMoveBadge = StaffMoveBadge.Idle;
-            stress = 20f;
-            fatigue = 10f;
-            loyalty = 75f;
-            moveArrivalTimer = 0f;
+            stress = statRates.InitialStress;
+            fatigue = statRates.InitialFatigue;
+            loyalty = statRates.InitialLoyalty;
+            fallbackArrivalTimer = 0f;
+            activeMoveDestination = restTarget;
+
+            if (demoEmployeeTransform != null && restTarget != null)
+            {
+                demoEmployeeTransform.position = restTarget.position;
+            }
+
             PushSnapshot();
         }
 
@@ -73,10 +106,27 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (currentMoveBadge == StaffMoveBadge.Moving)
             {
-                moveArrivalTimer -= dt;
-                if (moveArrivalTimer <= 0f)
+                if (demoEmployeeTransform != null && activeMoveDestination != null)
                 {
-                    currentMoveBadge = StaffMoveBadge.Arrived;
+                    Vector3 targetPos = activeMoveDestination.position;
+                    targetPos.y = demoEmployeeTransform.position.y;
+                    demoEmployeeTransform.position = Vector3.MoveTowards(
+                        demoEmployeeTransform.position,
+                        targetPos,
+                        demoWalkSpeed * dt);
+
+                    if (Vector3.Distance(demoEmployeeTransform.position, targetPos) <= 0.08f)
+                    {
+                        currentMoveBadge = StaffMoveBadge.Arrived;
+                    }
+                }
+                else
+                {
+                    fallbackArrivalTimer -= dt;
+                    if (fallbackArrivalTimer <= 0f)
+                    {
+                        currentMoveBadge = StaffMoveBadge.Arrived;
+                    }
                 }
             }
 
@@ -87,21 +137,55 @@ namespace OpenSourceTeam6.UI.Unity
                     uiController.RecordWorkSample(currentRole, stress, dt);
                 }
 
-                stress = Mathf.Clamp(stress + 0.6f * dt, 0f, 100f);
-                fatigue = Mathf.Clamp(fatigue + 0.35f * dt, 0f, 100f);
+                stress = Mathf.Clamp(stress + statRates.WorkStressPerSecond * dt, 0f, 100f);
+                fatigue = Mathf.Clamp(fatigue + statRates.WorkFatiguePerSecond * dt, 0f, 100f);
             }
             else
             {
-                stress = Mathf.Clamp(stress - 1.2f * dt, 0f, 100f);
-                fatigue = Mathf.Clamp(fatigue - 0.25f * dt, 0f, 100f);
+                stress = Mathf.Clamp(stress - statRates.RestStressRecoveryPerSecond * dt, 0f, 100f);
+                fatigue = Mathf.Clamp(fatigue - statRates.RestFatigueRecoveryPerSecond * dt, 0f, 100f);
             }
 
             PushSnapshot();
         }
 
+        private void HandleVoiceRecordToggleRequested()
+        {
+            if (!isRecordingVoice)
+            {
+                StopActiveVoiceCoroutine();
+                isRecordingVoice = true;
+                uiController.PushVoiceStage(VoiceProcessStage.Listening, string.Empty);
+                voiceSimCoroutine = StartCoroutine(CoAutoFinishRecordingAfterMaxDuration(4.0f));
+            }
+            else
+            {
+                FinishSimulatedRecordingAndInfer();
+            }
+        }
+
+        private IEnumerator CoAutoFinishRecordingAfterMaxDuration(float maxSeconds)
+        {
+            yield return new WaitForSeconds(maxSeconds);
+            if (isRecordingVoice)
+            {
+                FinishSimulatedRecordingAndInfer();
+            }
+        }
+
+        private void FinishSimulatedRecordingAndInfer()
+        {
+            isRecordingVoice = false;
+            StopActiveVoiceCoroutine();
+
+            string sampleUtterance = SampleVoiceUtterances[sampleUtteranceIndex % SampleVoiceUtterances.Length];
+            sampleUtteranceIndex++;
+            voiceSimCoroutine = StartCoroutine(CoSimulateInferenceOnly(sampleUtterance, null));
+        }
+
         private void HandleSimulationHotkeys()
         {
-            if (uiController.IsCommandOverlayOpen) return;
+            if (uiController.IsCommandOverlayOpen || uiController.IsSettingsOpen) return;
 
             Keyboard kb = Keyboard.current;
             if (kb == null) return;
@@ -117,7 +201,6 @@ namespace OpenSourceTeam6.UI.Unity
             else if (kb.f3Key.wasPressedThisFrame)
             {
                 stress = Mathf.Max(stress, 85f);
-                loyalty = Mathf.Max(0f, loyalty - 8f);
                 PushSnapshot();
                 StartSimulatedFailureFlow("진열도 당장 다시 해!", CommandFeedbackKind.RefusedByEmotion);
             }
@@ -126,6 +209,7 @@ namespace OpenSourceTeam6.UI.Unity
                 currentRole = StaffWorkRole.Idle;
                 currentActionCode = "IDLE";
                 currentMoveBadge = StaffMoveBadge.Failed;
+                activeMoveDestination = null;
                 PushSnapshot();
                 uiController.PushVoiceStage(VoiceProcessStage.Completed, "창고 뒤쪽으로 이동해");
                 uiController.PushCommandFeedback(new VoiceCommandFeedback(
@@ -147,41 +231,39 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleTextCommandSubmitted(string rawCommand)
         {
-            StartSimulatedVoiceFlow(rawCommand);
+            isRecordingVoice = false;
+            StopActiveVoiceCoroutine();
+            voiceSimCoroutine = StartCoroutine(CoSimulateInferenceOnly(rawCommand, null));
         }
 
         private void HandleCancelWorkRequested()
         {
-            currentRole = StaffWorkRole.Idle;
-            currentActionCode = "IDLE";
-            currentMoveBadge = StaffMoveBadge.Cancelled;
-            PushSnapshot();
-
-            uiController.PushVoiceStage(VoiceProcessStage.Idle, string.Empty);
-            uiController.PushCommandFeedback(new VoiceCommandFeedback(
-                CommandFeedbackKind.Info,
-                "작업 취소 요청",
-                "IDLE",
-                "현재 진행 중인 업무를 취소하고 직원을 기본 대기 상태로 전환했습니다."));
+            TransitionToRest("작업 취소 · 휴식 지시", EmotionReactionRules.GetReactionDialogue(StoreCommandIntent.Rest, EmployeeReaction.AcceptNormal));
         }
 
         private void StartSimulatedVoiceFlow(string utterance)
         {
-            if (voiceSimCoroutine != null) StopCoroutine(voiceSimCoroutine);
-            voiceSimCoroutine = StartCoroutine(CoSimulateVoiceInference(utterance, null));
+            isRecordingVoice = false;
+            StopActiveVoiceCoroutine();
+            voiceSimCoroutine = StartCoroutine(CoSimulateVoiceAndInference(utterance, null));
         }
 
         private void StartSimulatedFailureFlow(string utterance, CommandFeedbackKind forcedFailure)
         {
-            if (voiceSimCoroutine != null) StopCoroutine(voiceSimCoroutine);
-            voiceSimCoroutine = StartCoroutine(CoSimulateVoiceInference(utterance, forcedFailure));
+            isRecordingVoice = false;
+            StopActiveVoiceCoroutine();
+            voiceSimCoroutine = StartCoroutine(CoSimulateVoiceAndInference(utterance, forcedFailure));
         }
 
-        private IEnumerator CoSimulateVoiceInference(string utterance, CommandFeedbackKind? forcedKind)
+        private IEnumerator CoSimulateVoiceAndInference(string utterance, CommandFeedbackKind? forcedKind)
         {
             uiController.PushVoiceStage(VoiceProcessStage.Listening, string.Empty);
             yield return new WaitForSeconds(0.35f);
+            yield return CoSimulateInferenceOnly(utterance, forcedKind);
+        }
 
+        private IEnumerator CoSimulateInferenceOnly(string utterance, CommandFeedbackKind? forcedKind)
+        {
             uiController.PushVoiceStage(VoiceProcessStage.Processing, utterance);
             yield return new WaitForSeconds(Mathf.Max(0.2f, simulatedInferenceDelaySeconds));
 
@@ -194,7 +276,7 @@ namespace OpenSourceTeam6.UI.Unity
                 yield break;
             }
 
-            InterpretDemoCommand(utterance);
+            InterpretAndReactWithProbability(utterance);
             voiceSimCoroutine = null;
         }
 
@@ -205,62 +287,146 @@ namespace OpenSourceTeam6.UI.Unity
                 uiController.PushCommandFeedback(new VoiceCommandFeedback(
                     CommandFeedbackKind.RecognitionFailed,
                     utterance,
-                    "UNRECOGNIZED",
-                    "허용된 업무(계산·진열)로 판별하지 못했습니다. 다시 말씀하거나 [Tab] 보조 입력을 사용하세요."));
+                    "CLARIFY / UNSUPPORTED",
+                    "허용된 편의점 업무(계산·진열·휴식)로 판별하지 못했습니다. 다시 말씀하거나 [Tab]을 누르세요."));
             }
             else if (kind == CommandFeedbackKind.RefusedByEmotion)
             {
+                loyalty = Mathf.Clamp(loyalty - statRates.RefusalLoyaltyPenalty, 0f, 100f);
+                currentRole = StaffWorkRole.Idle;
+                currentActionCode = "REFUSE_EMOTION";
+                currentMoveBadge = StaffMoveBadge.Idle;
+                activeMoveDestination = null;
+                PushSnapshot();
+
+                uiController.RecordAngerRefusal();
+                string refuseQuote = EmotionReactionRules.GetReactionDialogue(StoreCommandIntent.Restock, EmployeeReaction.RefuseEmotion);
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.RefusedByEmotion,
+                    utterance,
+                    "REFUSE_EMOTION",
+                    "분노 임계 상태로 지시를 정면 거부했습니다! '잠깐 쉬어'로 스트레스를 낮추세요.",
+                    refuseQuote));
+            }
+        }
+
+        private void InterpretAndReactWithProbability(string utterance)
+        {
+            StoreCommandIntent intent = EmotionReactionRules.ParseKoreanIntent(utterance);
+
+            if (intent == StoreCommandIntent.Clarify || intent == StoreCommandIntent.Unsupported)
+            {
+                string code = intent == StoreCommandIntent.Unsupported ? "UNSUPPORTED" : "CLARIFY";
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.RecognitionFailed,
+                    utterance,
+                    code,
+                    "구체적인 편의점 업무(계산대·진열대·휴식)로 다시 지시해 주세요."));
+                return;
+            }
+
+            if (intent == StoreCommandIntent.Rest)
+            {
+                string restDialogue = EmotionReactionRules.GetReactionDialogue(StoreCommandIntent.Rest, EmployeeReaction.AcceptNormal);
+                TransitionToRest(utterance, restDialogue);
+                return;
+            }
+
+            StaffWorkRole targetRole = intent == StoreCommandIntent.Checkout ? StaffWorkRole.Checkout : StaffWorkRole.Restock;
+            if (currentRole != StaffWorkRole.Idle && currentRole != targetRole)
+            {
+                stress = Mathf.Clamp(stress + statRates.TaskSwitchStressPenalty, 0f, 100f);
+            }
+
+            EmployeePersonalityProfile profile = new EmployeePersonalityProfile(diligence, laziness, loyalty);
+            EmotionReactionWeights weights = EmotionReactionRules.ComputeWeights(intent, stress, fatigue, profile);
+            float sample = Mathf.Clamp(Random.value, 0f, 0.9999f);
+            EmployeeReaction reaction = EmotionReactionRules.SampleReaction(weights, sample);
+            string dialogue = EmotionReactionRules.GetReactionDialogue(intent, reaction);
+
+            if (reaction == EmployeeReaction.RefuseEmotion)
+            {
+                loyalty = Mathf.Clamp(loyalty - statRates.RefusalLoyaltyPenalty, 0f, 100f);
+                currentRole = StaffWorkRole.Idle;
+                currentActionCode = "REFUSE_EMOTION";
+                currentMoveBadge = StaffMoveBadge.Idle;
+                activeMoveDestination = null;
+                PushSnapshot();
+
                 uiController.RecordAngerRefusal();
                 uiController.PushCommandFeedback(new VoiceCommandFeedback(
                     CommandFeedbackKind.RefusedByEmotion,
                     utterance,
-                    "REFUSE_ORDER",
-                    "직원이 분노 임계 상태여서 지시를 거부했습니다! 대기 상태로 두어 스트레스를 낮추세요."));
-            }
-        }
-
-        private void InterpretDemoCommand(string utterance)
-        {
-            if (stress >= 85f)
-            {
-                ApplyForcedFeedback(utterance, CommandFeedbackKind.RefusedByEmotion);
+                    "REFUSE_EMOTION",
+                    "직원이 스트레스 과부하로 지시를 거부했습니다! 휴식을 지시해 진정시키세요.",
+                    dialogue));
                 return;
             }
 
-            bool isCheckout = utterance.Contains("계산") || utterance.Contains("결제") || utterance.Contains("카운터");
-            bool isRestock = utterance.Contains("진열") || utterance.Contains("물건") || utterance.Contains("채워") || utterance.Contains("정리");
-            bool isRest = utterance.Contains("대기") || utterance.Contains("쉬어") || utterance.Contains("취소");
-
-            if (!isCheckout && !isRestock && !isRest)
+            if (reaction == EmployeeReaction.SlackOff)
             {
-                ApplyForcedFeedback(utterance, CommandFeedbackKind.RecognitionFailed);
+                loyalty = Mathf.Clamp(loyalty - statRates.RefusalLoyaltyPenalty * 0.5f, 0f, 100f);
+                currentRole = StaffWorkRole.Idle;
+                currentActionCode = "SLACK_OFF";
+                currentMoveBadge = restTarget != null ? StaffMoveBadge.Moving : StaffMoveBadge.Idle;
+                activeMoveDestination = restTarget;
+                fallbackArrivalTimer = 0.8f;
+                PushSnapshot();
+
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.RefusedByEmotion,
+                    utterance,
+                    "SLACK_OFF",
+                    "직원이 지시를 흘려듣고 농땡이를 피우며 쉬러 갑니다. (매출 미발생)",
+                    dialogue));
                 return;
             }
 
-            if (isRest)
-            {
-                HandleCancelWorkRequested();
-                return;
-            }
-
-            StaffWorkRole nextRole = isCheckout ? StaffWorkRole.Checkout : StaffWorkRole.Restock;
-            if (currentRole != StaffWorkRole.Idle && currentRole != nextRole)
-            {
-                stress = Mathf.Clamp(stress + 10f, 0f, 100f);
-            }
-
-            currentRole = nextRole;
-            currentActionCode = isCheckout ? "WORK_CHECKOUT" : "WORK_RESTOCK";
+            currentRole = targetRole;
+            currentActionCode = reaction == EmployeeReaction.AcceptComplain ? "ACCEPT_COMPLAIN" : "ACCEPT_NORMAL";
             currentMoveBadge = StaffMoveBadge.Moving;
-            moveArrivalTimer = 1.0f;
+            activeMoveDestination = targetRole == StaffWorkRole.Checkout ? counterTarget : shelfTarget;
+            fallbackArrivalTimer = 1.0f;
             PushSnapshot();
 
-            string roleName = isCheckout ? "계산대 결제" : "진열대 보충";
+            string roleName = targetRole == StaffWorkRole.Checkout ? "계산대" : "진열대";
+            string detail = reaction == EmployeeReaction.AcceptComplain
+                ? $"불만을 표출하지만 [{roleName}] 업무를 수행합니다. (감정 효율 적용)"
+                : $"[{roleName}] 위치로 이동해 성실히 업무를 수행합니다.";
+
             uiController.PushCommandFeedback(new VoiceCommandFeedback(
                 CommandFeedbackKind.Accepted,
                 utterance,
                 currentActionCode,
-                $"직원이 [{roleName}] 위치로 이동해 업무를 수행합니다."));
+                detail,
+                dialogue));
+        }
+
+        private void TransitionToRest(string utterance, string dialogue)
+        {
+            currentRole = StaffWorkRole.Idle;
+            currentActionCode = "REST";
+            currentMoveBadge = restTarget != null ? StaffMoveBadge.Moving : StaffMoveBadge.Idle;
+            activeMoveDestination = restTarget;
+            fallbackArrivalTimer = 0.8f;
+            PushSnapshot();
+
+            uiController.PushVoiceStage(VoiceProcessStage.Completed, utterance);
+            uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                CommandFeedbackKind.Accepted,
+                utterance,
+                "REST",
+                "직원이 휴식 구역으로 이동해 스트레스와 피로도를 회복합니다.",
+                dialogue));
+        }
+
+        private void StopActiveVoiceCoroutine()
+        {
+            if (voiceSimCoroutine != null)
+            {
+                StopCoroutine(voiceSimCoroutine);
+                voiceSimCoroutine = null;
+            }
         }
 
         private void PushSnapshot()
