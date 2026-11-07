@@ -86,6 +86,51 @@ namespace OpenSourceTeam6.Movement.Tests
         }
 
         [UnityTest]
+        public IEnumerator DemoSupportsAddedDestinationsAndTracksMovedTargets()
+        {
+            var demoObject = new GameObject("DynamicDestinationDemo");
+            demoObject.transform.SetParent(root.transform);
+            demoObject.SetActive(false);
+            var demo = demoObject.AddComponent<MovementDemoPanel>();
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var type = typeof(MovementDemoPanel);
+            type.GetField("employee", flags).SetValue(demo, employee);
+            var targets = new Transform[11];
+            var target = new GameObject("AddedTarget_11");
+            target.transform.SetParent(root.transform);
+            targets[10] = target.transform;
+            type.GetField("destinations", flags).SetValue(demo, targets);
+            demoObject.SetActive(true);
+            // A newly appended entry must use its current position, not a cached setup position.
+            target.transform.position = new Vector3(3, 0, 0);
+            type.GetMethod("Request", flags).Invoke(demo, new object[] { 10 });
+            long first = employee.Snapshot.ActiveRequestId;
+            Assert.That(first, Is.GreaterThan(0));
+            target.transform.position = new Vector3(0, 0, 3);
+            yield return WaitFor(() => employee.Snapshot.ActiveRequestId != first, 2);
+            yield return WaitFor(() => employee.Snapshot.State == MoveState.Arrived, 8);
+            Assert.That(Vector3.Distance(employee.transform.position, target.transform.position), Is.LessThan(0.4f));
+            // Keep the selected target live even after arrival.
+            target.transform.position = new Vector3(3, 0, 3);
+            yield return WaitFor(() => employee.Snapshot.State == MoveState.Moving || employee.Snapshot.State == MoveState.Planning, 2);
+            yield return WaitFor(() => employee.Snapshot.State == MoveState.Arrived, 8);
+            Assert.That(Vector3.Distance(employee.transform.position, target.transform.position), Is.LessThan(0.4f));
+            var marker = new GameObject("MarkerVisual");
+            marker.transform.SetParent(target.transform, false);
+            marker.transform.localPosition = new Vector3(-2, 0.03f, 0);
+            yield return WaitFor(() => employee.Snapshot.ActiveRequestId > 0, 2);
+            yield return WaitFor(() => employee.Snapshot.State == MoveState.Arrived, 8);
+            Assert.That(Vector3.Distance(employee.transform.position, marker.transform.position), Is.LessThan(0.4f),
+                "A moved child marker must be the visible destination, not its old parent position.");
+            type.GetMethod("Cancel", flags).Invoke(demo, null);
+            target.transform.position = Vector3.zero;
+            yield return new WaitForSecondsRealtime(0.3f);
+            Assert.That(employee.Snapshot.ActiveRequestId, Is.EqualTo(0), "Cancel must stop target following.");
+            Assert.DoesNotThrow(() => type.GetMethod("Request", flags).Invoke(demo, new object[] { -1 }));
+            Assert.DoesNotThrow(() => type.GetMethod("Request", flags).Invoke(demo, new object[] { 0 }));
+        }
+
+        [UnityTest]
         public IEnumerator EmployeeArrivesAndPublishesOneDeferredResult()
         {
             var request = employee.RequestMove(new WorldPoint(3, 0, 0));
