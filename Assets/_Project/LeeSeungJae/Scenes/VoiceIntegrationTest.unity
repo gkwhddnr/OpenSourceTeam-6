@@ -289,6 +289,7 @@ GameObject:
   m_Component:
   - component: {fileID: 383189615}
   - component: {fileID: 383189614}
+  - component: {fileID: 383189616}
   m_Layer: 0
   m_Name: KeyLight
   m_TagString: Untagged
@@ -376,6 +377,35 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &383189616
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 383189613}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalLightData
+  m_UsePipelineSettings: 1
+  m_AdditionalLightsShadowResolutionTier: 2
+  m_CustomShadowLayers: 0
+  m_LightCookieSize: {x: 1, y: 1}
+  m_LightCookieOffset: {x: 0, y: 0}
+  m_SoftShadowQuality: 0
+  m_RenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_ShadowRenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_Version: 4
+  m_LightLayerMask: 1
+  m_ShadowLayerMask: 1
+  m_RenderingLayers: 1
+  m_ShadowRenderingLayers: 1
 --- !u!1 &521279368
 GameObject:
   m_ObjectHideFlags: 0
@@ -520,6 +550,69 @@ Transform:
   - {fileID: 1230012600}
   m_Father: {fileID: 1370556272}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &900000001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 900000002}
+  - component: {fileID: 900000003}
+  m_Layer: 0
+  m_Name: Voice Movement Integration
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &900000002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 900000001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &900000003
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 900000001}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b03a2cc30362491da30d5f7355276899, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  uiPrefab: {fileID: 3114504723083653380, guid: b4099a71786691e4a86e3f2e1b9ee6f5, type: 3}
+  employee: {fileID: 1199412360}
+  restockDestination: {fileID: 1221721627}
+  whisperModelPath: Assets/_Project/LeeSeungJae/Assets/ggml-small-q5_1.bin
+  llmModelPath: Assets/_Project/LeeSeungJae/Assets/qwen2.5-1.5b-instruct-q4_k_m.gguf
+  microphoneDeviceName: 
+  boostQuietInput: 1
+  enableVoiceDiagnostics: 0
+  useWhisperVocabulary: 1
+  whisperVocabulary: "\uC9C4\uC5F4, \uC9C4\uC5F4\uB300, \uC7AC\uACE0, \uBB3C\uAC74, \uC190\uB2D8, \uD14C\uC774\uBE14"
+  personality:
+    employeeName: "\uBBFC\uC218"
+    traits: "\uC131\uC2E4\uD558\uC9C0\uB9CC \uAC00\uB054 \uC9C0\uC2DC\uB97C \uC798\uBABB \uC774\uD574\uD55C\uB2E4."
+    diligence: 70
+    literalness: 20
+    laziness: 20
+    stress: 20
+    fatigue: 10
+    loyalty: 70
 --- !u!1 &1027845235
 GameObject:
   m_ObjectHideFlags: 0
@@ -1634,64 +1727,6 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1663276885}
   m_Mesh: {fileID: 10206, guid: 0000000000000000e000000000000000, type: 0}
---- !u!1 &900000001
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 900000002}
-  - component: {fileID: 900000003}
-  m_Layer: 0
-  m_Name: Voice Movement Integration
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!4 &900000002
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 900000001}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &900000003
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 900000001}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b03a2cc30362491da30d5f7355276899, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  uiPrefab: {fileID: 3114504723083653380, guid: b4099a71786691e4a86e3f2e1b9ee6f5, type: 3}
-  employee: {fileID: 1199412360}
-  restockDestination: {fileID: 1221721627}
-  whisperModelPath: Assets/_Project/LeeSeungJae/Assets/ggml-small-q5_1.bin
-  llmModelPath: Assets/_Project/LeeSeungJae/Assets/qwen2.5-1.5b-instruct-q4_k_m.gguf
-  personality:
-    employeeName: 민수
-    traits: 성실하지만 가끔 지시를 잘못 이해한다.
-    diligence: 70
-    literalness: 20
-    laziness: 20
-    stress: 20
-    fatigue: 10
-    loyalty: 70
 --- !u!1660057539 &9223372036854775807
 SceneRoots:
   m_ObjectHideFlags: 0
