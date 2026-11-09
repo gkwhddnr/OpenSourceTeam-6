@@ -598,7 +598,7 @@ MonoBehaviour:
   employee: {fileID: 1199412360}
   restockDestination: {fileID: 1221721627}
   whisperModelPath: Assets/_Project/LeeSeungJae/Assets/ggml-small-q5_1.bin
-  llmModelPath: Assets/_Project/LeeSeungJae/Assets/qwen2.5-1.5b-instruct-q4_k_m.gguf
+  llmModelPath: Assets/_Project/LeeSeungJae/Assets/Qwen3.5-2B-Q4_K_M.gguf
   microphoneDeviceName: 
   boostQuietInput: 1
   enableVoiceDiagnostics: 0
@@ -608,11 +608,11 @@ MonoBehaviour:
     employeeName: "\uBBFC\uC218"
     traits: "\uC131\uC2E4\uD558\uC9C0\uB9CC \uAC00\uB054 \uC9C0\uC2DC\uB97C \uC798\uBABB \uC774\uD574\uD55C\uB2E4."
     diligence: 70
-    literalness: 20
+    literalness: 16
     laziness: 20
     stress: 20
     fatigue: 10
-    loyalty: 70
+    loyalty: 69
 --- !u!1 &1027845235
 GameObject:
   m_ObjectHideFlags: 0
