@@ -1,0 +1,31 @@
+name: Assign issue author
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+
+jobs:
+  assign-author:
+    if: github.event.issue.user.type == 'User' && github.event.issue.assignees[0] == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Assign the issue to its author
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GH_REPO/issues/$ISSUE_NUMBER/assignees" \
+            -f "assignees[]=$ISSUE_AUTHOR" \
+            --jq '.assignees[].login' | tee "$RUNNER_TEMP/assigned-users.txt"
+          if ! grep -Fxq "$ISSUE_AUTHOR" "$RUNNER_TEMP/assigned-users.txt"; then
+            echo "::error::The issue author could not be assigned. Check repository access."
+            exit 1
+          fi
