@@ -1,4 +1,4 @@
-name: Assign issue author
+name: Set issue defaults
 
 on:
   issues:
@@ -27,5 +27,30 @@ jobs:
             --jq '.assignees[].login' | tee "$RUNNER_TEMP/assigned-users.txt"
           if ! grep -Fxq "$ISSUE_AUTHOR" "$RUNNER_TEMP/assigned-users.txt"; then
             echo "::error::The issue author could not be assigned. Check repository access."
+            exit 1
+          fi
+
+  set-milestone:
+    if: github.event.issue.milestone == null
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Set the default milestone
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          DEFAULT_MILESTONE: 1
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_milestone=$(gh api "repos/$GH_REPO/issues/$ISSUE_NUMBER" --jq '.milestone.number // empty')
+          if [ -n "$current_milestone" ]; then
+            exit 0
+          fi
+          assigned_milestone=$(gh api --method PATCH "repos/$GH_REPO/issues/$ISSUE_NUMBER" \
+            -F "milestone=$DEFAULT_MILESTONE" --jq '.milestone.number')
+          if [ "$assigned_milestone" != "$DEFAULT_MILESTONE" ]; then
+            echo "::error::The default milestone could not be assigned."
             exit 1
           fi
