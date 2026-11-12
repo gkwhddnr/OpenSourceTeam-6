@@ -192,5 +192,45 @@ namespace OpenSourceTeam6.UI.EditorTests
             tokenB.Dispose();
             Assert.IsFalse(counter.IsLocked);
         }
+
+        [Test]
+        public void StoreAudioRules_VolumeStateAndBgmResolution_FollowsScreenAndStressThresholds()
+        {
+            StoreAudioVolumeState vol = new StoreAudioVolumeState(0.5f, 0.8f, 0.6f, isBgmMuted: false);
+            Assert.AreEqual(0.4f, vol.EffectiveBgmVolume, 0.0001f);
+            Assert.AreEqual(0.3f, vol.EffectiveSfxVolume, 0.0001f);
+
+            StoreAudioVolumeState muted = new StoreAudioVolumeState(0.5f, 0.8f, 0.6f, isBgmMuted: true);
+            Assert.AreEqual(0f, muted.EffectiveBgmVolume, 0.0001f);
+            Assert.AreEqual(0.3f, muted.EffectiveSfxVolume, 0.0001f);
+
+            Assert.AreEqual(StoreBgmTrack.Lobby, StoreAudioRules.ResolveBgmForState(UiScreenMode.Lobby, 20f));
+            Assert.AreEqual(StoreBgmTrack.DayNormal, StoreAudioRules.ResolveBgmForState(UiScreenMode.InGame, 79.9f));
+            Assert.AreEqual(StoreBgmTrack.DayCrisis, StoreAudioRules.ResolveBgmForState(UiScreenMode.InGame, 80f));
+            Assert.AreEqual(StoreBgmTrack.SettlementOrEnding, StoreAudioRules.ResolveBgmForState(UiScreenMode.Settlement, 90f));
+        }
+
+        [Test]
+        public void StoreAudioRules_VoiceAndFeedbackSfxResolution_MapsCorrectClips()
+        {
+            Assert.IsTrue(StoreAudioRules.TryResolveVoiceStageSfx(
+                VoiceProcessStage.Idle, VoiceProcessStage.Listening, out StoreSfxId startSfx));
+            Assert.AreEqual(StoreSfxId.MicRecordStart, startSfx);
+
+            Assert.IsTrue(StoreAudioRules.TryResolveVoiceStageSfx(
+                VoiceProcessStage.Listening, VoiceProcessStage.Processing, out StoreSfxId stopSfx));
+            Assert.AreEqual(StoreSfxId.MicRecordStop, stopSfx);
+
+            Assert.IsFalse(StoreAudioRules.TryResolveVoiceStageSfx(
+                VoiceProcessStage.Processing, VoiceProcessStage.Completed, out _));
+
+            Assert.IsTrue(StoreAudioRules.TryResolveFeedbackSfx(CommandFeedbackKind.Accepted, out StoreSfxId acc));
+            Assert.AreEqual(StoreSfxId.ReactionAccept, acc);
+
+            Assert.IsTrue(StoreAudioRules.TryResolveFeedbackSfx(CommandFeedbackKind.RefusedByEmotion, out StoreSfxId refSfx));
+            Assert.AreEqual(StoreSfxId.ReactionRefuseOrCrisis, refSfx);
+
+            Assert.AreEqual(StoreSfxId.ReactionComplain, StoreAudioRules.ResolveReactionSfx(EmployeeReaction.AcceptComplain));
+        }
     }
 }

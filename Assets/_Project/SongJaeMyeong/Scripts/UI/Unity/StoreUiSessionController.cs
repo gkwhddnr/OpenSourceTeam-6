@@ -18,6 +18,9 @@ namespace OpenSourceTeam6.UI.Unity
         [Header("Optional World-Space NPC Status UI (UI-09)")]
         [SerializeField] private EmployeeWorldStatusPresenter worldStatusPresenter;
 
+        [Header("Audio System (SND-00 ~ SND-03)")]
+        [SerializeField] private StoreAudioManager audioManager;
+
         [Header("Cursor Lock Gate (External Adapter or Standalone Fallback)")]
         [SerializeField] private MonoBehaviour externalCursorLockGateComponent;
         [SerializeField] private StandaloneCursorLockGate standaloneFallbackGate;
@@ -27,6 +30,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         private DaySettlementSession settlementSession;
         private ICursorLockGate activeLockGate;
+        private IStoreAudioPlayer activeAudioPlayer;
         private IDisposable screenLockToken;
         private IDisposable overlayLockToken;
         private IDisposable pauseLockToken;
@@ -34,8 +38,10 @@ namespace OpenSourceTeam6.UI.Unity
 
         private float remainingDaySeconds;
         private EmployeeHudSnapshot lastEmployeeSnapshot;
+        private VoiceProcessStage lastVoiceStage = VoiceProcessStage.Idle;
 
         public UiScreenMode CurrentMode { get; private set; } = UiScreenMode.Lobby;
+        public IStoreAudioPlayer AudioPlayer => activeAudioPlayer;
         public bool IsCommandOverlayOpen => commandOverlay != null && commandOverlay.IsOpen;
         public bool IsPauseMenuOpen => pausePanel != null && pausePanel.IsOpen;
         public bool IsSettingsOpen => settingsPanel != null && settingsPanel.IsOpen;
@@ -50,6 +56,7 @@ namespace OpenSourceTeam6.UI.Unity
         {
             settlementSession = new DaySettlementSession(settlementSettings);
             ResolveCursorLockGate();
+            ResolveAudioPlayer();
             EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
             lastEmployeeSnapshot = new EmployeeHudSnapshot(
                 "김민수",
@@ -65,6 +72,11 @@ namespace OpenSourceTeam6.UI.Unity
         private void OnEnable()
         {
             ResolveCursorLockGate();
+            ResolveAudioPlayer();
+            if (settingsPanel != null)
+            {
+                settingsPanel.BindAudioPlayer(activeAudioPlayer);
+            }
 
             if (lobbyPanel != null)
             {
@@ -181,6 +193,22 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
+        public void SetAudioPlayer(IStoreAudioPlayer player)
+        {
+            activeAudioPlayer = player;
+            if (settingsPanel != null)
+            {
+                settingsPanel.BindAudioPlayer(activeAudioPlayer);
+            }
+
+            SyncBgmForCurrentState();
+        }
+
+        public void PlaySfx(StoreSfxId sfxId, float volumeScale = 1f)
+        {
+            activeAudioPlayer?.PlaySfx(sfxId, volumeScale);
+        }
+
         public void SetExternalCursorLockGate(ICursorLockGate externalGate)
         {
             ReleaseSettingsLock();
@@ -210,6 +238,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud != null) inGameHud.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
 
+            SyncBgmForCurrentState();
             AcquireScreenLock("LobbyScreen");
         }
 
@@ -230,6 +259,7 @@ namespace OpenSourceTeam6.UI.Unity
             RestoreTimeScale();
 
             CurrentMode = UiScreenMode.InGame;
+            lastVoiceStage = VoiceProcessStage.Idle;
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
             if (inGameHud != null)
@@ -251,11 +281,14 @@ namespace OpenSourceTeam6.UI.Unity
             }
 
             RefreshTopBar();
+            activeAudioPlayer?.PlaySfx(StoreSfxId.StoreDoorChime);
+            SyncBgmForCurrentState();
             DayStarted?.Invoke();
         }
 
         public void UpdateEmployeeHud(EmployeeHudSnapshot snapshot)
         {
+            StaffMoveBadge previousBadge = lastEmployeeSnapshot.MoveBadge;
             lastEmployeeSnapshot = snapshot;
             if (inGameHud != null)
             {
@@ -266,10 +299,32 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 worldStatusPresenter.RenderSnapshot(snapshot);
             }
+
+            if (CurrentMode == UiScreenMode.InGame)
+            {
+                if (previousBadge != StaffMoveBadge.Arrived &&
+                    snapshot.MoveBadge == StaffMoveBadge.Arrived &&
+                    snapshot.CurrentRole != StaffWorkRole.Idle)
+                {
+                    activeAudioPlayer?.PlaySfx(
+                        snapshot.CurrentRole == StaffWorkRole.Checkout
+                            ? StoreSfxId.BarcodeCheckout
+                            : StoreSfxId.WorkTaskComplete);
+                }
+
+                SyncBgmForCurrentState();
+            }
         }
 
         public void PushVoiceStage(VoiceProcessStage stage, string recognizedTranscript)
         {
+            if (StoreAudioRules.TryResolveVoiceStageSfx(lastVoiceStage, stage, out StoreSfxId sfxId))
+            {
+                activeAudioPlayer?.PlaySfx(sfxId);
+            }
+
+            lastVoiceStage = stage;
+
             if (inGameHud != null)
             {
                 inGameHud.RenderVoiceStage(stage, recognizedTranscript);
@@ -278,6 +333,11 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void PushCommandFeedback(VoiceCommandFeedback feedback)
         {
+            if (StoreAudioRules.TryResolveFeedbackSfx(feedback.Kind, out StoreSfxId sfxId))
+            {
+                activeAudioPlayer?.PlaySfx(sfxId);
+            }
+
             if (inGameHud != null)
             {
                 inGameHud.RenderFeedback(feedback);
@@ -325,6 +385,8 @@ namespace OpenSourceTeam6.UI.Unity
                 settlementPanel.RenderResult(result);
             }
 
+            activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
+            SyncBgmForCurrentState();
             AcquireScreenLock("SettlementScreen");
             return result;
         }
@@ -339,7 +401,12 @@ namespace OpenSourceTeam6.UI.Unity
         public void OpenCommandOverlay()
         {
             if (CurrentMode != UiScreenMode.InGame || commandOverlay == null) return;
+            bool wasOpen = commandOverlay.IsOpen;
             commandOverlay.SetOpen(true);
+            if (!wasOpen)
+            {
+                activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
+            }
             if (overlayLockToken == null && activeLockGate != null)
             {
                 overlayLockToken = activeLockGate.AcquireLock("CommandOverlayUI");
@@ -348,9 +415,14 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void CloseCommandOverlay()
         {
+            bool wasOpen = commandOverlay != null && commandOverlay.IsOpen;
             if (commandOverlay != null)
             {
                 commandOverlay.SetOpen(false);
+            }
+            if (wasOpen)
+            {
+                activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
             }
             ReleaseOverlayLock();
         }
@@ -359,7 +431,12 @@ namespace OpenSourceTeam6.UI.Unity
         {
             if (CurrentMode != UiScreenMode.InGame || pausePanel == null) return;
             CloseCommandOverlay();
+            bool wasOpen = pausePanel.IsOpen;
             pausePanel.SetOpen(true);
+            if (!wasOpen)
+            {
+                activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
+            }
             Time.timeScale = 0f;
             if (pauseLockToken == null && activeLockGate != null)
             {
@@ -369,9 +446,14 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void ClosePauseMenu()
         {
+            bool wasOpen = pausePanel != null && pausePanel.IsOpen;
             if (pausePanel != null)
             {
                 pausePanel.SetOpen(false);
+            }
+            if (wasOpen)
+            {
+                activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
             }
             ReleasePauseLock();
             RestoreTimeScale();
@@ -380,7 +462,12 @@ namespace OpenSourceTeam6.UI.Unity
         public void OpenSettingsPanel()
         {
             if (settingsPanel == null) return;
+            bool wasOpen = settingsPanel.IsOpen;
             settingsPanel.SetOpen(true);
+            if (!wasOpen)
+            {
+                activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
+            }
             if (settingsLockToken == null && activeLockGate != null)
             {
                 settingsLockToken = activeLockGate.AcquireLock("SettingsPanelUI");
@@ -389,9 +476,14 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void CloseSettingsPanel()
         {
+            bool wasOpen = settingsPanel != null && settingsPanel.IsOpen;
             if (settingsPanel != null)
             {
                 settingsPanel.SetOpen(false);
+            }
+            if (wasOpen)
+            {
+                activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
             }
             ReleaseSettingsLock();
         }
@@ -446,6 +538,32 @@ namespace OpenSourceTeam6.UI.Unity
                 remainingDaySeconds,
                 liveEstimatedBalance,
                 settlementSession.TargetBalanceWon);
+        }
+
+        private void ResolveAudioPlayer()
+        {
+            if (activeAudioPlayer != null) return;
+
+            if (audioManager == null)
+            {
+                audioManager = GetComponentInChildren<StoreAudioManager>(true);
+            }
+
+            if (audioManager == null)
+            {
+                GameObject audioObj = new GameObject("StoreAudioManager");
+                audioObj.transform.SetParent(transform, false);
+                audioManager = audioObj.AddComponent<StoreAudioManager>();
+            }
+
+            activeAudioPlayer = audioManager;
+        }
+
+        private void SyncBgmForCurrentState()
+        {
+            if (activeAudioPlayer == null) return;
+            StoreBgmTrack targetTrack = StoreAudioRules.ResolveBgmForState(CurrentMode, lastEmployeeSnapshot.Stress);
+            activeAudioPlayer.PlayBgm(targetTrack);
         }
 
         private void ResolveCursorLockGate()

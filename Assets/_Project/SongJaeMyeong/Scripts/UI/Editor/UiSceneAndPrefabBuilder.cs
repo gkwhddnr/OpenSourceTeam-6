@@ -97,6 +97,7 @@ namespace OpenSourceTeam6.UI.Editor
             root.AddComponent<GraphicRaycaster>();
 
             StandaloneCursorLockGate fallbackGate = root.AddComponent<StandaloneCursorLockGate>();
+            StoreAudioManager audioManager = root.AddComponent<StoreAudioManager>();
             StoreUiSessionController sessionController = root.AddComponent<StoreUiSessionController>();
 
             LobbyPanelPresenter lobbyPresenter = BuildLobbyPanel(root.transform, font, whiteSprite);
@@ -120,6 +121,7 @@ namespace OpenSourceTeam6.UI.Editor
             so.FindProperty("settlementPanel").objectReferenceValue = settlementPresenter;
             so.FindProperty("pausePanel").objectReferenceValue = pausePresenter;
             so.FindProperty("settingsPanel").objectReferenceValue = settingsPresenter;
+            so.FindProperty("audioManager").objectReferenceValue = audioManager;
             so.FindProperty("standaloneFallbackGate").objectReferenceValue = fallbackGate;
             so.ApplyModifiedPropertiesWithoutUndo();
 
@@ -449,7 +451,7 @@ namespace OpenSourceTeam6.UI.Editor
             SettingsPanelPresenter presenter = dimBg.AddComponent<SettingsPanelPresenter>();
 
             GameObject card = CreatePanel("SettingsCard", dimBg.transform, new Color(0.11f, 0.15f, 0.22f, 0.99f), sprite);
-            SetRect(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(640f, 380f));
+            SetRect(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(640f, 470f));
 
             Text title = CreateText("SettingsTitle", card.transform, font, "환경 설정   (사운드 · 감도 · 마이크 장치)", 24, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
             SetRect(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(28f, -24f), new Vector2(-160f, 38f));
@@ -459,20 +461,32 @@ namespace OpenSourceTeam6.UI.Editor
 
             Slider volSlider;
             Text volValue;
-            BuildSliderRow(card.transform, font, sprite, "마스터 볼륨", -104f, 0f, 1f, 1f, "100%", out volSlider, out volValue);
+            BuildSliderRow(card.transform, font, sprite, "마스터 볼륨", -94f, 0f, 1f, 1f, "100%", out volSlider, out volValue);
+
+            Slider bgmSlider;
+            Text bgmValue;
+            BuildSliderRow(card.transform, font, sprite, "배경음 볼륨", -150f, 0f, 1f, 0.75f, "75%", out bgmSlider, out bgmValue);
+
+            Slider sfxSlider;
+            Text sfxValue;
+            BuildSliderRow(card.transform, font, sprite, "효과음 볼륨", -206f, 0f, 1f, 1f, "100%", out sfxSlider, out sfxValue);
 
             Slider sensSlider;
             Text sensValue;
-            BuildSliderRow(card.transform, font, sprite, "마우스 감도", -174f, 0.2f, 2.0f, 1.0f, "1.0x", out sensSlider, out sensValue);
+            BuildSliderRow(card.transform, font, sprite, "마우스 감도", -262f, 0.2f, 2.0f, 1.0f, "1.0x", out sensSlider, out sensValue);
 
             Button micBtn = CreateButton("CycleMicButton", card.transform, font, sprite, "마이크 입력 장치 확인 중...", 16, new Color(0.16f, 0.23f, 0.33f, 1f), new Color(0.90f, 0.95f, 1f, 1f));
-            SetRect(micBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 64f), new Vector2(584f, 56f));
+            SetRect(micBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 48f), new Vector2(584f, 56f));
             Text micBtnLabel = micBtn.transform.Find("Label").GetComponent<Text>();
 
             SerializedObject so = new SerializedObject(presenter);
             so.FindProperty("panelRoot").objectReferenceValue = dimBg;
             so.FindProperty("masterVolumeSlider").objectReferenceValue = volSlider;
             so.FindProperty("masterVolumeValueText").objectReferenceValue = volValue;
+            so.FindProperty("bgmVolumeSlider").objectReferenceValue = bgmSlider;
+            so.FindProperty("bgmVolumeValueText").objectReferenceValue = bgmValue;
+            so.FindProperty("sfxVolumeSlider").objectReferenceValue = sfxSlider;
+            so.FindProperty("sfxVolumeValueText").objectReferenceValue = sfxValue;
             so.FindProperty("mouseSensitivitySlider").objectReferenceValue = sensSlider;
             so.FindProperty("mouseSensitivityValueText").objectReferenceValue = sensValue;
             so.FindProperty("cycleMicrophoneButton").objectReferenceValue = micBtn;
