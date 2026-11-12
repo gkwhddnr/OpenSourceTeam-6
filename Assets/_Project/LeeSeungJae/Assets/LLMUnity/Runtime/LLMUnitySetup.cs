@@ -278,6 +278,9 @@ namespace LLMUnity
 #endif
 
         static Dictionary<string, ResumingWebClient> downloadClients = new Dictionary<string, ResumingWebClient>();
+        // A new Unity domain must not reuse a temp file still held by an async
+        // download from the previous domain after an asset refresh or branch switch.
+        static readonly string downloadSessionId = Guid.NewGuid().ToString("N");
 
         public static void CancelDownload(string savePath)
         {
@@ -298,23 +301,42 @@ namespace LLMUnity
             else
             {
                 if(debug) Log($"Downloading {fileUrl} to {savePath}...");
-                string tmpPath = Path.Combine(Application.temporaryCachePath, Path.GetFileName(savePath));
+                string tmpFileName = string.Concat(
+                    Path.GetFileName(savePath), ".", downloadSessionId, ".",
+                    unchecked((uint)savePath.GetHashCode()).ToString("x8"), ".tmp");
+                string tmpPath = Path.Combine(Application.temporaryCachePath, tmpFileName);
 
                 ResumingWebClient client = new ResumingWebClient();
                 downloadClients[savePath] = client;
-                if (File.Exists(tmpPath) && overwrite) File.Delete(tmpPath);
-                await client.DownloadFileTaskAsyncResume(new Uri(fileUrl), tmpPath, !overwrite, progressCallback);
-                downloadClients.Remove(savePath);
+                try
+                {
+                    if (File.Exists(tmpPath) && overwrite) File.Delete(tmpPath);
+                    await client.DownloadFileTaskAsyncResume(new Uri(fileUrl), tmpPath, !overwrite, progressCallback);
 #if UNITY_EDITOR
-                AssetDatabase.StartAssetEditing();
+                    AssetDatabase.StartAssetEditing();
+                    try
+                    {
 #endif
-                Directory.CreateDirectory(Path.GetDirectoryName(savePath));
-                if (File.Exists(savePath)) File.Delete(savePath);
-                File.Move(tmpPath, savePath);
+                        Directory.CreateDirectory(Path.GetDirectoryName(savePath));
+                        if (File.Exists(savePath)) File.Delete(savePath);
+                        File.Move(tmpPath, savePath);
 #if UNITY_EDITOR
-                AssetDatabase.StopAssetEditing();
+                    }
+                    finally
+                    {
+                        AssetDatabase.StopAssetEditing();
+                    }
 #endif
-                if(debug) Log($"Download complete!");
+                    if (debug) Log("Download complete!");
+                }
+                finally
+                {
+                    if (downloadClients.TryGetValue(savePath, out ResumingWebClient currentClient) &&
+                        ReferenceEquals(currentClient, client))
+                    {
+                        downloadClients.Remove(savePath);
+                    }
+                }
             }
 
             progressCallback?.Invoke(1f);
@@ -424,6 +446,39 @@ namespace LLMUnity
 
         [HideInInspector] public static float libraryProgress = 1;
 
+        static async Task<FileStream> AcquireLibrarySetupLock()
+        {
+            Directory.CreateDirectory(cacheDownloadPath);
+            string lockPath = Path.Combine(cacheDownloadPath, libraryName + ".setup.lock");
+            DateTime deadline = DateTime.UtcNow.AddMinutes(5);
+            bool waitingLogged = false;
+
+            while (true)
+            {
+                try
+                {
+                    return new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                }
+                catch (IOException exception)
+                {
+                    if (DateTime.UtcNow >= deadline)
+                    {
+                        throw new IOException(
+                            "Timed out waiting for another Unity Editor to finish preparing the LlamaLib files.",
+                            exception);
+                    }
+
+                    if (!waitingLogged)
+                    {
+                        Log("Waiting for another Unity Editor to finish preparing the LlamaLib files...");
+                        waitingLogged = true;
+                    }
+
+                    await Task.Delay(250);
+                }
+            }
+        }
+
         public static void CreateEmptyFile(string path)
         {
             File.Create(path).Dispose();
@@ -488,9 +543,15 @@ namespace LLMUnity
             if (!File.Exists(cacheZipPath) || !same_hash)  await DownloadFile(LlamaLibURL, cacheZipPath, true, null, SetLibraryProgress);
 
             AssetDatabase.StartAssetEditing();
-            ExtractInsideDirectory(cacheZipPath, libraryPath, $"{libraryName}/runtimes/");
-            CreateEmptyFile(setupFile);
-            AssetDatabase.StopAssetEditing();
+            try
+            {
+                ExtractInsideDirectory(cacheZipPath, libraryPath, $"{libraryName}/runtimes/");
+                CreateEmptyFile(setupFile);
+            }
+            finally
+            {
+                AssetDatabase.StopAssetEditing();
+            }
 
             if (File.Exists(cacheZipNewHashPath))
             {
@@ -530,6 +591,27 @@ namespace LLMUnity
         static async Task DownloadLibrary()
         {
             if (libraryProgress < 1) return;
+            libraryProgress = 0;
+
+            try
+            {
+                using (await AcquireLibrarySetupLock())
+                {
+                    await DownloadLibraryLocked();
+                }
+            }
+            catch (Exception e)
+            {
+                LogError(e.Message);
+            }
+            finally
+            {
+                libraryProgress = 1;
+            }
+        }
+
+        static async Task DownloadLibraryLocked()
+        {
             try
             {
                 DeleteEarlierVersions();
@@ -554,15 +636,31 @@ namespace LLMUnity
                 }
             }
 
-            libraryProgress = 1;
         }
 
         public static async Task RedownloadLibrary()
         {
-            if (File.Exists(cacheZipPath)) File.Delete(cacheZipPath);
-            if (File.Exists(cacheZipHashPath)) File.Delete(cacheZipHashPath);
-            if (Directory.Exists(libraryPath)) Directory.Delete(libraryPath, true);
-            await DownloadLibrary();
+            if (libraryProgress < 1) return;
+            libraryProgress = 0;
+
+            try
+            {
+                using (await AcquireLibrarySetupLock())
+                {
+                    if (File.Exists(cacheZipPath)) File.Delete(cacheZipPath);
+                    if (File.Exists(cacheZipHashPath)) File.Delete(cacheZipHashPath);
+                    if (Directory.Exists(libraryPath)) Directory.Delete(libraryPath, true);
+                    await DownloadLibraryLocked();
+                }
+            }
+            catch (Exception e)
+            {
+                LogError(e.Message);
+            }
+            finally
+            {
+                libraryProgress = 1;
+            }
         }
 
         private static void SetLibraryProgress(float progress)
