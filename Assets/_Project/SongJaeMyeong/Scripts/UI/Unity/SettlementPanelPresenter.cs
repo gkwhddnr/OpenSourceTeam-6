@@ -68,8 +68,8 @@ namespace OpenSourceTeam6.UI.Unity
             if (breakdownBodyText != null)
             {
                 string penaltyLine = result.RestockShortagePenaltyApplied
-                    ? "-20% 감산 적용 (유효 진열 25초 미만)"
-                    : "적용 없음 (진열 기준 충족)";
+                    ? $"-20% 감산 적용 (유효 진열 {result.MinEffectiveRestockSeconds:F0}초 미만)"
+                    : $"적용 없음 (유효 진열 {result.MinEffectiveRestockSeconds:F0}초 기준 충족)";
 
                 int totalCosts = result.CostOfGoodsWon + result.FixedOperatingCostWon;
 

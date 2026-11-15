@@ -8,9 +8,11 @@ namespace OpenSourceTeam6.UI.Unity
     {
         [SerializeField] private GameObject panelRoot;
         [SerializeField] private Button startGameButton;
+        [SerializeField] private Button settingsButton;
         [SerializeField] private Button quitGameButton;
 
         public event Action StartClicked;
+        public event Action SettingsClicked;
         public event Action QuitClicked;
 
         private void OnEnable()
@@ -18,6 +20,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (startGameButton != null)
             {
                 startGameButton.onClick.AddListener(HandleStartClicked);
+            }
+
+            if (settingsButton != null)
+            {
+                settingsButton.onClick.AddListener(HandleSettingsClicked);
             }
 
             if (quitGameButton != null)
@@ -31,6 +38,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (startGameButton != null)
             {
                 startGameButton.onClick.RemoveListener(HandleStartClicked);
+            }
+
+            if (settingsButton != null)
+            {
+                settingsButton.onClick.RemoveListener(HandleSettingsClicked);
             }
 
             if (quitGameButton != null)
@@ -51,6 +63,11 @@ namespace OpenSourceTeam6.UI.Unity
         private void HandleStartClicked()
         {
             StartClicked?.Invoke();
+        }
+
+        private void HandleSettingsClicked()
+        {
+            SettingsClicked?.Invoke();
         }
 
         private void HandleQuitClicked()
