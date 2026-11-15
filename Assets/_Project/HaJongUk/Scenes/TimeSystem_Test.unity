@@ -154,7 +154,6 @@ MonoBehaviour:
   m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.TimeSkyExposure
   timeSource: {fileID: 27026846}
   cloudDegreesPerGameHour: 2
-  initialRotation: 0
 --- !u!114 &27026843
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -189,6 +188,7 @@ MonoBehaviour:
   moonDiameterDegrees: 2
   moonriseHour: 17
   moonVisibleHours: 12
+  moonlightIntensity: 0.12
 --- !u!114 &27026845
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -225,8 +225,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.BusinessTimeController
   standaloneClock: 0
   dayDurationSeconds: 60
-  openingHour: 0
-  closingHour: 24
+  openingHour: 8
+  closingHour: 32
 --- !u!4 &27026847
 Transform:
   m_ObjectHideFlags: 0

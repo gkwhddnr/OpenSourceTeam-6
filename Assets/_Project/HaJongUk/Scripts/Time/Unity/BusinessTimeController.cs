@@ -9,9 +9,11 @@ namespace OpenSourceTeam6.Time.Unity
         [SerializeField] private bool standaloneClock;
         [SerializeField, Min(1)] private float dayDurationSeconds = 240;
         [SerializeField, Range(0, 23)] private float openingHour = 8;
-        [SerializeField, Range(1, 24)] private float closingHour = 20;
+        [Tooltip("Unwrapped end hour; 32 means next morning at 08:00.")]
+        [SerializeField, Range(1, 48)] private float closingHour = 32;
         public BusinessClock Clock { get; } = new BusinessClock();
-        public float GameHour => Mathf.Lerp(openingHour, closingHour, (float)Clock.Progress);
+        public float GameHour => Mathf.Repeat(Mathf.Lerp(openingHour, closingHour, (float)Clock.Progress), 24);
+        public float ElapsedGameHours => (closingHour - openingHour) * (float)Clock.Progress;
         public event Action<int> ClosingRequested;
         private void OnEnable() { Clock.Closing += OnClosing; }
         private void OnDisable() { Clock.Closing -= OnClosing; }
@@ -25,7 +27,7 @@ namespace OpenSourceTeam6.Time.Unity
         {
             if (!float.IsFinite(dayDurationSeconds) || dayDurationSeconds <= 0 ||
                 !float.IsFinite(openingHour) || !float.IsFinite(closingHour) ||
-                openingHour < 0 || closingHour > 24 || closingHour <= openingHour)
+                openingHour < 0 || openingHour >= 24 || closingHour > openingHour + 24 || closingHour <= openingHour)
             { Debug.LogError("Invalid business time configuration.", this); return false; }
             return Clock.BeginDay(dayId);
         }

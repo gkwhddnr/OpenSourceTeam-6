@@ -14,7 +14,7 @@ namespace OpenSourceTeam6.Time.Unity {
  }
  private void OnGUI() {
  GUILayout.BeginArea(new Rect(12,12,310,210), GUI.skin.box);
- GUILayout.Label("TIME TEST | September | 00:00 - 24:00");
+ GUILayout.Label("TIME TEST | September | 08:00 - next day 08:00");
  GUILayout.Label("Hour: " + timeSource.GameHour.ToString("F2") + " | " + timeSource.Clock.Phase);
  if(GUILayout.Button(paused ? "Resume" : "Pause")) paused=!paused;
  if(GUILayout.Button("Next day / restart")) {

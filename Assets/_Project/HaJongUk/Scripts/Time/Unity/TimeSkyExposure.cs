@@ -1,5 +1,6 @@
 using UnityEngine;
 namespace OpenSourceTeam6.Time.Unity {
+ [DefaultExecutionOrder(100)]
  public sealed class TimeSkyExposure : MonoBehaviour {
  public BusinessTimeController timeSource;
  [SerializeField] private float cloudDegreesPerGameHour=2;
@@ -13,8 +14,8 @@ namespace OpenSourceTeam6.Time.Unity {
  overlay=new Material(layer);dome=GameObject.CreatePrimitive(PrimitiveType.Sphere);dome.name="Clouds and stars overlay";var collider=dome.GetComponent<Collider>();collider.enabled=false;Destroy(collider);var renderer=dome.GetComponent<MeshRenderer>();renderer.sharedMaterial=overlay;renderer.shadowCastingMode=UnityEngine.Rendering.ShadowCastingMode.Off;renderer.receiveShadows=false;
  timeSource.Clock.Changed+=Refresh;Refresh();}
  private void Refresh(){if(!overlay||!timeSource)return;float altitude=daylight?daylight.SunDirection.y:1;
- float night=1-Mathf.SmoothStep(0,1,Mathf.InverseLerp(-.2f,.04f,altitude));overlay.SetFloat("_Night",night);overlay.SetFloat("_Drift",timeSource.GameHour*cloudDegreesPerGameHour*.05f);instance.SetFloat("_Exposure",Mathf.Lerp(.2f,1.3f,1-night));}
- private void LateUpdate(){var bodies=GetComponent<CelestialBodyPresenter>();if(overlay && bodies)overlay.SetVector("_MoonDirection",bodies.MoonDirection);if(dome&&cameraSource){dome.transform.position=cameraSource.transform.position;dome.transform.localScale=Vector3.one*cameraSource.farClipPlane;}}
+ float night=daylight ? daylight.NightBlend : 0;overlay.SetFloat("_Night",night);overlay.SetFloat("_Drift",timeSource.ElapsedGameHours*cloudDegreesPerGameHour*.05f);instance.SetFloat("_Exposure",1.3f);}
+ private void LateUpdate(){var bodies=GetComponent<CelestialBodyPresenter>();if(overlay && bodies){overlay.SetVector("_MoonDirection",bodies.MoonDirection);overlay.SetFloat("_MoonRadius",bodies.MoonAngularRadius);}if(overlay && daylight)overlay.SetVector("_SunDirection",daylight.SunDirection);if(dome&&cameraSource){dome.transform.position=cameraSource.transform.position;dome.transform.localScale=Vector3.one*cameraSource.farClipPlane;}}
  private void OnDisable(){if(timeSource)timeSource.Clock.Changed-=Refresh;if(RenderSettings.skybox==instance)RenderSettings.skybox=original;if(dome)Destroy(dome);if(instance)Destroy(instance);if(overlay)Destroy(overlay);}
  }
 }

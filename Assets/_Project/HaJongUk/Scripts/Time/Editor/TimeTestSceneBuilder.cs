@@ -21,7 +21,7 @@ public static class TimeTestSceneBuilder {
  var cam=new GameObject("Time Test Camera").AddComponent<Camera>(); cam.tag="MainCamera"; cam.transform.position=new Vector3(0,2,0); cam.transform.rotation=Quaternion.Euler(-15,90,0); cam.farClipPlane=1000; cam.clearFlags=CameraClearFlags.Skybox; cam.gameObject.AddComponent<AudioListener>();
  var light=new GameObject("Sun Directional Light").AddComponent<Light>(); light.type=LightType.Directional; light.shadows=LightShadows.Soft; RenderSettings.sun=light;
  var root=new GameObject("Time System"); root.SetActive(false);
- var time=root.AddComponent<BusinessTimeController>(); var timeSo=new SerializedObject(time); timeSo.FindProperty("openingHour").floatValue=0; timeSo.FindProperty("closingHour").floatValue=24; timeSo.ApplyModifiedPropertiesWithoutUndo();
+ var time=root.AddComponent<BusinessTimeController>(); var timeSo=new SerializedObject(time); timeSo.FindProperty("openingHour").floatValue=8; timeSo.FindProperty("closingHour").floatValue=32; timeSo.ApplyModifiedPropertiesWithoutUndo();
  var day=root.AddComponent<DayNightPresenter>(); Set(day,"timeSource",time); Set(day,"sun",light);
  var bodies=root.AddComponent<CelestialBodyPresenter>(); Set(bodies,"timeSource",time); Set(bodies,"sunLight",light); Set(bodies,"viewCamera",cam);
  var demo=root.AddComponent<TimeDemoPanel>(); demo.timeSource=time;demo.viewCamera=cam;

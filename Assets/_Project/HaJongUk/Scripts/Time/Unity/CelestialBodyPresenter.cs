@@ -16,6 +16,7 @@ namespace OpenSourceTeam6.Time.Unity
         [SerializeField, Min(0)] private float moonlightIntensity = .12f;
         private Light moonLight;
         public Vector3 MoonDirection { get; private set; } = Vector3.down;
+        public float MoonAngularRadius => moonDiameterDegrees * Mathf.Deg2Rad * .5f;
         private GameObject sunBody, moonBody;
         private DayNightPresenter daylight;
         private Material sunMaterial, moonMaterial;
@@ -31,6 +32,8 @@ namespace OpenSourceTeam6.Time.Unity
             // Sun disk is rendered once by Unity Procedural Skybox.
             // Moon is a luminous disk with no surface texture.
             moonBody = CreateBody("Moon visual", shader, moonTexture, false, out moonMaterial);
+            // SkyOverlay draws an analytic, derivative-antialiased disk behind clouds.
+            moonBody.GetComponent<MeshRenderer>().enabled = false;
             moonBody.SetActive(false);
             var lightObject = new GameObject("Moon Directional Light (runtime)");
             moonLight = lightObject.AddComponent<Light>(); moonLight.type = LightType.Directional; moonLight.color = new Color(.65f,.75f,1); moonLight.shadows = LightShadows.None;

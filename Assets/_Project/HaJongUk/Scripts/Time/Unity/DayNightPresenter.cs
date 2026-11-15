@@ -24,6 +24,7 @@ namespace OpenSourceTeam6.Time.Unity
                 return new Vector3(Mathf.Cos(angle),Mathf.Sin(angle),.15f).normalized;
             }
         }
+        public float NightBlend => 1 - Mathf.SmoothStep(0, 1, Mathf.InverseLerp(-.2f, .10f, SunDirection.y));
         private Quaternion originalRotation;
         private float originalIntensity;
         private Color originalColor, originalAmbient;
@@ -57,7 +58,7 @@ namespace OpenSourceTeam6.Time.Unity
             sun.intensity = Mathf.Max(0, daylightIntensity) * elevation;
             sun.color = Color.Lerp(new Color(1, .55f, .3f), Color.white, Mathf.Clamp01(elevation * 3));
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = Color.Lerp(nightAmbient, dayAmbient, elevation);
+            RenderSettings.ambientLight = Color.Lerp(dayAmbient, nightAmbient, NightBlend);
         }
         private void OnDisable()
         {
