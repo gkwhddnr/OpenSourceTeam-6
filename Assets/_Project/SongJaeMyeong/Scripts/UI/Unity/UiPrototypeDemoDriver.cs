@@ -39,9 +39,10 @@ namespace OpenSourceTeam6.UI.Unity
         private StaffWorkRole currentRole = StaffWorkRole.Idle;
         private string currentActionCode = "IDLE";
         private StaffMoveBadge currentMoveBadge = StaffMoveBadge.Idle;
-        private float stress = 25f;
+        private EmployeePersonalityProfile _activeProfile = EmployeePersonalityProfile.CreatePreset1Diligent();
+        private float stress = 20f;
         private float fatigue = 15f;
-        private float loyalty = 70f;
+        private float loyalty = 75f;
         private float fallbackArrivalTimer;
         private Transform activeMoveDestination;
 
@@ -52,6 +53,7 @@ namespace OpenSourceTeam6.UI.Unity
         private void OnEnable()
         {
             if (uiController == null) return;
+            uiController.PersonaConfirmed += HandlePersonaConfirmed;
             uiController.DayStarted += HandleDayStarted;
             uiController.TextCommandSubmitted += HandleTextCommandSubmitted;
             uiController.CancelWorkRequested += HandleCancelWorkRequested;
@@ -61,6 +63,7 @@ namespace OpenSourceTeam6.UI.Unity
         private void OnDisable()
         {
             if (uiController == null) return;
+            uiController.PersonaConfirmed -= HandlePersonaConfirmed;
             uiController.DayStarted -= HandleDayStarted;
             uiController.TextCommandSubmitted -= HandleTextCommandSubmitted;
             uiController.CancelWorkRequested -= HandleCancelWorkRequested;
@@ -78,6 +81,22 @@ namespace OpenSourceTeam6.UI.Unity
             HandleSimulationHotkeys();
         }
 
+        private void HandlePersonaConfirmed(EmployeePersonaSetupData persona)
+        {
+            demoEmployeeName = string.IsNullOrWhiteSpace(persona.EmployeeName) ? EmployeePersonaPresets.Preset1Name : persona.EmployeeName;
+            demoPersonality = string.IsNullOrWhiteSpace(persona.PersonalityTraits)
+                ? EmployeePersonaPresets.Preset1Traits
+                : persona.PersonalityTraits;
+            _activeProfile = persona.Profile;
+            diligence = persona.Profile.Diligence;
+            laziness = persona.Profile.Laziness;
+            statRates.InitialStress = persona.Profile.InitialStress;
+            statRates.InitialLoyalty = persona.Profile.Loyalty;
+            stress = persona.Profile.InitialStress;
+            loyalty = persona.Profile.Loyalty;
+            PushSnapshot();
+        }
+
         private void HandleDayStarted()
         {
             StopActiveVoiceCoroutine();
@@ -86,9 +105,9 @@ namespace OpenSourceTeam6.UI.Unity
             currentRole = StaffWorkRole.Idle;
             currentActionCode = "IDLE";
             currentMoveBadge = StaffMoveBadge.Idle;
-            stress = statRates.InitialStress;
+            stress = _activeProfile.InitialStress;
             fatigue = statRates.InitialFatigue;
-            loyalty = statRates.InitialLoyalty;
+            loyalty = _activeProfile.Loyalty;
             fallbackArrivalTimer = 0f;
             activeMoveDestination = restTarget;
 
@@ -110,10 +129,11 @@ namespace OpenSourceTeam6.UI.Unity
                 {
                     Vector3 targetPos = activeMoveDestination.position;
                     targetPos.y = demoEmployeeTransform.position.y;
+                    float effectiveWalkSpeed = demoWalkSpeed * _activeProfile.MoveSpeedMultiplier;
                     demoEmployeeTransform.position = Vector3.MoveTowards(
                         demoEmployeeTransform.position,
                         targetPos,
-                        demoWalkSpeed * dt);
+                        effectiveWalkSpeed * dt);
 
                     if (Vector3.Distance(demoEmployeeTransform.position, targetPos) <= 0.08f)
                     {
@@ -130,6 +150,14 @@ namespace OpenSourceTeam6.UI.Unity
                 }
             }
 
+            float stressDelta = StressRules.EvaluateContinuousStressDelta(
+                currentRole,
+                isStoreCrowdedOrNoisy: false,
+                _activeProfile,
+                statRates,
+                dt);
+            stress = Mathf.Clamp(stress + stressDelta, 0f, 100f);
+
             if (currentRole == StaffWorkRole.Checkout || currentRole == StaffWorkRole.Restock)
             {
                 if (currentMoveBadge == StaffMoveBadge.Arrived)
@@ -137,16 +165,20 @@ namespace OpenSourceTeam6.UI.Unity
                     uiController.RecordWorkSample(currentRole, stress, dt);
                 }
 
-                stress = Mathf.Clamp(stress + statRates.WorkStressPerSecond * dt, 0f, 100f);
                 fatigue = Mathf.Clamp(fatigue + statRates.WorkFatiguePerSecond * dt, 0f, 100f);
             }
             else
             {
-                stress = Mathf.Clamp(stress - statRates.RestStressRecoveryPerSecond * dt, 0f, 100f);
                 fatigue = Mathf.Clamp(fatigue - statRates.RestFatigueRecoveryPerSecond * dt, 0f, 100f);
             }
 
             PushSnapshot();
+
+            if (stress >= StoreEndingRules.StressOverflowThreshold)
+            {
+                uiController.CompleteDayAndShowSettlement(stress);
+                uiController.ShowEndingScreen();
+            }
         }
 
         private void HandleVoiceRecordToggleRequested()
@@ -192,7 +224,7 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (kb.f1Key.wasPressedThisFrame)
             {
-                StartSimulatedVoiceFlow("민수야 계산대 좀 봐줘");
+                StartSimulatedVoiceFlow($"{demoEmployeeName}야 계산대 좀 봐줘");
             }
             else if (kb.f2Key.wasPressedThisFrame)
             {
@@ -222,6 +254,11 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 stress = Mathf.Clamp(stress + 25f, 0f, 100f);
                 PushSnapshot();
+                if (stress >= StoreEndingRules.StressOverflowThreshold)
+                {
+                    uiController.CompleteDayAndShowSettlement(stress);
+                    uiController.ShowEndingScreen();
+                }
             }
             else if (kb.f6Key.wasPressedThisFrame)
             {
@@ -313,9 +350,15 @@ namespace OpenSourceTeam6.UI.Unity
         private void InterpretAndReactWithProbability(string utterance)
         {
             StoreCommandIntent intent = EmotionReactionRules.ParseKoreanIntent(utterance);
+            UtteranceTone tone = EmotionReactionRules.ParseKoreanTone(utterance);
 
             if (intent == StoreCommandIntent.Clarify || intent == StoreCommandIntent.Unsupported)
             {
+                float clarifyPenalty = StressRules.EvaluateCommandStressDelta(
+                    intent, tone, currentRole, StaffWorkRole.Idle, _activeProfile);
+                stress = Mathf.Clamp(stress + clarifyPenalty, 0f, 100f);
+                PushSnapshot();
+
                 string code = intent == StoreCommandIntent.Unsupported ? "UNSUPPORTED" : "CLARIFY";
                 uiController.PushCommandFeedback(new VoiceCommandFeedback(
                     CommandFeedbackKind.RecognitionFailed,
@@ -327,18 +370,43 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (intent == StoreCommandIntent.Rest)
             {
+                float restDelta = StressRules.EvaluateCommandStressDelta(
+                    intent, tone, currentRole, StaffWorkRole.Idle, _activeProfile);
+                stress = Mathf.Clamp(stress + restDelta, 0f, 100f);
                 string restDialogue = EmotionReactionRules.GetReactionDialogue(StoreCommandIntent.Rest, EmployeeReaction.AcceptNormal);
                 TransitionToRest(utterance, restDialogue);
                 return;
             }
 
             StaffWorkRole targetRole = intent == StoreCommandIntent.Checkout ? StaffWorkRole.Checkout : StaffWorkRole.Restock;
-            if (currentRole != StaffWorkRole.Idle && currentRole != targetRole)
+            float commandStressDelta = StressRules.EvaluateCommandStressDelta(
+                intent, tone, currentRole, targetRole, _activeProfile);
+            stress = Mathf.Clamp(stress + commandStressDelta, 0f, 100f);
+
+            if (tone == UtteranceTone.PoliteOrPraise)
             {
-                stress = Mathf.Clamp(stress + statRates.TaskSwitchStressPenalty, 0f, 100f);
+                loyalty = Mathf.Clamp(loyalty + 3f, 0f, 100f);
+            }
+            else if (tone == UtteranceTone.HarshOrNagging)
+            {
+                loyalty = Mathf.Clamp(loyalty - 5f, 0f, 100f);
             }
 
-            EmployeePersonalityProfile profile = new EmployeePersonalityProfile(diligence, laziness, loyalty);
+            EmployeePersonalityProfile profile = new EmployeePersonalityProfile(
+                diligence,
+                laziness,
+                loyalty,
+                _activeProfile.Archetype,
+                _activeProfile.InitialStress,
+                _activeProfile.WorkStressMultiplier,
+                _activeProfile.RestRecoveryMultiplier,
+                _activeProfile.TaskSwitchMultiplier,
+                _activeProfile.HarshToneMultiplier,
+                _activeProfile.PraiseRecoveryMultiplier,
+                _activeProfile.AmbiguousCommandPenalty,
+                _activeProfile.WageSensitivityMultiplier,
+                _activeProfile.MoveSpeedMultiplier);
+
             EmotionReactionWeights weights = EmotionReactionRules.ComputeWeights(intent, stress, fatigue, profile);
             float sample = Mathf.Clamp(Random.value, 0f, 0.9999f);
             EmployeeReaction reaction = EmotionReactionRules.SampleReaction(weights, sample);
@@ -383,16 +451,38 @@ namespace OpenSourceTeam6.UI.Unity
             }
 
             currentRole = targetRole;
-            currentActionCode = reaction == EmployeeReaction.AcceptComplain ? "ACCEPT_COMPLAIN" : "ACCEPT_NORMAL";
+            if (reaction == EmployeeReaction.Mistake)
+            {
+                currentActionCode = "MISTAKE";
+            }
+            else if (reaction == EmployeeReaction.AcceptComplain)
+            {
+                currentActionCode = "ACCEPT_COMPLAIN";
+            }
+            else
+            {
+                currentActionCode = "ACCEPT_NORMAL";
+            }
+
             currentMoveBadge = StaffMoveBadge.Moving;
             activeMoveDestination = targetRole == StaffWorkRole.Checkout ? counterTarget : shelfTarget;
             fallbackArrivalTimer = 1.0f;
             PushSnapshot();
 
             string roleName = targetRole == StaffWorkRole.Checkout ? "계산대" : "진열대";
-            string detail = reaction == EmployeeReaction.AcceptComplain
-                ? $"불만을 표출하지만 [{roleName}] 업무를 수행합니다. (감정 효율 적용)"
-                : $"[{roleName}] 위치로 이동해 성실히 업무를 수행합니다.";
+            string detail;
+            if (reaction == EmployeeReaction.Mistake)
+            {
+                detail = $"[{roleName}] 업무 중 긴장·피로로 인해 실수가 발생했습니다!";
+            }
+            else if (reaction == EmployeeReaction.AcceptComplain)
+            {
+                detail = $"불만을 표출하지만 [{roleName}] 업무를 수행합니다. (감정 효율 적용)";
+            }
+            else
+            {
+                detail = $"[{roleName}] 위치로 이동해 성실히 업무를 수행합니다.";
+            }
 
             uiController.PushCommandFeedback(new VoiceCommandFeedback(
                 CommandFeedbackKind.Accepted,

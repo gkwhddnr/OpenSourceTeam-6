@@ -14,20 +14,24 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Text breakdownBodyText;
         [SerializeField] private Text finalBalanceHighlightText;
         [SerializeField] private Text staffSummaryText;
+        [SerializeField] private Button viewEndingButton;
         [SerializeField] private Button retryDayButton;
         [SerializeField] private Button returnLobbyButton;
 
+        public event Action ViewEndingClicked;
         public event Action RetryDayClicked;
         public event Action ReturnLobbyClicked;
 
         private void OnEnable()
         {
+            if (viewEndingButton != null) viewEndingButton.onClick.AddListener(HandleViewEndingClicked);
             if (retryDayButton != null) retryDayButton.onClick.AddListener(HandleRetryClicked);
             if (returnLobbyButton != null) returnLobbyButton.onClick.AddListener(HandleReturnLobbyClicked);
         }
 
         private void OnDisable()
         {
+            if (viewEndingButton != null) viewEndingButton.onClick.RemoveListener(HandleViewEndingClicked);
             if (retryDayButton != null) retryDayButton.onClick.RemoveListener(HandleRetryClicked);
             if (returnLobbyButton != null) returnLobbyButton.onClick.RemoveListener(HandleReturnLobbyClicked);
         }
@@ -94,6 +98,11 @@ namespace OpenSourceTeam6.UI.Unity
                 staffSummaryText.text =
                     $"직원 상태 기록  —  종료 스트레스: {Mathf.RoundToInt(result.EndingStress)} / 100   ·   분노 거부 누적: {result.AngerRefusalCount}회";
             }
+        }
+
+        private void HandleViewEndingClicked()
+        {
+            ViewEndingClicked?.Invoke();
         }
 
         private void HandleRetryClicked()

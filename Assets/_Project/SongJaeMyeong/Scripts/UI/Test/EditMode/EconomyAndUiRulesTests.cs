@@ -232,5 +232,126 @@ namespace OpenSourceTeam6.UI.EditorTests
 
             Assert.AreEqual(StoreSfxId.ReactionComplain, StoreAudioRules.ResolveReactionSfx(EmployeeReaction.AcceptComplain));
         }
+
+        [Test]
+        public void EmployeePersonaPresets_Preset1RandomAnd50CharClamp_FollowSpec()
+        {
+            EmployeePersonaSetupData preset1 = EmployeePersonaPresets.CreatePreset1();
+            Assert.AreEqual("김민수", preset1.EmployeeName);
+            Assert.LessOrEqual(preset1.PersonalityTraits.Length, EmployeePersonaPresets.MaxTraitLength);
+            Assert.AreEqual(10030, preset1.HourlyWageWon);
+
+            Assert.AreEqual("(0/50)", EmployeePersonaPresets.FormatTraitLengthCounter(string.Empty));
+            string over50 = new string('가', 65);
+            string clamped = EmployeePersonaPresets.ClampTraitInput(over50);
+            Assert.AreEqual(50, clamped.Length);
+            Assert.AreEqual("(50/50)", EmployeePersonaPresets.FormatTraitLengthCounter(over50));
+
+            for (int i = 0; i < EmployeePersonaPresets.RandomPoolCount; i++)
+            {
+                EmployeePersonaSetupData candidate = EmployeePersonaPresets.GetRandomCandidate(i);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(candidate.EmployeeName));
+                Assert.IsFalse(string.IsNullOrWhiteSpace(candidate.PersonalityTraits));
+                Assert.LessOrEqual(candidate.PersonalityTraits.Length, EmployeePersonaPresets.MaxTraitLength);
+            }
+        }
+
+        [Test]
+        public void PersonaStressAndReactionRules_PresetsAndToneMultipliers_FollowPrototypeSpec()
+        {
+            EmployeePersonaSetupData p1 = EmployeePersonaPresets.CreatePreset1();
+            EmployeePersonaSetupData p2 = EmployeePersonaPresets.CreatePreset2();
+            EmployeePersonaSetupData p3 = EmployeePersonaPresets.CreatePreset3();
+
+            Assert.AreEqual(PersonaArchetype.DiligentStandard, p1.Profile.Archetype);
+            Assert.AreEqual(PersonaArchetype.LazyComplainer, p2.Profile.Archetype);
+            Assert.AreEqual(PersonaArchetype.FragileTimid, p3.Profile.Archetype);
+
+            // 1. 자유 입력 키워드 매핑 검증
+            EmployeePersonalityProfile inferredLazy = EmployeePersonaPresets.InferProfileFromTraits("일하기 귀찮아하고 한숨을 자주 쉰다");
+            Assert.AreEqual(PersonaArchetype.LazyComplainer, inferredLazy.Archetype);
+
+            EmployeePersonalityProfile inferredTimid = EmployeePersonaPresets.InferProfileFromTraits("소심하고 상처를 잘 받는 유리멘탈");
+            Assert.AreEqual(PersonaArchetype.FragileTimid, inferredTimid.Archetype);
+
+            // 2. 김민수(프리셋 1)는 작업 중 업무 강제 전환 시 페널티가 기본(12)보다 1.6배(+19.2) 적용
+            float switchDeltaP1 = StressRules.EvaluateCommandStressDelta(
+                StoreCommandIntent.Restock,
+                UtteranceTone.Neutral,
+                StaffWorkRole.Checkout,
+                StaffWorkRole.Restock,
+                p1.Profile);
+            Assert.AreEqual(19.2f, switchDeltaP1, 0.01f);
+
+            // 3. 최소심(프리셋 3)은 강압적 말투(+18 * 1.7 = +30.6) 및 칭찬 말투(-8 * 1.6 = -12.8)에 민감하게 반응
+            Assert.AreEqual(UtteranceTone.HarshOrNagging, EmotionReactionRules.ParseKoreanTone("빨리 계산대 안 가?!"));
+            float harshDeltaP3 = StressRules.EvaluateCommandStressDelta(
+                StoreCommandIntent.Checkout,
+                UtteranceTone.HarshOrNagging,
+                StaffWorkRole.Idle,
+                StaffWorkRole.Checkout,
+                p3.Profile);
+            Assert.AreEqual(30.6f, harshDeltaP3, 0.01f);
+
+            Assert.AreEqual(UtteranceTone.PoliteOrPraise, EmotionReactionRules.ParseKoreanTone("고마워 계산대 좀 부탁할게"));
+            float praiseDeltaP3 = StressRules.EvaluateCommandStressDelta(
+                StoreCommandIntent.Checkout,
+                UtteranceTone.PoliteOrPraise,
+                StaffWorkRole.Idle,
+                StaffWorkRole.Checkout,
+                p3.Profile);
+            Assert.AreEqual(-12.8f, praiseDeltaP3, 0.01f);
+
+            // 4. 박태만(프리셋 2)은 정산 시 시급 인상(-25 * 1.5 = -37.5) / 삭감(+25 * 1.5 = +37.5)에 더 크게 반응
+            Assert.AreEqual(-37.5f, StressRules.EvaluateWageAdjustmentStressDelta(WageAdjustmentOption.Raise, p2.Profile), 0.01f);
+            Assert.AreEqual(37.5f, StressRules.EvaluateWageAdjustmentStressDelta(WageAdjustmentOption.Cut, p2.Profile), 0.01f);
+
+            // 5. 과부하 구간(70~89)에서 실수(Mistake) 가중치 존재 검증
+            EmotionReactionWeights overloadWeights = EmotionReactionRules.ComputeWeights(
+                StoreCommandIntent.Checkout, stress: 75f, fatigue: 50f, p3.Profile);
+            Assert.Greater(overloadWeights.Mistake, 20f);
+        }
+
+        [Test]
+        public void StoreEndingRules_FourEndingsAndPersonaNarrative_FollowSpec()
+        {
+            EmployeePersonaSetupData p1 = EmployeePersonaPresets.CreatePreset1();
+            EmployeePersonaSetupData p2 = EmployeePersonaPresets.CreatePreset2();
+            EmployeePersonaSetupData p3 = EmployeePersonaPresets.CreatePreset3();
+
+            // 1. 노말엔딩 1: 목표 달성 + 스트레스 완화 (< 60)
+            StoreEndingType e1 = StoreEndingRules.EvaluateEnding(
+                finalBalanceWon: 85000, targetBalanceWon: 80000, endingStress: 32f, angerRefusalCount: 0);
+            Assert.AreEqual(StoreEndingType.NormalEnding1_SuccessLowStress, e1);
+            StoreEndingReport r1 = StoreEndingRules.BuildReport(e1, p1, 32f, 85000, 80000);
+            StringAssert.Contains("노말엔딩 1", r1.HeaderTitle);
+            StringAssert.Contains("김민수", r1.NarrativeBodyText);
+            StringAssert.Contains("32/100", r1.NarrativeBodyText);
+
+            // 2. 노말엔딩 2: 목표 달성 + 스트레스 악화 (>= 60)
+            StoreEndingType e2 = StoreEndingRules.EvaluateEnding(
+                finalBalanceWon: 82000, targetBalanceWon: 80000, endingStress: 84f, angerRefusalCount: 2);
+            Assert.AreEqual(StoreEndingType.NormalEnding2_SuccessHighStress, e2);
+            StoreEndingReport r2 = StoreEndingRules.BuildReport(e2, p2, 84f, 82000, 80000);
+            StringAssert.Contains("노말엔딩 2", r2.HeaderTitle);
+            StringAssert.Contains("박태만", r2.NarrativeBodyText);
+            StringAssert.Contains("84/100", r2.NarrativeBodyText);
+
+            // 3. 실패 엔딩 1: 일차 목표 금액 미달
+            StoreEndingType e3 = StoreEndingRules.EvaluateEnding(
+                finalBalanceWon: 64000, targetBalanceWon: 80000, endingStress: 45f, angerRefusalCount: 0);
+            Assert.AreEqual(StoreEndingType.BadEnding1_TargetShortfall, e3);
+            StoreEndingReport r3 = StoreEndingRules.BuildReport(e3, p3, 45f, 64000, 80000);
+            StringAssert.Contains("실패 엔딩 1", r3.HeaderTitle);
+            StringAssert.Contains("최소심", r3.NarrativeBodyText);
+
+            // 4. 실패 엔딩 2: 알바 스트레스 100 초과 (최우선 판정)
+            StoreEndingType e4 = StoreEndingRules.EvaluateEnding(
+                finalBalanceWon: 90000, targetBalanceWon: 80000, endingStress: 100f, angerRefusalCount: 3);
+            Assert.AreEqual(StoreEndingType.BadEnding2_StressOverflow, e4);
+            StoreEndingReport r4 = StoreEndingRules.BuildReport(e4, p3, 100f, 90000, 80000);
+            StringAssert.Contains("실패 엔딩 2", r4.HeaderTitle);
+            StringAssert.Contains("100/100", r4.NarrativeBodyText);
+        }
     }
 }

@@ -198,6 +198,7 @@ namespace OpenSourceTeam6.UI.Core
                     return StoreSfxId.ReactionAccept;
 
                 case EmployeeReaction.AcceptComplain:
+                case EmployeeReaction.Mistake:
                 case EmployeeReaction.SlackOff:
                     return StoreSfxId.ReactionComplain;
 

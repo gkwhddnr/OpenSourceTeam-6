@@ -1,0 +1,87 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<style>
+table { border-collapse: collapse; font-family: "맑은 고딕", Malgun Gothic, sans-serif; font-size: 9.5pt; }
+th, td { border: 0.5pt solid #B8C4D0; padding: 4px 4px; text-align: center; vertical-align: middle; mso-number-format:"\@"; }
+.title { font-size: 14pt; font-weight: bold; background-color: #1B365D; color: #FFFFFF; text-align: left; padding-left: 12px; }
+.subtitle { font-size: 9.5pt; background-color: #D9E1F2; color: #1B365D; text-align: left; padding-left: 12px; font-weight: bold; }
+.sec-hdr { font-size: 11pt; font-weight: bold; background-color: #2F5597; color: #FFFFFF; text-align: left; padding-left: 10px; }
+.axis { background-color: #263238; color: #ECEFF1; font-weight: bold; font-size: 8.5pt; }
+.wall { background-color: #455A64; color: #FFFFFF; font-weight: bold; font-size: 8.5pt; border: 1pt solid #263238; }
+.glass { background-color: #80DEEA; color: #004D40; font-weight: bold; font-size: 8.5pt; border: 1pt solid #00838F; }
+.door { background-color: #00ACC1; color: #FFFFFF; font-weight: bold; font-size: 9pt; border: 1.5pt solid #006064; }
+.staff-door { background-color: #8D6E63; color: #FFFFFF; font-weight: bold; font-size: 8.5pt; border: 1.5pt solid #4E342E; }
+.floor { background-color: #FAF8F5; color: #78909C; font-size: 8pt; }
+.aisle { background-color: #FFFDE7; color: #5D4037; font-weight: bold; font-size: 8.5pt; }
+.queue { background-color: #FFF3E0; color: #E65100; font-weight: bold; font-size: 8.5pt; border: 1pt dashed #FB8C00; }
+.backroom { background-color: #D7CCC8; color: #3E2723; font-weight: bold; font-size: 8.5pt; border: 1pt solid #8D6E63; }
+.backroom-floor { background-color: #EFEBE9; color: #4E342E; font-size: 8.5pt; }
+.rest-point { background-color: #A5D6A7; color: #1B5E20; font-weight: bold; font-size: 8.5pt; border: 1.5pt solid #2E7D32; }
+.cooler { background-color: #B3E5FC; color: #01579B; font-weight: bold; font-size: 8.5pt; border: 1pt solid #0288D1; }
+.fresh { background-color: #C8E6C9; color: #1B5E20; font-weight: bold; font-size: 8.5pt; border: 1pt solid #388E3C; }
+.hotbar { background-color: #FFCCBC; color: #BF360C; font-weight: bold; font-size: 8.5pt; border: 1pt solid #E64A19; }
+.trash { background-color: #CFD8DC; color: #263238; font-weight: bold; font-size: 8.5pt; border: 1pt solid #607D8B; }
+.shelf { background-color: #FFE082; color: #4E342E; font-weight: bold; font-size: 8.5pt; border: 1pt solid #FFA000; }
+.icecream { background-color: #E1BEE7; color: #4A148C; font-weight: bold; font-size: 8.5pt; border: 1pt solid #8E24AA; }
+.dining { background-color: #DCEDC8; color: #33691E; font-weight: bold; font-size: 8.5pt; border: 1pt solid #689F38; }
+.counter { background-color: #C5E1A5; color: #1B5E20; font-weight: bold; font-size: 9pt; border: 1.5pt solid #558B2F; }
+.pos-staff { background-color: #81C784; color: #0D3B10; font-weight: bold; font-size: 8.5pt; border: 1.5pt solid #2E7D32; }
+.pos-boss { background-color: #FFE0B2; color: #E65100; font-weight: bold; font-size: 8.5pt; border: 1.5pt solid #F57C00; }
+.tobacco { background-color: #BCAAA4; color: #212121; font-weight: bold; font-size: 8.5pt; border: 1pt solid #5D4037; }
+.sidewalk { background-color: #ECEFF1; color: #37474F; font-weight: bold; font-size: 8.5pt; }
+.spawn { background-color: #FFCDD2; color: #B71C1C; font-weight: bold; font-size: 8.5pt; border: 1.5pt solid #C62828; }
+.target-pin { background-color: #FFF59D; color: #B71C1C; font-weight: bold; font-size: 8pt; border: 1pt dashed #FBC02D; }
+.tbl-hdr { background-color: #2F5597; color: #FFFFFF; font-weight: bold; }
+.left { text-align: left; padding-left: 8px; white-space: normal; }
+</style></head><body>
+<table>
+<col width="105" style="mso-width-source:userset;width:78pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<col width="82" style="mso-width-source:userset;width:62pt;">
+<tr height="34"><td colspan="17" class="title">OpenSourceTeam-6 | 도시 편의점(CVS24) 2D 격자 평면 배치도 및 AI 동선 규격서 (1셀 = 1m × 1m, 전체 16m × 12m)</td></tr>
+<tr height="24"><td colspan="17" class="subtitle">📌 설계 기준: 원안 아이소메트릭 스케치 반영 + 알바/손님 NPC NavMesh 교행 통로 확보 + 카운터 앞 계산 대기열 병목 해소</td></tr>
+<tr height="26"><td colspan="17" class="sec-hdr">1. 편의점 평면 격자 배치도 (Top-Down Grid Map: 가로 X = 1~16m, 세로 Z = 1~12m)</td></tr>
+<tr height="24"><th class="axis">Z \ X (1m 단위)</th><th class="axis">X=1</th><th class="axis">X=2</th><th class="axis">X=3</th><th class="axis">X=4</th><th class="axis">X=5</th><th class="axis">X=6</th><th class="axis">X=7</th><th class="axis">X=8</th><th class="axis">X=9</th><th class="axis">X=10</th><th class="axis">X=11</th><th class="axis">X=12</th><th class="axis">X=13</th><th class="axis">X=14</th><th class="axis">X=15</th><th class="axis">X=16</th></tr>
+<tr height="38"><td class="axis">Z=12 (북측 벽)</td><td colspan="3" class="wall">북서 외벽</td><td colspan="6" class="cooler">🧊 워크인 쿨러 &amp; 음료·냉동 진열장 (6도어)<br>[ 음료 냉장 (X:4~6) | 냉동식품 (X:7~9) ]</td><td class="wall">내벽</td><td colspan="5" class="backroom">📦 창고 선반 A (재고 박스 보관)<br>[창고 / BACKROOM 북측 벽]</td><td class="wall">외벽</td></tr>
+<tr height="38"><td class="axis">Z=11</td><td class="wall">서측 외벽</td><td colspan="2" rowspan="3" class="fresh">🍙 신선식품<br>OPEN<br>REFRIGERATOR<br>(도시락·김밥·<br>샌드위치)</td><td class="floor">통로</td><td colspan="6" class="target-pin">★ Target_Cooler (음료·냉동 진열/집기 포인트)<br>← 상단 주 통로 (폭 2m 확보) →</td><td class="wall">창고 벽</td><td colspan="2" class="backroom-floor">창고 내부 통로<br>(★ Target_StockBox)</td><td colspan="2" class="rest-point">★ Target_Rest<br>[알바 휴식/대기 의자]</td><td class="wall">외벽</td></tr>
+<tr height="38"><td class="axis">Z=10</td><td class="wall">서측 외벽</td><td class="target-pin">★ Target_Fresh</td><td colspan="6" class="aisle">↔ 상단 주 통로 (알바·손님 교행 가능, 폭 2m) ↔</td><td class="wall">내벽</td><td class="staff-door">🚪 창고 출입문<br>(직원 전용)</td><td colspan="3" class="wall">카운터 후면 내벽</td><td class="wall">외벽</td></tr>
+<tr height="40"><td class="axis">Z=9</td><td class="wall">서측 외벽</td><td class="target-pin">★ Target_Fresh</td><td colspan="4" class="shelf">🛒 중앙 매대 1열 (과자·스낵·빵)<br>[양면 곤돌라 진열대 A]</td><td class="aisle">통로</td><td colspan="2" class="aisle">↗ 창고·카운터<br>진입 통로</td><td class="staff-door">카운터<br>출입구</td><td class="counter">카운터<br>상단</td><td class="pos-staff">알바 이동로</td><td class="tobacco">🚬 담배진열<br>(벽면 상단)</td><td class="wall">외벽</td></tr>
+<tr height="40"><td class="axis">Z=8</td><td class="wall">서측 외벽</td><td rowspan="2" class="hotbar">🍜 조리대<br>(전자레인지·<br>온수기)</td><td colspan="2" class="aisle">좌측 통로<br>(폭 2m)</td><td colspan="4" class="target-pin">★ Target_Shelf1 (매대 1·2열 사이 통로 / 진열·집기)<br>↔ 매대 간격 확보 (끼임 방지) ↔</td><td class="aisle">통로</td><td colspan="2" class="queue">👣 계산 대기열 1<br>(★ NPC 결제 위치)</td><td colspan="2" class="counter">🖥️ POS 2 (손님 계산대)</td><td class="pos-staff">★ Target_Checkout<br>[알바 계산 위치]</td><td class="tobacco">🚬 담배진열<br>(벽면 중단)</td><td class="wall">외벽</td></tr>
+<tr height="40"><td class="axis">Z=7</td><td class="wall">서측 외벽</td><td class="target-pin">★ Target_Hotbar</td><td class="aisle">통로</td><td colspan="4" class="shelf">🛒 중앙 매대 2열 (컵라면·즉석식품)<br>[양면 곤돌라 진열대 B]</td><td class="aisle">통로</td><td colspan="2" class="queue">👣 계산 대기열 2<br>(카운터 앞 광장)</td><td colspan="2" class="counter">🍬 껌·캔디 전면 매대</td><td class="pos-staff">카운터 내부<br>(이동 통로)</td><td class="tobacco">🚬 담배진열<br>(벽면 하단)</td><td class="wall">외벽</td></tr>
+<tr height="40"><td class="axis">Z=6</td><td class="wall">서측 외벽</td><td rowspan="2" class="trash">🗑️ 쓰레기통<br>&amp; 분리수거<br>(청소 구역)</td><td class="target-pin">★ Target_Trash<br>(청소/비우기)</td><td class="aisle">통로</td><td colspan="4" class="target-pin">★ Target_Shelf2 (매대 2·3열 사이 통로 / 진열·집기)<br>↔ 매대 간격 확보 ↔</td><td class="aisle">통로</td><td colspan="2" class="queue">👣 계산 대기열 3<br>(카운터 앞 광장)</td><td colspan="2" class="counter">🖥️ POS 1 + 📄 설명서 문서</td><td class="pos-boss">👑 사장님(플레이어)<br>기본 위치 (4번 화면)</td><td class="tobacco">영수증·비품<br>수납장</td><td class="wall">외벽</td></tr>
+<tr height="40"><td class="axis">Z=5</td><td class="wall">서측 외벽</td><td colspan="2" class="aisle">좌하단 통로<br>(폭 2m)</td><td colspan="3" class="shelf">🛒 중앙 매대 3열 (생활용품·잡화)<br>[양면 곤돌라 진열대 C]</td><td colspan="2" class="icecream">🍦 아이스크림 냉동고<br>(매대 3열 우측 끝단에 밀착 배치해<br>출입문 앞 병목 해소!)</td><td colspan="2" class="aisle">⬆️ 출입문~카운터<br>직선 메인 홀</td><td colspan="4" class="counter">카운터 하단 마감대 (L자 코너)</td><td class="wall">외벽</td></tr>
+<tr height="38"><td class="axis">Z=4</td><td class="wall">서측 외벽</td><td colspan="6" class="aisle">↔ 전면 하단 주 통로 (출입문 ↔ 취식공간·조리대 이동 동선) ↔</td><td colspan="2" class="target-pin">★ Target_IceCream<br>(아이스크림 집기)</td><td colspan="3" class="aisle">↗ 정문 입장 / 퇴장 광장 ↘<br>(손님·알바 충돌 없는 넓은 홀)</td><td colspan="3" class="floor">전면 쇼윈도 여유 공간</td><td class="wall">외벽</td></tr>
+<tr height="38"><td class="axis">Z=3</td><td class="wall">서측 외벽</td><td colspan="6" class="dining">🪑 취식 공간 / DINING AREA (창가 일자형 바 테이블 &amp; 의자 4석)<br>★ Target_Dining (소란/쓰레기 이벤트 발생 지점)</td><td colspan="2" class="floor">통로</td><td class="trash">☂️ 우산꽂이<br>&amp; 입구 휴지통</td><td colspan="2" class="aisle">🚪 정문 출입 통로<br>(폭 2m)</td><td colspan="3" class="floor">전면 창가</td><td class="wall">외벽</td></tr>
+<tr height="36"><td class="axis">Z=2 (남측 전면)</td><td class="wall">남서 코너</td><td colspan="9" class="glass">🪟 전면 통유리 쇼윈도 (취식 공간 창가 · 외부 도시 거리 조망)</td><td colspan="2" class="door">🚪 정문 자동문 [문]<br>(입장 시 종소리 SFX)</td><td colspan="3" class="glass">🪟 전면 유리창</td><td class="wall">남동 코너</td></tr>
+<tr height="36"><td class="axis">Z=1 (외부 인도)</td><td colspan="2" class="spawn">🚶 NPC 스폰/퇴장 L<br>(★ Spawn_Left)</td><td colspan="8" class="sidewalk">🏙️ 매장 외부 도시 보도블록 (인도) — 손님 NPC 이동 경로</td><td colspan="2" class="sidewalk">발매트 (정문 앞)</td><td colspan="2" class="sidewalk">도시 보도블록</td><td colspan="2" class="spawn">🚶 NPC 스폰/퇴장 R<br>(★ Spawn_Right)</td></tr>
+<tr height="16"><td colspan="17"></td></tr>
+<tr height="26"><td colspan="17" class="sec-hdr">2. 원안 스케치 대비 게임플레이·AI 동선 최적화 수정 사항 (팀 공유용)</td></tr>
+<tr height="24"><th colspan="3" class="tbl-hdr">수정 항목</th><th colspan="6" class="tbl-hdr">원안 스케치 상태</th><th colspan="8" class="tbl-hdr">엑셀 배치도 수정·보완 내용 (이유)</th></tr>
+<tr height="34"><td colspan="3"><b>① 아이스크림 냉동고 위치</b></td><td colspan="6" class="left">정문 출입구 바로 앞 & 카운터 계산 줄 바로 옆 홀 중앙에 단독 배치됨</td><td colspan="8" class="left">중앙 매대 3열의 우측 끝단(X:8~9, Z:5)에 밀착 배치함 → 정문(X:11~12)에서 카운터(X:12~13)로 이어지는 광장을 비워 손님 대기열과 출입 동선이 엉키지 않게 개선</td></tr>
+<tr height="34"><td colspan="3"><b>② 카운터(POS) 역할 분담</b></td><td colspan="6" class="left">카운터에 POS기 2대가 나란히 그려져 있으나 사장/알바 위치 구분이 없음</td><td colspan="8" class="left">출입구 쪽 POS 1(Z:6)은 [사장님 기본 위치 + 4번 화면 설명서 문서]로 지정하고, 안쪽 POS 2(Z:8)는 [알바 전용 계산 위치(★ Target_Checkout)]로 분리해 1인칭 시야 가림 및 충돌 방지</td></tr>
+<tr height="34"><td colspan="3"><b>③ 취식 공간(Dining) 단순화</b></td><td colspan="6" class="left">창가 바 테이블 4석 외에 정문 옆 2인용 사각 테이블 2세트가 추가 배치됨</td><td colspan="8" class="left">정문 옆 2인용 테이블을 제거하고 창가 일자형 바 테이블(X:2~7, Z:3)만 유지 → 하단 주 통로(Z:4) 폭을 넓혀 NavMesh 에이전트(알바·손님) 길막 현상 예방</td></tr>
+<tr height="34"><td colspan="3"><b>④ 알바 휴식 및 NPC 스폰 명시</b></td><td colspan="6" class="left">우측 하단 [문?] 표기만 있고 외부 스폰 지점과 알바 휴식 목적지가 미표기됨</td><td colspan="8" class="left">창고(Backroom) 안쪽에 [★ Target_Rest (알바 휴식 의자)]를 지정하고, 정문 밖 도시 인도에 좌/우 [★ Spawn_Left / Spawn_Right]를 추가해 손님 NPC 입장→구매→계산→퇴장 루프 완성</td></tr>
+<tr height="16"><td colspan="17"></td></tr>
+<tr height="26"><td colspan="17" class="sec-hdr">3. 구역별 배치 규격 · AI 목적지(Transform) · 파트별 연동 명세표</td></tr>
+<tr height="24"><th colspan="2" class="tbl-hdr">구역명</th><th colspan="2" class="tbl-hdr">격자 좌표 (X, Z)</th><th colspan="3" class="tbl-hdr">AI 타겟 포인트 (Transform 명칭)</th><th colspan="4" class="tbl-hdr">직원 업무 연동 (이승재)</th><th colspan="4" class="tbl-hdr">손님 NPC · 카메라 · 사운드 연동 (하종욱 · 송재명)</th><th colspan="2" class="tbl-hdr">중간발표 우선순위</th></tr>
+<tr height="44"><td colspan="2"><b>카운터 (POS 1·2) & 담배진열</b></td><td colspan="2">X: 12~15, Z: 5~9</td><td colspan="3"><b>Target_Checkout (X:14, Z:8)<br>Player_StartPos (X:14, Z:6)</b></td><td colspan="4" class="left">계산(Checkout) 및 캐셔 대기 수행 위치</td><td colspan="4" class="left">• 사장님 1인칭 시작 위치 및 매뉴얼 문서 클릭(4·5번 화면)<br>• 손님 계산 대기열(X:10~11, Z:6~8) 도착 후 결제 시 바코드 SFX(BarcodeCheckout) & 매출 가산</td><td colspan="2"><b>필수 (1순위)</b></td></tr>
+<tr height="44"><td colspan="2"><b>중앙 매대 1~3열 & 아이스크림</b></td><td colspan="2">X: 5~9, Z: 5~9</td><td colspan="3"><b>Target_Shelf1 (X:6, Z:8)<br>Target_Shelf2 (X:6, Z:6)<br>Target_IceCream (X:8, Z:4)</b></td><td colspan="4" class="left">진열(Restock) 및 물건 정리 업무 수행 위치</td><td colspan="4" class="left">• 손님 NPC 입장 후 랜덤 방문하여 물건 집기(PickUp) 수행<br>• 알바 진열 완료 시 작업 완료 SFX(WorkTaskComplete)</td><td colspan="2"><b>필수 (1순위)</b></td></tr>
+<tr height="44"><td colspan="2"><b>워크인 쿨러 & 신선식품 매대</b></td><td colspan="2">쿨러: X:4~9, Z:12<br>신선: X:2~3, Z:9~11</td><td colspan="3"><b>Target_Cooler (X:7, Z:11)<br>Target_Fresh (X:4, Z:10)</b></td><td colspan="4" class="left">음료·도시락 보충 진열(Restock) 보조 목적지</td><td colspan="4" class="left">• 손님 NPC 상품 탐색 목적지 풀(Pool)에 포함</td><td colspan="2"><b>필수 (1순위)</b></td></tr>
+<tr height="44"><td colspan="2"><b>조리대 & 쓰레기통 / 취식 공간</b></td><td colspan="2">조리/휴지통: X:2, Z:5~8<br>취식: X:2~7, Z:3</td><td colspan="3"><b>Target_Trash (X:3, Z:6)<br>Target_Dining (X:5, Z:3)</b></td><td colspan="4" class="left">청소(Clean) 및 매장 정돈 업무 수행 위치</td><td colspan="4" class="left">• 손님 NPC 추가 행동(소란/쓰레기 발생) 검토 구역</td><td colspan="2"><b>권장 (2순위)</b></td></tr>
+<tr height="44"><td colspan="2"><b>창고 (BACKROOM)</b></td><td colspan="2">X: 11~15, Z: 10~12</td><td colspan="3"><b>Target_Rest (X:14, Z:11)<br>Target_StockBox (X:12, Z:11)</b></td><td colspan="4" class="left">휴식(Rest) 지시 시 이동하여 스트레스·피로 회복 / 재고 박스 수령</td><td colspan="4" class="left">• 알바 휴식 중 초당 스트레스 -1.8 × 회복배율 감소</td><td colspan="2"><b>필수 (1순위)</b></td></tr>
+<tr height="44"><td colspan="2"><b>정문 출입구 & 외부 도시 인도</b></td><td colspan="2">문: X:11~12, Z:2<br>인도: X:1~16, Z:1</td><td colspan="3"><b>Door_Threshold (X:11.5, Z:2)<br>Spawn_Left (X:1, Z:1)<br>Spawn_Right (X:16, Z:1)</b></td><td colspan="4" class="left">- (직원 매장 외부 이탈 불가)</td><td colspan="4" class="left">• 손님 NPC 스폰 → 정문 통과 시 문 종소리(StoreDoorChime) 재생 → 계산 완료 후 정문 밖 목표 지점으로 퇴장</td><td colspan="2"><b>필수 (1순위)</b></td></tr>
+</table></body></html>

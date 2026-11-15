@@ -1,4 +1,5 @@
 using System;
+using OpenSourceTeam6.UI.Core;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -10,10 +11,20 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Button startGameButton;
         [SerializeField] private Button settingsButton;
         [SerializeField] private Button quitGameButton;
+        [SerializeField] private Button bgmQuickButton;
+        [SerializeField] private Text bgmQuickButtonLabel;
+
+        private IStoreAudioPlayer _audioPlayer;
 
         public event Action StartClicked;
         public event Action SettingsClicked;
         public event Action QuitClicked;
+
+        public void BindAudioPlayer(IStoreAudioPlayer audioPlayer)
+        {
+            _audioPlayer = audioPlayer;
+            RefreshBgmQuickLabel();
+        }
 
         private void OnEnable()
         {
@@ -31,6 +42,13 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 quitGameButton.onClick.AddListener(HandleQuitClicked);
             }
+
+            if (bgmQuickButton != null)
+            {
+                bgmQuickButton.onClick.AddListener(HandleBgmQuickClicked);
+            }
+
+            RefreshBgmQuickLabel();
         }
 
         private void OnDisable()
@@ -49,6 +67,11 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 quitGameButton.onClick.RemoveListener(HandleQuitClicked);
             }
+
+            if (bgmQuickButton != null)
+            {
+                bgmQuickButton.onClick.RemoveListener(HandleBgmQuickClicked);
+            }
         }
 
         public void SetVisible(bool visible)
@@ -58,21 +81,51 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 target.SetActive(visible);
             }
+
+            if (visible)
+            {
+                RefreshBgmQuickLabel();
+            }
         }
 
         private void HandleStartClicked()
         {
+            _audioPlayer?.PlaySfx(StoreSfxId.UiClick);
             StartClicked?.Invoke();
         }
 
         private void HandleSettingsClicked()
         {
+            _audioPlayer?.PlaySfx(StoreSfxId.UiClick);
             SettingsClicked?.Invoke();
         }
 
         private void HandleQuitClicked()
         {
+            _audioPlayer?.PlaySfx(StoreSfxId.UiClick);
             QuitClicked?.Invoke();
+        }
+
+        private void HandleBgmQuickClicked()
+        {
+            _audioPlayer?.PlaySfx(StoreSfxId.UiClick);
+            if (_audioPlayer != null)
+            {
+                bool nextMuted = !_audioPlayer.VolumeState.IsBgmMuted;
+                _audioPlayer.SetBgmMuted(nextMuted);
+                RefreshBgmQuickLabel();
+            }
+            else
+            {
+                SettingsClicked?.Invoke();
+            }
+        }
+
+        private void RefreshBgmQuickLabel()
+        {
+            if (bgmQuickButtonLabel == null) return;
+            bool isMuted = _audioPlayer != null && _audioPlayer.VolumeState.IsBgmMuted;
+            bgmQuickButtonLabel.text = isMuted ? "♪✕" : "♪";
         }
     }
 }
