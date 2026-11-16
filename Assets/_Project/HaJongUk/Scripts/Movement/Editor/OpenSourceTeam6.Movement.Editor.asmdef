@@ -1,0 +1,6 @@
+{
+  "name": "OpenSourceTeam6.Movement.Editor",
+  "rootNamespace": "OpenSourceTeam6.Movement.Editor",
+  "references": ["OpenSourceTeam6.Movement.Core", "OpenSourceTeam6.Movement.Unity", "OpenSourceTeam6.Camera.Unity", "Unity.InputSystem", "Unity.AI.Navigation"],
+  "includePlatforms": ["Editor"]
+}
