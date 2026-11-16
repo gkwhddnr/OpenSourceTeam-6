@@ -49,8 +49,58 @@ namespace OpenSourceTeam6.UI.Editor
                 if (prefab == null || prefab.transform.Find("EndingPanel") == null)
                 {
                     BuildUiPrefabAndWorkScene();
+                    return;
                 }
+
+                SyncAudioClipsOnPrefabAndActiveScene(prefab);
             };
+        }
+
+        private static void SyncAudioClipsOnPrefabAndActiveScene(GameObject prefabAsset)
+        {
+            string[] bgmFiles = { "BGM_Lobby.mp3", "BGM_Normal.mp3", "BGM_Crisis.mp3", "BGM_Settlement.mp3" };
+            for (int i = 0; i < bgmFiles.Length; i++)
+            {
+                string fullPath = $"{AudioAssetDir}/{bgmFiles[i]}";
+                if (File.Exists(fullPath) && AssetDatabase.LoadAssetAtPath<AudioClip>(fullPath) == null)
+                {
+                    AssetDatabase.ImportAsset(fullPath, ImportAssetOptions.ForceSynchronousImport);
+                }
+            }
+
+            StoreAudioManager prefabAudio = prefabAsset != null ? prefabAsset.GetComponent<StoreAudioManager>() : null;
+            if (prefabAudio != null)
+            {
+                SerializedObject checkSo = new SerializedObject(prefabAudio);
+                AudioClip lobbyClip = checkSo.FindProperty("_lobbyBgmClip")?.objectReferenceValue as AudioClip;
+                AudioClip normalClip = checkSo.FindProperty("_dayNormalBgmClip")?.objectReferenceValue as AudioClip;
+                AudioClip crisisClip = checkSo.FindProperty("_dayCrisisBgmClip")?.objectReferenceValue as AudioClip;
+                AudioClip settleClip = checkSo.FindProperty("_settlementBgmClip")?.objectReferenceValue as AudioClip;
+
+                bool needsUpdate = lobbyClip == null || normalClip == null || crisisClip == null || settleClip == null ||
+                                   lobbyClip == normalClip || crisisClip == normalClip || settleClip == normalClip;
+
+                if (needsUpdate)
+                {
+                    AssignDefaultAudioClips(prefabAudio);
+                    PrefabUtility.SavePrefabAsset(prefabAsset);
+
+                    StoreAudioManager sceneAudio = Object.FindFirstObjectByType<StoreAudioManager>();
+                    if (sceneAudio != null)
+                    {
+                        AssignDefaultAudioClips(sceneAudio);
+                        EditorUtility.SetDirty(sceneAudio);
+                        if (sceneAudio.gameObject.scene.IsValid())
+                        {
+                            EditorSceneManager.MarkSceneDirty(sceneAudio.gameObject.scene);
+                            EditorSceneManager.SaveScene(sceneAudio.gameObject.scene);
+                        }
+                    }
+
+                    AssetDatabase.SaveAssets();
+                    Debug.Log("[OpenSourceTeam6.UI] 4종 BGM(로비/영업/분노/정산) 오디오 클립 자동 연결 완료!");
+                }
+            }
         }
 
         [MenuItem(MenuPath, priority = 200)]
@@ -280,13 +330,19 @@ namespace OpenSourceTeam6.UI.Editor
                 TryBindClip(audioSo, "_lobbyBgmClip", "BGM_Normal");
             }
 
-            TryBindClip(audioSo, "_dayNormalBgmClip", "BGM_Normal");
-            if (!TryBindClip(audioSo, "_dayCrisisBgmClip", "BGM_Crisis"))
+            if (!TryBindClip(audioSo, "_dayNormalBgmClip", "BGM_Normal"))
             {
-                TryBindClip(audioSo, "_dayCrisisBgmClip", "BGM_Normal");
+                TryBindClip(audioSo, "_dayNormalBgmClip", "BGM_Lobby");
             }
 
-            if (!TryBindClip(audioSo, "_settlementBgmClip", "BGM_Settlement"))
+            if (!TryBindClip(audioSo, "_dayCrisisBgmClip", "BGM_Crisis") &&
+                !TryBindClip(audioSo, "_dayCrisisBgmClip", "BGM_Normal"))
+            {
+                TryBindClip(audioSo, "_dayCrisisBgmClip", "BGM_Lobby");
+            }
+
+            if (!TryBindClip(audioSo, "_settlementBgmClip", "BGM_Settlement") &&
+                !TryBindClip(audioSo, "_settlementBgmClip", "BGM_Lobby"))
             {
                 TryBindClip(audioSo, "_settlementBgmClip", "BGM_Normal");
             }

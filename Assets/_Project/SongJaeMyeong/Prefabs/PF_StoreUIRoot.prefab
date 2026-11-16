@@ -7129,10 +7129,10 @@ MonoBehaviour:
   _initialSfxVolume: 1
   _initialBgmMuted: 0
   _useProceduralFallbackWhenClipMissing: 1
-  _lobbyBgmClip: {fileID: 8300000, guid: e5a9261b9d4459b4ca94627a0dc77595, type: 3}
+  _lobbyBgmClip: {fileID: 8300000, guid: d36f4a7f417542f47b6e6f503ce528a8, type: 3}
   _dayNormalBgmClip: {fileID: 8300000, guid: e5a9261b9d4459b4ca94627a0dc77595, type: 3}
-  _dayCrisisBgmClip: {fileID: 8300000, guid: e5a9261b9d4459b4ca94627a0dc77595, type: 3}
-  _settlementBgmClip: {fileID: 8300000, guid: e5a9261b9d4459b4ca94627a0dc77595, type: 3}
+  _dayCrisisBgmClip: {fileID: 8300000, guid: 3a78cfed37ac1ad4c931c398b4756e74, type: 3}
+  _settlementBgmClip: {fileID: 8300000, guid: a4b47805201a3974d98a60d8b9b9f2b1, type: 3}
   _uiClickClip: {fileID: 8300000, guid: 3e41547d44baa5549aa53cf14b1f8d76, type: 3}
   _uiPopupOpenCloseClip: {fileID: 8300000, guid: 925a1b25494ed5140adf7521875889cf, type: 3}
   _storeDoorChimeClip: {fileID: 8300000, guid: 496a54d6f2e1e434685f9bba0b41f3fd, type: 3}
