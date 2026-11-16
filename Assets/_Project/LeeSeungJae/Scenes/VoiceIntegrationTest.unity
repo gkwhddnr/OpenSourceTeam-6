@@ -597,13 +597,16 @@ MonoBehaviour:
   uiPrefab: {fileID: 3114504723083653380, guid: b4099a71786691e4a86e3f2e1b9ee6f5, type: 3}
   employee: {fileID: 1199412360}
   restockDestination: {fileID: 1221721627}
+  cleanDestination: {fileID: 1900000002}
+  paymentDestination: {fileID: 1900000004}
+  cashierDestination: {fileID: 1900000006}
   whisperModelPath: Assets/_Project/LeeSeungJae/Assets/ggml-small-q5_1.bin
   llmModelPath: Assets/_Project/LeeSeungJae/Assets/Qwen3.5-2B-Q4_K_M.gguf
   microphoneDeviceName: 
   boostQuietInput: 1
   enableVoiceDiagnostics: 0
   useWhisperVocabulary: 1
-  whisperVocabulary: "\uC9C4\uC5F4, \uC9C4\uC5F4\uB300, \uC7AC\uACE0, \uBB3C\uAC74, \uC190\uB2D8, \uD14C\uC774\uBE14"
+  whisperVocabulary: "\uC9C4\uC5F4, \uC9C4\uC5F4\uB300, \uC7AC\uACE0, \uBB3C\uAC74, \uC190\uB2D8, \uD14C\uC774\uBE14, \uCCAD\uC18C, \uACC4\uC0B0, \uACC4\uC0B0\uB300, \uCE90\uC154"
   personality:
     employeeName: "\uBBFC\uC218"
     traits: "\uC131\uC2E4\uD558\uC9C0\uB9CC \uAC00\uB054 \uC9C0\uC2DC\uB97C \uC798\uBABB \uC774\uD574\uD55C\uB2E4."
@@ -1394,7 +1397,103 @@ Transform:
   m_Children:
   - {fileID: 785888480}
   - {fileID: 1221721627}
+  - {fileID: 1900000002}
+  - {fileID: 1900000004}
+  - {fileID: 1900000006}
   m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1900000001
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1900000002}
+  m_Layer: 0
+  m_Name: CleanDestination
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1900000002
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1900000001}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: -4, y: 0, z: 3}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1370556272}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1900000003
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1900000004}
+  m_Layer: 0
+  m_Name: PaymentDestination
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1900000004
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1900000003}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 2, y: 0, z: -3}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1370556272}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1900000005
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1900000006}
+  m_Layer: 0
+  m_Name: CashierDestination
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1900000006
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1900000005}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 4, y: 0, z: -3}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1370556272}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1001 &1387947856
 PrefabInstance:
