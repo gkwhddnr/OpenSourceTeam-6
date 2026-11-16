@@ -7167,6 +7167,7 @@ MonoBehaviour:
   pausePanel: {fileID: 7715553059117561578}
   settingsPanel: {fileID: 5305174783999322776}
   worldStatusPresenter: {fileID: 0}
+  defaultWorldStatusPrefab: {fileID: 4840694888533063863, guid: c451950448f3f36429b318a2e0057443, type: 3}
   audioManager: {fileID: 296906807949600066}
   externalCursorLockGateComponent: {fileID: 0}
   standaloneFallbackGate: {fileID: 5073823017701589826}

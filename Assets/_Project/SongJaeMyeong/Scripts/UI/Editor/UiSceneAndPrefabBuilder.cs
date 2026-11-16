@@ -85,7 +85,7 @@ namespace OpenSourceTeam6.UI.Editor
                     AssignDefaultAudioClips(prefabAudio);
                     PrefabUtility.SavePrefabAsset(prefabAsset);
 
-                    StoreAudioManager sceneAudio = Object.FindFirstObjectByType<StoreAudioManager>();
+                    StoreAudioManager sceneAudio = Object.FindAnyObjectByType<StoreAudioManager>();
                     if (sceneAudio != null)
                     {
                         AssignDefaultAudioClips(sceneAudio);
@@ -101,6 +101,21 @@ namespace OpenSourceTeam6.UI.Editor
                     Debug.Log("[OpenSourceTeam6.UI] 4종 BGM(로비/영업/분노/정산) 오디오 클립 자동 연결 완료!");
                 }
             }
+
+            StoreUiSessionController prefabSession = prefabAsset != null ? prefabAsset.GetComponent<StoreUiSessionController>() : null;
+            GameObject worldUiPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(WorldUiPrefabPath);
+            if (prefabSession != null && worldUiPrefab != null)
+            {
+                SerializedObject sessionSo = new SerializedObject(prefabSession);
+                SerializedProperty worldPrefabProp = sessionSo.FindProperty("defaultWorldStatusPrefab");
+                if (worldPrefabProp != null && worldPrefabProp.objectReferenceValue == null)
+                {
+                    worldPrefabProp.objectReferenceValue = worldUiPrefab;
+                    sessionSo.ApplyModifiedPropertiesWithoutUndo();
+                    PrefabUtility.SavePrefabAsset(prefabAsset);
+                    AssetDatabase.SaveAssets();
+                }
+            }
         }
 
         [MenuItem(MenuPath, priority = 200)]
@@ -112,13 +127,13 @@ namespace OpenSourceTeam6.UI.Editor
             EnsureKenneyUiSprites();
             Font koreanFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
-            GameObject tempRoot = BuildStoreUiHierarchy(koreanFont, fillSprite, portraitSprite);
-            GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(tempRoot, PrefabPath);
-            Object.DestroyImmediate(tempRoot);
-
             GameObject tempWorldUi = BuildWorldStatusHierarchy(koreanFont, fillSprite);
             GameObject savedWorldUiPrefab = PrefabUtility.SaveAsPrefabAsset(tempWorldUi, WorldUiPrefabPath);
             Object.DestroyImmediate(tempWorldUi);
+
+            GameObject tempRoot = BuildStoreUiHierarchy(koreanFont, fillSprite, portraitSprite, savedWorldUiPrefab);
+            GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(tempRoot, PrefabPath);
+            Object.DestroyImmediate(tempRoot);
 
             BuildWorkScene(savedPrefab, savedWorldUiPrefab, koreanFont, fillSprite);
             AssetDatabase.SaveAssets();
@@ -266,7 +281,7 @@ namespace OpenSourceTeam6.UI.Editor
             return AssetDatabase.LoadAssetAtPath<Sprite>(assetPath);
         }
 
-        private static GameObject BuildStoreUiHierarchy(Font font, Sprite whiteSprite, Sprite portraitSprite)
+        private static GameObject BuildStoreUiHierarchy(Font font, Sprite whiteSprite, Sprite portraitSprite, GameObject worldUiPrefab)
         {
             GameObject root = new GameObject("PF_StoreUIRoot");
             Canvas canvas = root.AddComponent<Canvas>();
@@ -313,6 +328,7 @@ namespace OpenSourceTeam6.UI.Editor
             so.FindProperty("endingPanel").objectReferenceValue = endingPresenter;
             so.FindProperty("pausePanel").objectReferenceValue = pausePresenter;
             so.FindProperty("settingsPanel").objectReferenceValue = settingsPresenter;
+            so.FindProperty("defaultWorldStatusPrefab").objectReferenceValue = worldUiPrefab;
             so.FindProperty("audioManager").objectReferenceValue = audioManager;
             so.FindProperty("standaloneFallbackGate").objectReferenceValue = fallbackGate;
             so.ApplyModifiedPropertiesWithoutUndo();
@@ -681,7 +697,7 @@ namespace OpenSourceTeam6.UI.Editor
 
             GameObject stageBadge = CreatePanel("VoiceStageBadge", voiceDock.transform, new Color(0.24f, 0.29f, 0.36f, 0.95f), sprite);
             SetRect(stageBadge.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(18f, -14f), new Vector2(270f, 38f));
-            Text stageTxt = CreateText("VoiceStageText", stageBadge.transform, font, "[V] 마이크 대기 중", 17, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
+            Text stageTxt = CreateText("VoiceStageText", stageBadge.transform, font, "[R/V] 마이크 대기 중", 17, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
             StretchFull(stageTxt.rectTransform);
 
             Text transcriptTxt = CreateText("TranscriptText", voiceDock.transform, font, "인식 문장: -", 18, FontStyle.Normal, new Color(0.90f, 0.94f, 0.98f, 1f), TextAnchor.MiddleLeft);
@@ -689,7 +705,7 @@ namespace OpenSourceTeam6.UI.Editor
 
             GameObject bannerObj = CreatePanel("FeedbackBanner", voiceDock.transform, new Color(0.15f, 0.20f, 0.27f, 0.92f), sprite);
             SetRect(bannerObj.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 14f), new Vector2(-36f, 56f));
-            Text bannerTxt = CreateText("FeedbackBannerText", bannerObj.transform, font, "[안내]  [V] 키를 눌러 음성으로 지시하거나 [Tab] 키로 텍스트 명령창을 여세요.", 17, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
+            Text bannerTxt = CreateText("FeedbackBannerText", bannerObj.transform, font, "[안내]  [R] 키(누른 채 말하기) 또는 [V] 키로 음성 지시하거나 [Tab] 키로 텍스트 명령창을 여세요.", 17, FontStyle.Bold, Color.white, TextAnchor.MiddleLeft);
             SetRect(bannerTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-28f, 0f));
 
             SerializedObject so = new SerializedObject(presenter);

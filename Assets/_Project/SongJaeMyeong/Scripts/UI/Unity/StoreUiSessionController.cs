@@ -19,6 +19,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         [Header("Optional World-Space NPC Status UI (UI-09)")]
         [SerializeField] private EmployeeWorldStatusPresenter worldStatusPresenter;
+        [SerializeField] private GameObject defaultWorldStatusPrefab;
 
         [Header("Audio System (SND-00 ~ SND-03)")]
         [SerializeField] private StoreAudioManager audioManager;
@@ -227,6 +228,29 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
+        public void BindEmployeeTarget(Transform employeeTransform, Transform cameraTransform = null)
+        {
+            if (employeeTransform == null) return;
+
+            if (worldStatusPresenter == null)
+            {
+                worldStatusPresenter = employeeTransform.GetComponentInChildren<EmployeeWorldStatusPresenter>(true);
+            }
+
+            if (worldStatusPresenter == null && defaultWorldStatusPrefab != null)
+            {
+                GameObject instance = Instantiate(defaultWorldStatusPrefab);
+                instance.name = "EmployeeWorldStatusUI";
+                worldStatusPresenter = instance.GetComponent<EmployeeWorldStatusPresenter>();
+            }
+
+            if (worldStatusPresenter != null)
+            {
+                worldStatusPresenter.SetFollowTarget(employeeTransform);
+                worldStatusPresenter.RenderSnapshot(lastEmployeeSnapshot);
+            }
+        }
+
         public void SetAudioPlayer(IStoreAudioPlayer player)
         {
             activeAudioPlayer = player;
@@ -350,7 +374,7 @@ namespace OpenSourceTeam6.UI.Unity
                     CommandFeedbackKind.Info,
                     string.Empty,
                     string.Empty,
-                    "[V] 키를 눌러 음성으로 지시하거나 [Tab] 키로 텍스트 명령창을 여세요."));
+                    "[R] 키(누른 채 말하기) 또는 [V] 키로 음성 지시하거나 [Tab] 키로 텍스트 명령창을 여세요."));
             }
 
             if (worldStatusPresenter != null)

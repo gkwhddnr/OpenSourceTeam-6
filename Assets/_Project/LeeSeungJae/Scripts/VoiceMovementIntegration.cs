@@ -68,8 +68,14 @@ namespace EmployeeVoice
         private Vector3? recordedDestination;
         private bool cursorWasLocked;
         private bool activeMoveIsRestock;
+        private StaffWorkRole activeWorkRole = StaffWorkRole.Idle;
+        private EmployeeAction activeMoveAction = EmployeeAction.ACCEPT_NORMAL;
         private string activeWork = null;
         private long lastArrivedMove;
+        private bool recordingHoldR;
+        private EmployeePersonalityProfile currentProfile = EmployeePersonalityProfile.CreatePreset1Diligent();
+        private float stressFloat = 20f;
+        private float fatigueFloat = 10f;
 
         // The hiring UI can provide a snapshot before starting a day; no UI ownership is assumed here.
         public bool TryApplyEmployeePersonality(EmployeePersonality selected, out string reason)
@@ -93,9 +99,51 @@ namespace EmployeeVoice
                 fatigue = Mathf.Clamp(selected.fatigue, 0, 100),
                 loyalty = Mathf.Clamp(selected.loyalty, 0, 100)
             };
+            stressFloat = personality.stress;
+            fatigueFloat = personality.fatigue;
+            currentProfile = EmployeePersonaPresets.InferProfileFromTraits(personality.traits);
             reason = "";
             UpdateHud();
             return true;
+        }
+
+        private void OnPersonaConfirmed(EmployeePersonaSetupData setupData)
+        {
+            currentProfile = setupData.Profile;
+            EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
+            stressFloat = currentProfile.InitialStress;
+            fatigueFloat = demoRates.InitialFatigue;
+
+            string sanitizedName = string.IsNullOrWhiteSpace(setupData.EmployeeName)
+                ? EmployeePersonaPresets.Preset1Name
+                : setupData.EmployeeName.Trim();
+
+            personality = new EmployeePersonality
+            {
+                employeeName = sanitizedName,
+                traits = setupData.PersonalityTraits ?? "",
+                archetype = MapToVoiceArchetype(currentProfile.Archetype),
+                diligence = Mathf.Clamp(Mathf.RoundToInt(currentProfile.Diligence), 0, 100),
+                literalness = currentProfile.Archetype == PersonaArchetype.LiteralRigid ? 85 : 20,
+                laziness = Mathf.Clamp(Mathf.RoundToInt(currentProfile.Laziness), 0, 100),
+                stress = Mathf.Clamp(Mathf.RoundToInt(stressFloat), 0, 100),
+                fatigue = Mathf.Clamp(Mathf.RoundToInt(fatigueFloat), 0, 100),
+                loyalty = Mathf.Clamp(Mathf.RoundToInt(currentProfile.Loyalty), 0, 100)
+            };
+
+            UpdateHud();
+        }
+
+        private static EmployeeArchetype MapToVoiceArchetype(PersonaArchetype archetype)
+        {
+            switch (archetype)
+            {
+                case PersonaArchetype.LazyComplainer: return EmployeeArchetype.LazyComplainer;
+                case PersonaArchetype.FragileTimid: return EmployeeArchetype.FragileTimid;
+                case PersonaArchetype.LiteralRigid: return EmployeeArchetype.LiteralRigid;
+                case PersonaArchetype.PassionateHasty: return EmployeeArchetype.PassionateHasty;
+                default: return EmployeeArchetype.DiligentStandard;
+            }
         }
 
         private void Start()
@@ -133,6 +181,11 @@ namespace EmployeeVoice
             }
             else Debug.LogWarning("[VoiceIntegration] Player input gate unavailable; UI fallback remains active.", this);
             movement = employee;
+            Camera viewCam = playerRig != null ? playerRig.GetComponentInChildren<Camera>() : Camera.main;
+            ui.BindEmployeeTarget(employee.transform, viewCam != null ? viewCam.transform : null);
+            stressFloat = personality.stress;
+            fatigueFloat = personality.fatigue;
+            currentProfile = EmployeePersonaPresets.InferProfileFromTraits(personality.traits);
             Subscribe();
             SetupWhisper();
             SetupLlm();
@@ -148,8 +201,10 @@ namespace EmployeeVoice
         private void Subscribe()
         {
             if (subscribed) return;
+            ui.PersonaConfirmed += OnPersonaConfirmed;
             ui.TextCommandSubmitted += SubmitText;
             ui.CancelWorkRequested += CancelWork;
+            ui.VoiceRecordToggleRequested += OnVoiceRecordToggleRequested;
             ui.DayStarted += OnDayStarted;
             movement.Finished += OnMovementFinished;
             subscribed = true;
@@ -158,8 +213,27 @@ namespace EmployeeVoice
         private void OnDayStarted()
         {
             CancelWork();
+            EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
+            stressFloat = currentProfile.InitialStress;
+            fatigueFloat = demoRates.InitialFatigue;
+            personality.stress = Mathf.Clamp(Mathf.RoundToInt(stressFloat), 0, 100);
+            personality.fatigue = Mathf.Clamp(Mathf.RoundToInt(fatigueFloat), 0, 100);
             UpdateHud();
-            Feedback(CommandFeedbackKind.Info, "R 키를 누른 채 말씀하고 떼면 인식합니다. 텍스트 명령은 Tab으로 입력합니다.");
+            Feedback(CommandFeedbackKind.Info, "R 키를 누른 채 말씀하고 떼거나 V 키로 녹음합니다. 텍스트 명령은 Tab으로 입력합니다.");
+        }
+
+        private void OnVoiceRecordToggleRequested()
+        {
+            if (ui == null || ui.CurrentMode != UiScreenMode.InGame || ui.IsCommandOverlayOpen) return;
+            if (recording)
+            {
+                recordingHoldR = false;
+                if (microphone != null) microphone.StopRecord();
+            }
+            else
+            {
+                StartRecording(holdR: false);
+            }
         }
 
         private string ModelPath(string configured)
@@ -246,6 +320,7 @@ namespace EmployeeVoice
             if (recording && !Application.isFocused)
             {
                 recording = false;
+                recordingHoldR = false;
                 microphone.StopRecord();
                 ui.PushVoiceStage(VoiceProcessStage.Idle, "");
                 Feedback(CommandFeedbackKind.Info, "포커스가 해제되어 녹음이 취소됐습니다.");
@@ -254,13 +329,20 @@ namespace EmployeeVoice
             if (recording && Time.realtimeSinceStartup - recordingStartedAt >= MaxRecordingSeconds)
             {
                 Debug.Log("[VoiceIntegration] Maximum recording duration reached; stopping.");
+                recordingHoldR = false;
                 microphone.StopRecord();
                 return;
             }
-            if (recording && (Keyboard.current == null || !Keyboard.current.rKey.isPressed))
+            if (recording && recordingHoldR && (Keyboard.current == null || !Keyboard.current.rKey.isPressed))
             {
+                recordingHoldR = false;
                 microphone.StopRecord();
                 return;
+            }
+            if (!ui.IsPauseMenuOpen && !ui.IsSettingsOpen && Time.deltaTime > 0f)
+            {
+                TickContinuousEmotionAndRevenue(Time.deltaTime);
+                if (ui.CurrentMode != UiScreenMode.InGame) return;
             }
             if (activeMove != 0)
             {
@@ -278,7 +360,75 @@ namespace EmployeeVoice
                 if (Keyboard.current.f11Key.wasPressedThisFrame) _ = CompareVocabularyTranscriptions();
             }
             if (!ui.IsCommandOverlayOpen && Keyboard.current != null && Keyboard.current.rKey.wasPressedThisFrame)
-                StartRecording();
+                StartRecording(holdR: true);
+        }
+
+        private void TickContinuousEmotionAndRevenue(float deltaTime)
+        {
+            bool isResting = activeWorkRole == StaffWorkRole.Idle && activeMove == 0;
+            EmotionStatRates rates = EmotionStatRates.CreateDemoDefault();
+            float stressDelta = StressRules.EvaluateContinuousStressDelta(
+                activeWorkRole,
+                isStoreCrowdedOrNoisy: false,
+                currentProfile,
+                rates,
+                deltaTime);
+            float fatigueDelta = isResting
+                ? -rates.RestFatigueRecoveryPerSecond * currentProfile.RestRecoveryMultiplier * deltaTime
+                : rates.WorkFatiguePerSecond * deltaTime;
+
+            int prevStress = personality.stress;
+            int prevFatigue = personality.fatigue;
+
+            stressFloat = StressRules.ClampStat(stressFloat + stressDelta);
+            fatigueFloat = StressRules.ClampStat(fatigueFloat + fatigueDelta);
+            personality.stress = Mathf.Clamp(Mathf.RoundToInt(stressFloat), 0, 100);
+            personality.fatigue = Mathf.Clamp(Mathf.RoundToInt(fatigueFloat), 0, 100);
+
+            ui.RecordWorkSample(activeWorkRole, stressFloat, deltaTime);
+
+            if (personality.stress != prevStress || personality.fatigue != prevFatigue)
+            {
+                UpdateHud();
+            }
+
+            if (stressFloat >= StoreEndingRules.StressOverflowThreshold)
+            {
+                TriggerStressOverflowEnding();
+            }
+        }
+
+        private bool ApplyCommandStressAndCheckOverflow(string commandText, StoreCommandIntent commandIntent, StaffWorkRole targetRole)
+        {
+            UtteranceTone tone = EmotionReactionRules.ParseKoreanTone(commandText);
+            float delta = StressRules.EvaluateCommandStressDelta(
+                commandIntent,
+                tone,
+                activeWorkRole,
+                targetRole,
+                currentProfile);
+
+            if (Mathf.Abs(delta) > 0.001f)
+            {
+                stressFloat = StressRules.ClampStat(stressFloat + delta);
+                personality.stress = Mathf.Clamp(Mathf.RoundToInt(stressFloat), 0, 100);
+                UpdateHud();
+            }
+
+            if (stressFloat >= StoreEndingRules.StressOverflowThreshold)
+            {
+                TriggerStressOverflowEnding();
+                return true;
+            }
+
+            return false;
+        }
+
+        private void TriggerStressOverflowEnding()
+        {
+            CancelWork();
+            ui.CompleteDayAndShowSettlement(stressFloat);
+            ui.ShowEndingScreen();
         }
 
         private void LateUpdate()
@@ -308,7 +458,7 @@ namespace EmployeeVoice
             Feedback(CommandFeedbackKind.Info, "이동 가능한 바닥을 조준해 다시 클릭해 주세요.");
         }
 
-        private void StartRecording()
+        private void StartRecording(bool holdR = true)
         {
             if (recording) return;
             if (transcriptionInFlight || (processing && !inferenceInFlight)) { Feedback(CommandFeedbackKind.Info, "이전 음성을 처리 중입니다."); return; }
@@ -334,12 +484,15 @@ namespace EmployeeVoice
                 transcript = "";
                 recordedDestination = selectedDestination;
                 recording = true;
+                recordingHoldR = holdR;
                 recordingStartedAt = Time.realtimeSinceStartup;
                 microphone.StartRecord();
                 ui.PushVoiceStage(VoiceProcessStage.Listening, "");
-                Feedback(CommandFeedbackKind.Info, "녹음 중입니다. R 키를 떼면 인식합니다. (최대 55초)");
+                Feedback(CommandFeedbackKind.Info, holdR
+                    ? "녹음 중입니다. R 키를 떼면 인식합니다. (최대 55초)"
+                    : "녹음 중입니다. 다시 V 키를 누르면 인식합니다. (최대 55초)");
             }
-            catch (Exception ex) { recording = false; Feedback(CommandFeedbackKind.SystemOrMoveError, "녹음 실패: " + ex.Message); }
+            catch (Exception ex) { recording = false; recordingHoldR = false; Feedback(CommandFeedbackKind.SystemOrMoveError, "녹음 실패: " + ex.Message); }
         }
 
         private async void OnRecordingStopped(AudioChunk audio)
@@ -401,13 +554,18 @@ namespace EmployeeVoice
             if (!TargetsEmployee(text, personality.employeeName)) { Fail(CommandFeedbackKind.Info, "현재 직원 " + personality.employeeName + "에게 명령해 주세요."); return; }
             if (IsCancelCommand(text, personality.employeeName))
             {
-                bool hadWork = activeMove != 0 || inferenceInFlight;
+                bool hadWork = activeMove != 0 || activeWorkRole != StaffWorkRole.Idle || inferenceInFlight;
                 CancelWork();
                 Feedback(CommandFeedbackKind.Info, hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
                 return;
             }
             if (processing || inferenceInFlight) { Feedback(CommandFeedbackKind.Info, "이전 명령을 처리 중입니다."); return; }
-            if (IsVagueCommand(text, personality.employeeName)) { Fail(CommandFeedbackKind.Info, "어떤 업무를 할지 다시 말씀해 주세요."); return; }
+            if (IsVagueCommand(text, personality.employeeName))
+            {
+                if (ApplyCommandStressAndCheckOverflow(text, StoreCommandIntent.Clarify, StaffWorkRole.Idle)) return;
+                Fail(CommandFeedbackKind.Info, "어떤 업무를 할지 다시 말씀해 주세요.");
+                return;
+            }
             if (classifier == null || classifier.llmAgent == null)
             { Fail(CommandFeedbackKind.SystemOrMoveError, "AI 모델을 사용할 수 없거나 로딩 중입니다."); return; }
             processing = true;
@@ -436,13 +594,23 @@ namespace EmployeeVoice
                 { Fail(CommandFeedbackKind.Info, "중지와 새 업무를 나누어 말씀해 주세요."); return; }
                 if (intent == "CANCEL")
                 {
-                    bool hadWork = activeMove != 0;
+                    bool hadWork = activeMove != 0 || activeWorkRole != StaffWorkRole.Idle;
                     CancelWork();
                     Feedback(CommandFeedbackKind.Info, hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
                     return;
                 }
-                if (intent == "CLARIFY") { Fail(CommandFeedbackKind.Info, "어떤 업무를 할지 다시 말씀해 주세요."); return; }
-                if (intent == "UNSUPPORTED") { Fail(CommandFeedbackKind.Info, "아직 지원하지 않는 업무입니다. 진열, 청소, 계산, 캐셔 또는 이동을 말씀해 주세요."); return; }
+                if (intent == "CLARIFY")
+                {
+                    if (ApplyCommandStressAndCheckOverflow(text, StoreCommandIntent.Clarify, StaffWorkRole.Idle)) return;
+                    Fail(CommandFeedbackKind.Info, "어떤 업무를 할지 다시 말씀해 주세요.");
+                    return;
+                }
+                if (intent == "UNSUPPORTED")
+                {
+                    if (ApplyCommandStressAndCheckOverflow(text, StoreCommandIntent.Unsupported, StaffWorkRole.Idle)) return;
+                    Fail(CommandFeedbackKind.Info, "아직 지원하지 않는 업무입니다. 진열, 청소, 계산, 캐셔 또는 이동을 말씀해 주세요.");
+                    return;
+                }
                 if (activeMove != 0) { Fail(CommandFeedbackKind.Info, "직원이 이미 이동 중입니다. 먼저 취소해 주세요."); return; }
                 if (intent == "MOVE")
                 {
@@ -454,6 +622,8 @@ namespace EmployeeVoice
                     activeMove = move.RequestId;
                     lastArrivedMove = 0;
                     activeMoveIsRestock = false;
+                    activeWorkRole = StaffWorkRole.Idle;
+                    activeMoveAction = EmployeeAction.ACCEPT_NORMAL;
                     activeWork = null;
                     currentAction = "MOVE";
                     badge = StaffMoveBadge.Moving;
@@ -471,6 +641,12 @@ namespace EmployeeVoice
                 { Fail(CommandFeedbackKind.SystemOrMoveError, WorkName(workAction) + " 임시 목적지가 설정되지 않았습니다."); return; }
                 if (behaviorAgent == null || behaviorAgent.llmAgent == null)
                 { Fail(CommandFeedbackKind.SystemOrMoveError, "직원 행동 판단 모델을 사용할 수 없거나 로딩 중입니다."); return; }
+
+                if (ApplyCommandStressAndCheckOverflow(text, ToStoreCommandIntent(workAction), MapToStaffWorkRole(workAction)))
+                {
+                    return;
+                }
+
                 string behavior = await behaviorAgent.Chat("Employee personality: " + personality.traits +
                     "; stress=" + personality.stress + "; fatigue=" + personality.fatigue + "; loyalty=" + personality.loyalty +
                     ". Player command: " + text + ". Requested work: " + workAction +
@@ -486,6 +662,7 @@ namespace EmployeeVoice
                 Debug.Log("[VoiceIntegration] command=" + text + " | intent=" + intent + " | target=" + taskTarget + " | proposal=" + proposal + " | action=" + action);
                 if (action == EmployeeAction.SLACK_OFF || action == EmployeeAction.REFUSE_EMOTION)
                 {
+                    activeWorkRole = StaffWorkRole.Idle;
                     badge = StaffMoveBadge.Idle;
                     UpdateHud();
                     Feedback(CommandFeedbackKind.RefusedByEmotion, "직원이 " + action + " 행동을 선택했습니다.");
@@ -500,6 +677,8 @@ namespace EmployeeVoice
                 activeMove = receipt.RequestId;
                 lastArrivedMove = 0;
                 activeMoveIsRestock = workAction == EmployeeAction.RESTOCK;
+                activeWorkRole = MapToStaffWorkRole(workAction);
+                activeMoveAction = action;
                 activeWork = WorkName(workAction);
                 badge = StaffMoveBadge.Moving;
                 UpdateHud();
@@ -800,7 +979,7 @@ namespace EmployeeVoice
             action == EmployeeAction.ACCEPT_COMPLAIN || action == EmployeeAction.MISTAKE ||
             action == EmployeeAction.SLACK_OFF || action == EmployeeAction.REFUSE_EMOTION;
 
-        // Temporary adapter for the published table until the team's newer rules API is available.
+        // Adapter connected with OpenSourceTeam6.UI.Core.StressRules archetype & stress band weights.
         public static EmployeeAction SelectTeamReaction(EmployeePersonality employee, EmployeeAction proposal, double sample)
         {
             if (employee == null) throw new ArgumentNullException(nameof(employee));
@@ -811,8 +990,10 @@ namespace EmployeeVoice
                 stress < 70 ? new double[] { 35, 40, 10, 10, 5 } :
                 stress < 90 ? new double[] { 10, 25, 20, 20, 25 } :
                               new double[] { 0, 10, 15, 20, 55 };
+            if (employee.archetype == EmployeeArchetype.DiligentStandard) weights[0] *= 1.15;
             if (employee.archetype == EmployeeArchetype.LazyComplainer) weights[3] *= 1.8;
             if (employee.archetype == EmployeeArchetype.FragileTimid && stress >= 40) weights[2] *= 1.5;
+            if (employee.archetype == EmployeeArchetype.LiteralRigid) { weights[0] *= 1.2; weights[3] *= 0.5; }
             if (employee.archetype == EmployeeArchetype.PassionateHasty && employee.fatigue >= 60) weights[2] *= 1.6;
             EmployeeAction[] reactions = { EmployeeAction.ACCEPT_NORMAL, EmployeeAction.ACCEPT_COMPLAIN,
                 EmployeeAction.MISTAKE, EmployeeAction.SLACK_OFF, EmployeeAction.REFUSE_EMOTION };
@@ -829,6 +1010,37 @@ namespace EmployeeVoice
                 if (cursor < 0) return reactions[i];
             }
             return reactions[reactions.Length - 1];
+        }
+
+        private static StoreCommandIntent ToStoreCommandIntent(EmployeeAction work)
+        {
+            switch (work)
+            {
+                case EmployeeAction.HANDLE_PAYMENT:
+                case EmployeeAction.CASHIER:
+                    return StoreCommandIntent.Checkout;
+                case EmployeeAction.RESTOCK:
+                case EmployeeAction.CLEAN:
+                    return StoreCommandIntent.Restock;
+                default:
+                    return StoreCommandIntent.Unsupported;
+            }
+        }
+
+        private static StaffWorkRole MapToStaffWorkRole(EmployeeAction work)
+        {
+            switch (work)
+            {
+                case EmployeeAction.HANDLE_PAYMENT:
+                case EmployeeAction.CASHIER:
+                    return StaffWorkRole.Checkout;
+                case EmployeeAction.RESTOCK:
+                    return StaffWorkRole.Restock;
+                case EmployeeAction.CLEAN:
+                    return StaffWorkRole.Other;
+                default:
+                    return StaffWorkRole.Idle;
+            }
         }
 
         public static bool IsRestockAction(EmployeeAction action) => action == EmployeeAction.RESTOCK ||
@@ -902,15 +1114,56 @@ namespace EmployeeVoice
             if (outcome.RequestId != activeMove) return;
             activeMove = 0;
             lastArrivedMove = outcome.Status == MoveState.Arrived ? outcome.RequestId : 0;
-            if (outcome.Status == MoveState.Arrived)
-            { badge = StaffMoveBadge.Arrived; Feedback(CommandFeedbackKind.Info, activeWork != null ? activeWork + " 테스트 목적지에 도착했습니다. 실제 업무는 아직 연결되지 않았습니다." : "지정한 위치에 도착했습니다."); }
-            else if (outcome.Status == MoveState.Cancelled)
-            { badge = StaffMoveBadge.Cancelled; Feedback(CommandFeedbackKind.Info, "직원 이동이 취소되었습니다."); }
-            else
-            { badge = StaffMoveBadge.Failed; Feedback(CommandFeedbackKind.SystemOrMoveError, "이동 실패: " + outcome.Failure); }
-            currentAction = "IDLE";
+            string finishedWork = activeWork;
+            EmployeeAction finishedAction = activeMoveAction;
             activeMoveIsRestock = false;
             activeWork = null;
+
+            if (outcome.Status == MoveState.Arrived)
+            {
+                badge = StaffMoveBadge.Arrived;
+                if (finishedWork != null)
+                {
+                    if (finishedAction == EmployeeAction.MISTAKE)
+                    {
+                        activeWorkRole = StaffWorkRole.Idle;
+                        currentAction = "MISTAKE";
+                        stressFloat = StressRules.ClampStat(stressFloat + 5f);
+                        personality.stress = Mathf.Clamp(Mathf.RoundToInt(stressFloat), 0, 100);
+                        Feedback(CommandFeedbackKind.SystemOrMoveError, finishedWork + " 목적지에 도착했으나 업무 실수(MISTAKE)가 발생했습니다.");
+                        UpdateHud();
+                        if (stressFloat >= StoreEndingRules.StressOverflowThreshold)
+                        {
+                            TriggerStressOverflowEnding();
+                        }
+                        return;
+                    }
+
+                    currentAction = finishedAction.ToString();
+                    Feedback(CommandFeedbackKind.Accepted, finishedWork + " 위치에 도착하여 업무를 수행합니다.");
+                }
+                else
+                {
+                    activeWorkRole = StaffWorkRole.Idle;
+                    currentAction = "IDLE";
+                    Feedback(CommandFeedbackKind.Info, "지정한 위치에 도착했습니다.");
+                }
+            }
+            else if (outcome.Status == MoveState.Cancelled)
+            {
+                activeWorkRole = StaffWorkRole.Idle;
+                currentAction = "IDLE";
+                badge = StaffMoveBadge.Cancelled;
+                Feedback(CommandFeedbackKind.Info, "직원 이동이 취소되었습니다.");
+            }
+            else
+            {
+                activeWorkRole = StaffWorkRole.Idle;
+                currentAction = "IDLE";
+                badge = StaffMoveBadge.Failed;
+                Feedback(CommandFeedbackKind.SystemOrMoveError, "이동 실패: " + outcome.Failure);
+            }
+
             UpdateHud();
         }
 
@@ -919,12 +1172,18 @@ namespace EmployeeVoice
             generation++;
             lastArrivedMove = 0;
             processing = false;
+            recordingHoldR = false;
             if (recording && microphone != null) { recording = false; microphone.StopRecord(); }
             classifier?.CancelRequests();
             behaviorAgent?.CancelRequests();
             dialogueAgent?.CancelRequests();
             if (activeMove != 0 && !movement.Cancel(activeMove)) activeMove = 0;
-            if (activeMove == 0) { activeWork = null; activeMoveIsRestock = false; }
+            if (activeMove == 0)
+            {
+                activeWork = null;
+                activeMoveIsRestock = false;
+                activeWorkRole = StaffWorkRole.Idle;
+            }
             ui.PushVoiceStage(VoiceProcessStage.Idle, "");
             if (activeMove == 0) { badge = StaffMoveBadge.Idle; currentAction = "IDLE"; UpdateHud(); }
         }
@@ -932,8 +1191,11 @@ namespace EmployeeVoice
         private void UpdateHud()
         {
             if (ui == null) return;
+            StaffWorkRole displayedRole = activeWorkRole != StaffWorkRole.Idle
+                ? activeWorkRole
+                : (activeMove == 0 ? StaffWorkRole.Idle : (activeMoveIsRestock ? StaffWorkRole.Restock : StaffWorkRole.Other));
             ui.UpdateEmployeeHud(new EmployeeHudSnapshot(personality.employeeName, personality.traits,
-                activeMove == 0 ? StaffWorkRole.Idle : (activeMoveIsRestock ? StaffWorkRole.Restock : StaffWorkRole.Other), currentAction, badge,
+                displayedRole, currentAction, badge,
                 personality.stress, personality.fatigue, personality.loyalty));
         }
 
@@ -959,6 +1221,7 @@ namespace EmployeeVoice
             selectedDestination = null;
             recordedDestination = null;
             cursorWasLocked = false;
+            recordingHoldR = false;
             if (microphone != null)
             {
                 microphone.OnRecordStop -= OnRecordingStopped;
@@ -974,10 +1237,13 @@ namespace EmployeeVoice
                 if (activeMove != 0) movement.Cancel(activeMove);
             }
             activeMove = 0;
+            activeWorkRole = StaffWorkRole.Idle;
             if (ui != null)
             {
+                ui.PersonaConfirmed -= OnPersonaConfirmed;
                 ui.TextCommandSubmitted -= SubmitText;
                 ui.CancelWorkRequested -= CancelWork;
+                ui.VoiceRecordToggleRequested -= OnVoiceRecordToggleRequested;
                 ui.DayStarted -= OnDayStarted;
             }
             subscribed = false;

@@ -61,7 +61,9 @@ namespace OpenSourceTeam6.UI.Unity
             StressBand band = StressRules.Classify(snapshot.Stress);
             string roleLabel = snapshot.CurrentRole == StaffWorkRole.Checkout
                 ? "계산 중"
-                : (snapshot.CurrentRole == StaffWorkRole.Restock ? "진열 중" : "대기/휴식");
+                : (snapshot.CurrentRole == StaffWorkRole.Restock
+                    ? "진열 중"
+                    : (snapshot.CurrentRole == StaffWorkRole.Other ? "청소/업무 중" : "대기/휴식"));
             string bandLabel = band == StressBand.Angry
                 ? "분노"
                 : (band == StressBand.Complaining ? "불만" : "안정");
