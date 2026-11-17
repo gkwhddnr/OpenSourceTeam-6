@@ -289,6 +289,7 @@ GameObject:
   m_Component:
   - component: {fileID: 383189615}
   - component: {fileID: 383189614}
+  - component: {fileID: 383189616}
   m_Layer: 0
   m_Name: KeyLight
   m_TagString: Untagged
@@ -376,6 +377,35 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &383189616
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 383189613}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalLightData
+  m_UsePipelineSettings: 1
+  m_AdditionalLightsShadowResolutionTier: 2
+  m_CustomShadowLayers: 0
+  m_LightCookieSize: {x: 1, y: 1}
+  m_LightCookieOffset: {x: 0, y: 0}
+  m_SoftShadowQuality: 0
+  m_RenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_ShadowRenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_Version: 4
+  m_LightLayerMask: 1
+  m_ShadowLayerMask: 1
+  m_RenderingLayers: 1
+  m_ShadowRenderingLayers: 1
 --- !u!1 &521279368
 GameObject:
   m_ObjectHideFlags: 0
@@ -1270,6 +1300,113 @@ MeshFilter:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1230012599}
   m_Mesh: {fileID: 10206, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!1 &1245096482
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1245096487}
+  - component: {fileID: 1245096486}
+  - component: {fileID: 1245096485}
+  - component: {fileID: 1245096484}
+  - component: {fileID: 1245096483}
+  m_Layer: 0
+  m_Name: World Time System
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1245096483
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1245096482}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ee2ef449c4844cbebe289acba0a39408, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.TimeSkyExposure
+  timeSource: {fileID: 1245096486}
+  cloudDegreesPerGameHour: 2
+--- !u!114 &1245096484
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1245096482}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c0cb1a4b132241b19cd5859a51ee0f94, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.CelestialBodyPresenter
+  timeSource: {fileID: 1245096486}
+  sunLight: {fileID: 383189614}
+  viewCamera: {fileID: 1387947857}
+  sunDiameterDegrees: 1.2
+  moonDiameterDegrees: 2
+  moonriseHour: 17
+  moonVisibleHours: 12
+  moonlightIntensity: 0.12
+--- !u!114 &1245096485
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1245096482}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ebee75e103ed4cbba2a32f6c0b91f25d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.DayNightPresenter
+  timeSource: {fileID: 1245096486}
+  sun: {fileID: 383189614}
+  month: 9
+  august: {x: 5.5, y: 19.5}
+  september: {x: 6, y: 18.5}
+  october: {x: 6.5, y: 18}
+  november: {x: 7, y: 17.5}
+  daylightIntensity: 1
+  nightAmbient: {r: 0.08, g: 0.1, b: 0.16, a: 1}
+  dayAmbient: {r: 0.55, g: 0.6, b: 0.7, a: 1}
+--- !u!114 &1245096486
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1245096482}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6500b1e956cd40a2ab43c00794aa4752, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.BusinessTimeController
+  standaloneClock: 1
+  dayDurationSeconds: 120
+  openingHour: 8
+  closingHour: 32
+--- !u!4 &1245096487
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1245096482}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1370556271
 GameObject:
   m_ObjectHideFlags: 0
@@ -1360,6 +1497,11 @@ PrefabInstance:
     m_AddedGameObjects: []
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 18dec9e2692baaf4eaa04ed10a89b9ef, type: 3}
+--- !u!20 &1387947857 stripped
+Camera:
+  m_CorrespondingSourceObject: {fileID: 8730339482084441354, guid: 18dec9e2692baaf4eaa04ed10a89b9ef, type: 3}
+  m_PrefabInstance: {fileID: 1387947856}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1508340755
 GameObject:
   m_ObjectHideFlags: 0
@@ -1644,3 +1786,4 @@ SceneRoots:
   - {fileID: 1199412359}
   - {fileID: 1370556272}
   - {fileID: 38581649}
+  - {fileID: 1245096487}

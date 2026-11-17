@@ -18,12 +18,12 @@ namespace OpenSourceTeam6.Camera.Core
     {
         // Mouse delta is displacement, not angular velocity; do not multiply by dt.
         public static LookState Step(LookState state, float deltaX, float deltaY,
-            float degreesPerUnit, float minPitch = -80f, float maxPitch = 80f)
+            float degreesPerUnit, float minPitch = -89.9f, float maxPitch = 90f)
         {
             if (!Finite(state.YawDegrees) || !Finite(state.PitchDegrees) ||
                 !Finite(deltaX) || !Finite(deltaY) || !Finite(degreesPerUnit) ||
                 degreesPerUnit < 0 || !Finite(minPitch) || !Finite(maxPitch) ||
-                minPitch > maxPitch || minPitch < -89f || maxPitch > 89f)
+                minPitch > maxPitch || minPitch <= -90f || maxPitch > 90f)
                 throw new ArgumentOutOfRangeException(nameof(degreesPerUnit), "Invalid look input/settings.");
 
             double yaw = ((double)state.YawDegrees + (double)deltaX * degreesPerUnit) % 360d;

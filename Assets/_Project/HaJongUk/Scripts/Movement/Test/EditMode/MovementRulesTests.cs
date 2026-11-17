@@ -31,7 +31,9 @@ namespace OpenSourceTeam6.Movement.Tests
         {
             var look = LookSolver.Step(new LookState(359, 0), 2, -1000, 1);
             Assert.That(look.YawDegrees, Is.EqualTo(1));
-            Assert.That(look.PitchDegrees, Is.EqualTo(80));
+            Assert.That(look.PitchDegrees, Is.EqualTo(90));
+            var upward = LookSolver.Step(new LookState(0, 0), 0, 1000, 1);
+            Assert.That(upward.PitchDegrees, Is.EqualTo(-89.9f));
             Assert.Throws<ArgumentOutOfRangeException>(() => LookSolver.Step(look, float.NaN, 0, 1));
             Assert.Throws<ArgumentOutOfRangeException>(() => MovementSolver.HorizontalVelocity(float.PositiveInfinity, 0, 0, 3));
         }
