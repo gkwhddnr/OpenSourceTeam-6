@@ -7,7 +7,7 @@ namespace OpenSourceTeam6.Time.Unity
     [DisallowMultipleComponent]
     public sealed class TimeSkyExposure : MonoBehaviour
     {
-        [SerializeField] private float cloudDegreesPerGameHour = 2;
+        [KoreanInspectorLabel("구름 이동 속도"), Tooltip("게임 시간 한 시간당 구름이 이동하는 각도입니다."), SerializeField] private float cloudDegreesPerGameHour = 2;
         private Material original, instance, overlay;
         private GameObject dome;
         private bool failed;

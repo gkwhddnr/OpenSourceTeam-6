@@ -13,7 +13,10 @@ namespace OpenSourceTeam6.Time.Unity
         private ParticleSystem drops, splashes;
         private Material rainMaterial, splashMaterial;
         private bool particlesPaused;
-        private float appliedRate = -1, appliedNight = -1;
+        private float appliedRate = -1, appliedNight = -1, appliedBudget = -1;
+        private Vector2 appliedArea;
+        private bool? appliedFixedArea;
+        private float appliedFallDistance = -1;
         private static readonly int TintId = Shader.PropertyToID("_Tint");
 
         private RainParticleEffect() { }
@@ -47,6 +50,9 @@ namespace OpenSourceTeam6.Time.Unity
             splashMaterial = new Material(splashShader) { name = "Rain splashes (runtime)" };
             var emitter = new GameObject("Rain drops (runtime)");
             emitter.transform.SetParent(parent, false);
+            // Keep the owner's scene but not its scale: bounds are in world units.
+            emitter.transform.SetParent(null, true);
+            emitter.transform.localScale = Vector3.one;
             drops = emitter.AddComponent<ParticleSystem>();
             drops.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = drops.main;
@@ -63,7 +69,7 @@ namespace OpenSourceTeam6.Time.Unity
             main.startColor = Color.white;
             var shape = drops.shape;
             shape.shapeType = ParticleSystemShapeType.Box;
-            shape.scale = new Vector3(20, .5f, 20);
+            shape.scale = new Vector3(30, .5f, 30);
             var velocity = drops.velocityOverLifetime;
             velocity.enabled = true;
             velocity.space = ParticleSystemSimulationSpace.World;
@@ -143,11 +149,33 @@ namespace OpenSourceTeam6.Time.Unity
             splashes.randomSeed = 618;
         }
 
-        public void Apply(float emissionRate, bool paused, float night, Vector3 cameraPosition)
+        public void Apply(float emissionRate, float budget, bool paused, float night, Vector3 center, Vector2 area, bool fixedArea, float fallDistance)
         {
             if (!drops || !splashes) return;
-            drops.transform.position = cameraPosition + Vector3.up * 12;
+            drops.transform.position = center;
             drops.transform.rotation = Quaternion.identity;
+            if (area != appliedArea)
+            {
+                var shape = drops.shape; shape.scale = new Vector3(area.x, .5f, area.y);
+                appliedArea = area;
+            }
+            if (appliedFixedArea != fixedArea)
+            {
+                // Fixed area confines falling streaks to the selected X/Z footprint.
+                var velocity = drops.velocityOverLifetime;
+                velocity.x = fixedArea ? 0 : 1.3f;
+                velocity.z = fixedArea ? 0 : .4f;
+                appliedFixedArea = fixedArea;
+            }
+            if (!Mathf.Approximately(budget, appliedBudget) || !Mathf.Approximately(fallDistance, appliedFallDistance))
+            {
+                var main = drops.main;
+                float lifetime = fallDistance / 18f + .1f;
+                main.startLifetime = lifetime;
+                main.maxParticles = Mathf.Clamp(Mathf.CeilToInt(budget * lifetime) + 128, 128, 16000);
+                appliedBudget = budget;
+                appliedFallDistance = fallDistance;
+            }
             if (paused != particlesPaused)
             {
                 var main = drops.main; main.simulationSpeed = paused ? 0 : 1;

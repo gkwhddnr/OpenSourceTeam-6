@@ -6,11 +6,13 @@ namespace OpenSourceTeam6.Time.Unity
     [RequireComponent(typeof(BusinessTimeController), typeof(TimeEnvironmentController))]
     public sealed class TimeDemoPanel : MonoBehaviour
     {
-        [Min(1)] public float fullDayDurationSeconds = 60;
+        [KoreanInspectorLabel("테스트 하루 길이 (초)"), Min(1)] public float fullDayDurationSeconds = 60;
+        [KoreanInspectorLabel("시점 변경 버튼 표시"), SerializeField] private bool showViewControls = true;
 
         private BusinessTimeController timeSource;
         private TimeEnvironmentController environment;
-        private float elapsed, nextLabelRefresh;
+        private float nextLabelRefresh;
+        private Vector2 panelScroll;
         private string hourLabel = "", cycleLabel = "", rainLabel = "", cloudLabel = "", splashLabel = "";
 
         private void OnEnable()
@@ -23,6 +25,7 @@ namespace OpenSourceTeam6.Time.Unity
                 enabled = false;
                 return;
             }
+            timeSource.ConfigureDemoClock(fullDayDurationSeconds);
             nextLabelRefresh = 0;
             RefreshLabels();
         }
@@ -30,13 +33,8 @@ namespace OpenSourceTeam6.Time.Unity
         private void Update()
         {
             if (!timeSource || !environment) return;
+            timeSource.ConfigureDemoClock(fullDayDurationSeconds);
             if (UnityEngine.Time.unscaledTime >= nextLabelRefresh) RefreshLabels();
-            if (timeSource.Clock.IsPaused) return;
-
-            elapsed += UnityEngine.Time.deltaTime;
-            if (timeSource.Clock.Phase == BusinessPhase.Ready) timeSource.BeginDay(1);
-            timeSource.ApplyExternalProgress(timeSource.Clock.DayId,
-                Mathf.Min(elapsed / Mathf.Max(fullDayDurationSeconds, 1), 1));
         }
 
         private void RefreshLabels()
@@ -50,36 +48,44 @@ namespace OpenSourceTeam6.Time.Unity
             splashLabel = "Impact splashes: " + environment.VisibleSplashCount;
         }
 
+        public Rect PanelRect => new Rect(Screen.width - 12 - Mathf.Min(360, Mathf.Max(1, (Screen.width - 48) * .5f)),
+            12, Mathf.Min(360, Mathf.Max(1, (Screen.width - 48) * .5f)), Mathf.Max(1, Mathf.Min(350, Screen.height - 24)));
+
         private void OnGUI()
         {
             if (!timeSource || !environment) return;
-            GUILayout.BeginArea(new Rect(12, 12, 360, 305), GUI.skin.box);
+            GUILayout.BeginArea(PanelRect, GUI.skin.box);
+            panelScroll = GUILayout.BeginScrollView(panelScroll);
             GUILayout.Label("TIME TEST | September | 08:00 - next day 08:00");
+            if (!showViewControls) GUILayout.Label("Esc: release cursor | Click world: resume");
             GUILayout.Label(hourLabel);
             if (GUILayout.Button(timeSource.Clock.IsPaused ? "Resume" : "Pause"))
                 timeSource.Clock.IsPaused = !timeSource.Clock.IsPaused;
             if (GUILayout.Button("Next day / restart")) RestartDay();
 
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("East")) environment.SetViewRotation(Quaternion.Euler(-15, 90, 0));
-            if (GUILayout.Button("West")) environment.SetViewRotation(Quaternion.Euler(-15, 270, 0));
-            if (GUILayout.Button("Up")) environment.SetViewRotation(Quaternion.Euler(-70, 90, 0));
-            GUILayout.EndHorizontal();
+            if (showViewControls)
+            {
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("East")) environment.SetViewRotation(Quaternion.Euler(-15, 90, 0));
+                if (GUILayout.Button("West")) environment.SetViewRotation(Quaternion.Euler(-15, 270, 0));
+                if (GUILayout.Button("Up")) environment.SetViewRotation(Quaternion.Euler(-70, 90, 0));
+                GUILayout.EndHorizontal();
+            }
             GUILayout.Label(cycleLabel);
             environment.IsRain = GUILayout.Toggle(environment.IsRain, "isRain | Rain weather");
+            GUILayout.Label("Rain fog strength: " + Mathf.RoundToInt(environment.RainFogPercent) + "%");
+            environment.RainFogPercent = GUILayout.HorizontalSlider(environment.RainFogPercent, 0, 100);
             GUILayout.Label(rainLabel);
             GUILayout.Label(cloudLabel);
             GUILayout.Label(splashLabel);
             GUILayout.Label("Clouds cover the sky before rain begins.");
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
         }
 
         private void RestartDay()
         {
-            timeSource.Clock.IsPaused = false;
-            timeSource.ApplyExternalProgress(timeSource.Clock.DayId, 1);
-            timeSource.Clock.ConfirmSettlement(timeSource.Clock.DayId);
-            if (timeSource.BeginDay(timeSource.Clock.DayId + 1)) elapsed = 0;
+            timeSource.RestartDemoDay();
             RefreshLabels();
         }
     }

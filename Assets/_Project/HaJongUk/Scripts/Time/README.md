@@ -1,5 +1,17 @@
 # 時間 / Time system
 
+`HJU_TimeMovement_Integration.unity` combines the camera/movement work scene with
+the time test system. It reuses the player camera, work-scene sun and navigation;
+the original two scenes remain available. The movement panel is on the left and
+the time/weather panel on the right. Press Esc to release the cursor, operate
+either panel, then click the world to resume camera movement. A scene-only input
+bridge holds the player's input lock while the pointer is over the time panel.
+Camera-direction buttons are hidden in this scene so the player rig remains the
+sole camera rotation owner. The time test still uses a 60-second day for checking.
+Both panels share the same reversible pointer-lock helper. `BusinessTimeController`
+owns demo-clock progression after it is configured by the test panel, so hiding the
+panel does not stop time. Standalone/external production clock ownership is unchanged.
+
 TimeSystem_Test.unity: 24 game hours in 60 real seconds for quick checks. Production target remains 3–5 minutes; TimeDemoPanel.fullDayDurationSeconds controls the demo.
 
 Both TimeSystem_Test and Team_Integration start at 08:00 and advance through midnight to 08:00 the next morning (openingHour=8, closingHour=32). Team_Integration currently uses a 120-second standalone preview cycle; choose 180–300 seconds for production. Midnight wraps only the displayed hour, so cloud drift stays continuous.
@@ -22,7 +34,11 @@ increases rainfall. Clearing reverses this sequence: rain stops before clouds cl
 Smoothstep eases the endpoints. Reversing the toggle continues from the current
 envelope without resetting. `Intensity` (0–1) drives emission; `CloudIntensity`
 drives `_Rain` on the existing sky material: cloud bodies broaden/merge, their coverage increases and
-their color darkens, while night clouds remain dark. No fog settings are changed.
+their color darkens, while night clouds remain dark. Rain also adds distance fog;
+the environment's Rain Fog Percent controls its maximum strength from 0 to 100%.
+Fog follows the actual rain intensity, fades with rain and uses a darker night color.
+The active scene's previous fog settings are restored when the effect ends or the
+environment is disabled. Fog applies to compatible scene materials, not the skybox.
 
 Owner: HaJongUk's scene-local controller, one weather envelope advanced by the
 environment composition in main-thread Update. TimeSkyExposure receives an
@@ -33,11 +49,21 @@ Closing leaves weather running so the test toggle still works after the 60s demo
 Disabling destroys owned particles/materials and resets dry; enabling fades in again.
 No global singleton, background work, imported texture or package is required.
 
-The test panel exposes the live isRain checkbox, intensity percentage and particle
+The test panel exposes the live isRain checkbox, rain fog strength slider, intensity percentage and particle
 count. Scene builder wires the references; it adds no scene-navigation buttons.
-The world-space 20m square emitter follows the camera from 12m above; existing drops do not
-teleport with it. 1,400 drops/s default, 1,600/s runtime cap (including older scenes
-serialized with 2,200), 2,400 live drop cap, 1.2s lifetime, static world collision.
+The default camera-follow emitter covers 30×30m from 12m above the camera. For a
+defined map, select `고정 영역 사용`, set `고정 영역 중심` to the emitter's
+world-space center and height, and set `비 영역 크기` to its X/Z width and depth.
+Selecting the controller shows the fixed area in Scene view. `최대 빗방울 낙하 거리`
+must reach the lowest ground below the emitter. Fixed-area drops fall vertically;
+camera-follow drops retain their small wind. Existing drops remain in world space
+after moving/changing the area, and splashes can extend slightly past its edge.
+`초당 최대 빗방울 수` and `빗방울 생성 상한` independently limit the emission rate;
+their effective maximum is the lower of the two (1600/s budget by default, including
+older scenes serialized with 2200). Increasing area without increasing the rate makes
+rain sparser; raising the budget can cost more and requires target-device profiling.
+The live drop cap scales with budget and fall distance, up to 16,000; collision uses
+static world colliders.
 Residual drops fall out after emission reaches
 zero instead of disappearing suddenly. Roofs/ground require colliders. This local
 camera rain effect does not simulate water, puddles or whole-map weather physics.

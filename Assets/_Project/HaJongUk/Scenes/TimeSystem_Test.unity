@@ -154,7 +154,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ee2ef449c4844cbebe289acba0a39408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.TimeSkyExposure
-  cloudDegreesPerGameHour: 2
+  cloudDegreesPerGameHour: 3
 --- !u!114 &27026843
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -251,6 +251,12 @@ MonoBehaviour:
   rainInSeconds: 12
   rainOutSeconds: 10
   maximumDropsPerSecond: 1600
+  emissionBudget: 1600
+  useFixedRainArea: 0
+  rainAreaSize: {x: 50, y: 50}
+  fixedRainCenter: {x: 0, y: 12, z: 0}
+  cameraHeightOffset: 12
+  rainFallDistance: 20
   rainCollisionLayers:
     serializedVersion: 2
     m_Bits: 51
@@ -269,6 +275,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.TimeEnvironmentController
   sunLight: {fileID: 2083330069}
   viewCamera: {fileID: 641165198}
+  rainFogPercent: 50
 --- !u!1 &641165197
 GameObject:
   m_ObjectHideFlags: 0

@@ -8,15 +8,15 @@ namespace OpenSourceTeam6.Time.Unity
     [DisallowMultipleComponent]
     public sealed class DayNightPresenter : MonoBehaviour
     {
-        [Tooltip("Art-directed August-November presets, not astronomical observations.")]
+        [KoreanInspectorLabel("기준 월"), Tooltip("8~11월의 연출용 시간입니다. 실제 천문 관측값은 아닙니다.")]
         [SerializeField, Range(8, 11)] private int month = 9;
-        [SerializeField] private Vector2 august = new Vector2(5.5f, 19.5f);
-        [SerializeField] private Vector2 september = new Vector2(6, 18.5f);
-        [SerializeField] private Vector2 october = new Vector2(6.5f, 18);
-        [SerializeField] private Vector2 november = new Vector2(7, 17.5f);
-        [SerializeField, Min(0)] private float daylightIntensity = 1;
-        [SerializeField] private Color nightAmbient = new Color(.08f, .1f, .16f);
-        [SerializeField] private Color dayAmbient = new Color(.55f, .6f, .7f);
+        [KoreanInspectorLabel("8월 일출·일몰"), Tooltip("X: 일출 시각, Y: 일몰 시각"), SerializeField] private Vector2 august = new Vector2(5.5f, 19.5f);
+        [KoreanInspectorLabel("9월 일출·일몰"), Tooltip("X: 일출 시각, Y: 일몰 시각"), SerializeField] private Vector2 september = new Vector2(6, 18.5f);
+        [KoreanInspectorLabel("10월 일출·일몰"), Tooltip("X: 일출 시각, Y: 일몰 시각"), SerializeField] private Vector2 october = new Vector2(6.5f, 18);
+        [KoreanInspectorLabel("11월 일출·일몰"), Tooltip("X: 일출 시각, Y: 일몰 시각"), SerializeField] private Vector2 november = new Vector2(7, 17.5f);
+        [KoreanInspectorLabel("낮 햇빛 강도"), SerializeField, Min(0)] private float daylightIntensity = 1;
+        [KoreanInspectorLabel("밤 환경광 색상"), SerializeField] private Color nightAmbient = new Color(.08f, .1f, .16f);
+        [KoreanInspectorLabel("낮 환경광 색상"), SerializeField] private Color dayAmbient = new Color(.55f, .6f, .7f);
         public Vector3 SunDirection { get; private set; } = Vector3.up;
         public float NightBlend { get; private set; }
         private Light ownedSun, originalSun;

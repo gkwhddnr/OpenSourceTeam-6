@@ -7,11 +7,11 @@ namespace OpenSourceTeam6.Time.Unity
     [DisallowMultipleComponent]
     public sealed class CelestialBodyPresenter : MonoBehaviour
     {
-        [SerializeField, Range(.1f, 10)] private float moonDiameterDegrees = 2;
-        [Tooltip("Independent art-directed lunar rise time, not a real lunar orbit.")]
+        [KoreanInspectorLabel("달의 겉보기 지름 (도)"), SerializeField, Range(.1f, 10)] private float moonDiameterDegrees = 2;
+        [KoreanInspectorLabel("달이 뜨는 시각"), Tooltip("연출용 달 뜨는 시각입니다. 실제 달의 궤도는 아닙니다.")]
         [SerializeField, Range(0, 24)] private float moonriseHour = 17;
-        [SerializeField, Range(1, 23)] private float moonVisibleHours = 12;
-        [SerializeField, Min(0)] private float moonlightIntensity = .12f;
+        [KoreanInspectorLabel("달이 보이는 시간"), SerializeField, Range(1, 23)] private float moonVisibleHours = 12;
+        [KoreanInspectorLabel("달빛 강도"), SerializeField, Min(0)] private float moonlightIntensity = .12f;
         private Light moonLight;
         public Vector3 MoonDirection { get; private set; } = Vector3.down;
         public float MoonAngularRadius => moonDiameterDegrees * Mathf.Deg2Rad * .5f;
