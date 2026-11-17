@@ -133,6 +133,8 @@ GameObject:
   - component: {fileID: 27026844}
   - component: {fileID: 27026843}
   - component: {fileID: 27026842}
+  - component: {fileID: 27026848}
+  - component: {fileID: 27026849}
   m_Layer: 0
   m_Name: Time System
   m_TagString: Untagged
@@ -152,7 +154,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ee2ef449c4844cbebe289acba0a39408, type: 3}
   m_Name: 
   m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.TimeSkyExposure
-  timeSource: {fileID: 27026846}
   cloudDegreesPerGameHour: 2
 --- !u!114 &27026843
 MonoBehaviour:
@@ -166,8 +167,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 4d08d39fef1a4ecf8f4dd4efee6adbd8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.TimeDemoPanel
-  timeSource: {fileID: 27026846}
-  viewCamera: {fileID: 641165198}
   fullDayDurationSeconds: 60
 --- !u!114 &27026844
 MonoBehaviour:
@@ -181,10 +180,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c0cb1a4b132241b19cd5859a51ee0f94, type: 3}
   m_Name: 
   m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.CelestialBodyPresenter
-  timeSource: {fileID: 27026846}
-  sunLight: {fileID: 2083330069}
-  viewCamera: {fileID: 641165198}
-  sunDiameterDegrees: 1.2
   moonDiameterDegrees: 2
   moonriseHour: 17
   moonVisibleHours: 12
@@ -201,8 +196,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ebee75e103ed4cbba2a32f6c0b91f25d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.DayNightPresenter
-  timeSource: {fileID: 27026846}
-  sun: {fileID: 2083330069}
   month: 9
   august: {x: 5.5, y: 19.5}
   september: {x: 6, y: 18.5}
@@ -242,6 +235,40 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &27026848
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 27026841}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 995628fbd47f3fc4b80859cbc715b162, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.RainWeatherController
+  isRain: 0
+  rainInSeconds: 12
+  rainOutSeconds: 10
+  maximumDropsPerSecond: 1600
+  rainCollisionLayers:
+    serializedVersion: 2
+    m_Bits: 51
+  splashProbability: 0.22
+--- !u!114 &27026849
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 27026841}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f7b455a34ceba964baac0a026135c460, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: OpenSourceTeam6.Time.Unity::OpenSourceTeam6.Time.Unity.TimeEnvironmentController
+  sunLight: {fileID: 2083330069}
+  viewCamera: {fileID: 641165198}
 --- !u!1 &641165197
 GameObject:
   m_ObjectHideFlags: 0

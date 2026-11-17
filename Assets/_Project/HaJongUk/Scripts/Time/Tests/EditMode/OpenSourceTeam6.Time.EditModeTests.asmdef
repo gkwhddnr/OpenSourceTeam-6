@@ -1,0 +1,6 @@
+{
+  "name": "OpenSourceTeam6.Time.EditModeTests",
+  "references": ["OpenSourceTeam6.Time.Core"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}
