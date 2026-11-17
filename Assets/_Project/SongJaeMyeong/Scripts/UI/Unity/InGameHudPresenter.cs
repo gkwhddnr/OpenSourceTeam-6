@@ -182,7 +182,7 @@ namespace OpenSourceTeam6.UI.Unity
                 {
                     case VoiceProcessStage.Listening:
                         voiceStageBadgeBg.color = StageListeningColor;
-                        voiceStageText.text = "● [V] 듣는 중 (종료: V)...";
+                        voiceStageText.text = "● [R/V] 듣는 중...";
                         break;
                     case VoiceProcessStage.Processing:
                         voiceStageBadgeBg.color = StageProcessingColor;
@@ -194,7 +194,7 @@ namespace OpenSourceTeam6.UI.Unity
                         break;
                     default:
                         voiceStageBadgeBg.color = StageIdleColor;
-                        voiceStageText.text = "[V] 마이크 대기 중";
+                        voiceStageText.text = "[R/V] 마이크 대기 중";
                         break;
                 }
             }
@@ -205,7 +205,7 @@ namespace OpenSourceTeam6.UI.Unity
             }
             else if (transcriptText != null && stage == VoiceProcessStage.Listening)
             {
-                transcriptText.text = "인식 문장: (말씀하시는 내용을 듣고 있습니다... 다시 [V] 키를 누르면 전송)";
+                transcriptText.text = "인식 문장: (말씀하시는 내용을 듣고 있습니다... [R]을 떼거나 [V]를 누르면 전송)";
             }
         }
 

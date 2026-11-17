@@ -66,8 +66,8 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: 160de19afabb1f441a52e8656ba860de, type: 3}
-  m_Type: 0
+  m_Sprite: {fileID: 21300000, guid: 96d43cd95fc990b4f957d5cd4671e5c0, type: 3}
+  m_Type: 1
   m_PreserveAspect: 0
   m_FillCenter: 1
   m_FillMethod: 4
@@ -75,7 +75,7 @@ MonoBehaviour:
   m_FillClockwise: 1
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
-  m_PixelsPerUnitMultiplier: 1
+  m_PixelsPerUnitMultiplier: 2.2
 --- !u!1 &4291670145375782009
 GameObject:
   m_ObjectHideFlags: 0
@@ -87,6 +87,7 @@ GameObject:
   - component: {fileID: 5569331838259600939}
   - component: {fileID: 6695334897855162997}
   - component: {fileID: 2474169691793300382}
+  - component: {fileID: 7562164800752334323}
   m_Layer: 0
   m_Name: SpeechBubbleText
   m_TagString: Untagged
@@ -155,6 +156,21 @@ MonoBehaviour:
     m_VerticalOverflow: 1
     m_LineSpacing: 1
   m_Text: "\"\uB124! \uBC14\uB85C \uACC4\uC0B0\uB300 \uBCF4\uACA0\uC2B5\uB2C8\uB2E4.\""
+--- !u!114 &7562164800752334323
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4291670145375782009}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cfabb0440166ab443bba8876756fdfa9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Shadow
+  m_EffectColor: {r: 0, g: 0, b: 0, a: 0.45}
+  m_EffectDistance: {x: 1, y: -1.5}
+  m_UseGraphicAlpha: 1
 --- !u!1 &4840694888533063863
 GameObject:
   m_ObjectHideFlags: 0
@@ -249,6 +265,7 @@ GameObject:
   - component: {fileID: 7223598456790413683}
   - component: {fileID: 311632786436145433}
   - component: {fileID: 2323907108994307745}
+  - component: {fileID: 6775162858170132179}
   m_Layer: 0
   m_Name: StatusHeaderText
   m_TagString: Untagged
@@ -317,6 +334,21 @@ MonoBehaviour:
     m_VerticalOverflow: 1
     m_LineSpacing: 1
   m_Text: "\uAE40\uBBFC\uC218  \xB7  \uB300\uAE30/\uD734\uC2DD [\uC548\uC815]"
+--- !u!114 &6775162858170132179
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4984949001968277940}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cfabb0440166ab443bba8876756fdfa9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.Shadow
+  m_EffectColor: {r: 0, g: 0, b: 0, a: 0.45}
+  m_EffectDistance: {x: 1, y: -1.5}
+  m_UseGraphicAlpha: 1
 --- !u!1 &7489746184651773206
 GameObject:
   m_ObjectHideFlags: 0
@@ -383,8 +415,8 @@ MonoBehaviour:
   m_OnCullStateChanged:
     m_PersistentCalls:
       m_Calls: []
-  m_Sprite: {fileID: 21300000, guid: 160de19afabb1f441a52e8656ba860de, type: 3}
-  m_Type: 0
+  m_Sprite: {fileID: 21300000, guid: 96d43cd95fc990b4f957d5cd4671e5c0, type: 3}
+  m_Type: 1
   m_PreserveAspect: 0
   m_FillCenter: 1
   m_FillMethod: 4
@@ -392,4 +424,4 @@ MonoBehaviour:
   m_FillClockwise: 1
   m_FillOrigin: 0
   m_UseSpriteMesh: 0
-  m_PixelsPerUnitMultiplier: 1
+  m_PixelsPerUnitMultiplier: 2.2
