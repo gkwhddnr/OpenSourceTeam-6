@@ -36,7 +36,7 @@ namespace OpenSourceTeam6.Movement.Unity
         {
             mainThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
             driver = new NavMeshAgentDriver(GetComponent<NavMeshAgent>());
-            if (profile == null || !profile.IsValid || GetComponent<NavMeshAgent>() == null)
+            if (profile == null || !profile.IsAgentValid || GetComponent<NavMeshAgent>() == null)
             { Debug.LogError("EmployeeMovement requires a valid profile and driver.", this); enabled = false; return; }
             driver.Configure(profile);
         }
@@ -47,7 +47,7 @@ namespace OpenSourceTeam6.Movement.Unity
         {
             RequireMainThread();
             if (!target.IsFinite) return new MoveReceipt(0, MoveFailure.InvalidDestination);
-            if (closing || !isActiveAndEnabled || profile == null || !profile.IsValid ||
+            if (closing || !isActiveAndEnabled || profile == null || !profile.IsAgentValid ||
                 driver == null || !driver.IsReady || !tracker.CanBegin)
                 return new MoveReceipt(0, MoveFailure.NotReady);
             if (!driver.TryProject(new Vector3(target.X, target.Y, target.Z), profile.ProjectionRadius, out Vector3 projected))

@@ -19,7 +19,7 @@ namespace OpenSourceTeam6.Movement.Unity
         private float nextTargetCheck;
         private Vector2 destinationScroll;
         private PlayerRigController player;
-        private System.IDisposable panelInputLock;
+        private readonly PanelInputLock panelInputLock = new PanelInputLock("Movement demo controls");
         private string lastResult = "Ready";
         private void Start() { player = FindFirstObjectByType<PlayerRigController>(); }
         private void OnEnable() { if (employee != null) employee.Finished += OnFinished; }
@@ -27,8 +27,7 @@ namespace OpenSourceTeam6.Movement.Unity
         {
             if (employee != null) employee.Finished -= OnFinished;
             selectedIndex = -1;
-            panelInputLock?.Dispose();
-            panelInputLock = null;
+            panelInputLock.Dispose();
         }
         private void OnFinished(MoveOutcome outcome)
         {
@@ -49,24 +48,14 @@ namespace OpenSourceTeam6.Movement.Unity
             if (keyboard.cKey.wasPressedThisFrame) Cancel();
         }
 
-        private Rect PanelRect => new Rect(18, 18, 440, Mathf.Max(155, Mathf.Min(420, Screen.height - 36)));
+        private Rect PanelRect => new Rect(18, 18, Mathf.Min(440, Mathf.Max(1, (Screen.width - 48) * .5f)),
+            Mathf.Max(1, Mathf.Min(420, Screen.height - 36)));
 
         private void UpdatePanelInputLock()
         {
-            bool hovering = false;
-            if (employee != null && Cursor.visible && Mouse.current != null)
-            {
-                Vector2 position = Mouse.current.position.ReadValue();
-                hovering = PanelRect.Contains(new Vector2(position.x, Screen.height - position.y));
-            }
             // Run before the player rig so clicking a target button does not recapture the cursor.
-            if (hovering && panelInputLock == null && player != null && player.InputGate != null)
-                panelInputLock = player.InputGate.AcquireLock("Movement demo controls");
-            else if (!hovering && panelInputLock != null)
-            {
-                panelInputLock.Dispose();
-                panelInputLock = null;
-            }
+            var gate = player && player.isActiveAndEnabled ? player.InputGate : null;
+            panelInputLock.Update(gate, employee != null && PanelInputLock.PointerIsOver(PanelRect));
         }
 
         private void Cancel()

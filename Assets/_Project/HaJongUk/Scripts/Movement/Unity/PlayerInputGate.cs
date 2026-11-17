@@ -18,18 +18,25 @@ namespace OpenSourceTeam6.Movement.Unity
         // The rig calls this before reading input; one writer owns the cursor.
         public bool PrepareFrame()
         {
-            SetLock(ref pauseLock, Time.timeScale == 0f, "Pause");
-            SetLock(ref focusLock, !Application.isFocused, "Focus");
-            if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
-                SetLock(ref menuLock, true, "Cursor released");
-            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && Application.isFocused)
-                SetLock(ref menuLock, false, "Cursor released");
+            UpdateLocks(Application.isFocused, Time.timeScale == 0f,
+                Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame,
+                Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
             bool locked = IsLocked;
             Cursor.lockState = locked ? CursorLockMode.None : CursorLockMode.Locked;
             Cursor.visible = locked;
             bool skipLook = locked || wasLocked;
             wasLocked = locked;
             return skipLook;
+        }
+
+        // External UI gets first claim on Esc; panel clicks must not count as a world click.
+        private void UpdateLocks(bool focused, bool paused, bool escape, bool leftClick)
+        {
+            SetLock(ref pauseLock, paused, "Pause");
+            SetLock(ref focusLock, !focused, "Focus");
+            if (escape && !locks.IsLocked) SetLock(ref menuLock, true, "Cursor released");
+            if (leftClick && focused && menuLock != null && locks.ContainsOnly(menuLock))
+                SetLock(ref menuLock, false, "Cursor released");
         }
 
         private void SetLock(ref IDisposable token, bool required, string reason)

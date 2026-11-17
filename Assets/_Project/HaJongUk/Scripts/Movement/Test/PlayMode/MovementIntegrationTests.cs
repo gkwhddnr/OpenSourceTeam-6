@@ -25,6 +25,116 @@ namespace OpenSourceTeam6.Movement.Tests
         private readonly List<MoveOutcome> results = new List<MoveOutcome>();
         private NavMeshSurface surface;
 
+        [Test]
+        public void CursorLockRespectsNestedUiEscAndPanelClicks()
+        {
+            var gate = new PlayerInputGate();
+            var method = typeof(PlayerInputGate).GetMethod("UpdateLocks", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            void Frame(bool esc, bool click) => method.Invoke(gate, new object[] { true, false, esc, click });
+            using (var overlay = gate.AcquireLock("command overlay"))
+            using (var modal = gate.AcquireLock("nested modal"))
+            {
+                Frame(true, false);
+                Assert.That(gate.IsLocked, Is.True);
+            }
+            Assert.That(gate.IsLocked, Is.False, "Esc consumed by UI must not leave a second menu lock");
+            Frame(true, false);
+            Assert.That(gate.IsLocked, Is.True);
+            using (gate.AcquireLock("panel")) Frame(false, true);
+            Assert.That(gate.IsLocked, Is.True, "panel click must not resume the world");
+            Frame(false, true);
+            Assert.That(gate.IsLocked, Is.False, "world click resumes after panel closes");
+            gate.Disable();
+        }
+
+        [Test]
+        public void PlayerAndAgentValidateOnlyTheirOwnSettings()
+        {
+            var profile = ScriptableObject.CreateInstance<MovementProfile>();
+            try
+            {
+                var serialized = new SerializedObject(profile);
+                serialized.FindProperty("projectionRadius").floatValue = 0;
+                serialized.ApplyModifiedPropertiesWithoutUndo();
+                Assert.That(profile.IsPlayerValid, Is.True);
+                Assert.That(profile.IsAgentValid, Is.False);
+                Assert.That(profile.IsValid, Is.False);
+            }
+            finally { Object.DestroyImmediate(profile); }
+        }
+
+        [Test]
+        public void PlayerInputReaderDoesNotEnableOtherMaps()
+        {
+            var asset = ScriptableObject.CreateInstance<InputActionAsset>();
+            var gameplay = new InputActionMap("Gameplay");
+            gameplay.AddAction("Move", InputActionType.Value, expectedControlLayout: "Vector2");
+            gameplay.AddAction("Look", InputActionType.Value, expectedControlLayout: "Vector2");
+            asset.AddActionMap(gameplay);
+            var other = new InputActionMap("Other");
+            other.AddAction("Unrelated", InputActionType.Button);
+            asset.AddActionMap(other);
+            var reader = new PlayerInputReader(asset);
+            try
+            {
+                reader.Initialize(); reader.Enable();
+                var field = typeof(PlayerInputReader).GetField("ownedActions", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                var owned = (InputActionAsset)field.GetValue(reader);
+                Assert.That(owned.FindAction("Gameplay/Move").enabled, Is.True);
+                Assert.That(owned.FindAction("Gameplay/Look").enabled, Is.True);
+                Assert.That(owned.FindAction("Other/Unrelated").enabled, Is.False);
+                reader.Disable();
+                Assert.That(owned.FindAction("Gameplay/Move").enabled, Is.False);
+            }
+            finally { reader.Dispose(); Object.Destroy(asset); }
+        }
+
+        [Test]
+        public void MotorClearsOldCeilingCollisionWhenMovementIsSkipped()
+        {
+            var character = new GameObject("CeilingTestCharacter");
+            var ceiling = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            try
+            {
+                var controller = character.AddComponent<CharacterController>();
+                controller.height = 1.8f;
+                controller.center = new Vector3(0, .9f, 0);
+                ceiling.transform.position = new Vector3(0, 2.1f, 0);
+                ceiling.transform.localScale = new Vector3(3, .2f, 3);
+                Physics.SyncTransforms();
+                var motor = new CharacterControllerMotor(controller);
+                motor.Move(Vector3.up * 2, 1);
+                Assert.That(motor.HitCeiling, Is.True);
+                motor.Move(Vector3.up, 0);
+                Assert.That(motor.HitCeiling, Is.False);
+            }
+            finally { Object.DestroyImmediate(character); Object.DestroyImmediate(ceiling); }
+        }
+
+        [Test]
+        public void PanelInputLockTransfersAndReleasesOnlyItsOwnToken()
+        {
+            var first = new InputLockSet();
+            var second = new InputLockSet();
+            using (var unrelated = first.AcquireLock("another owner"))
+            using (var panel = new PanelInputLock("panel"))
+            {
+                panel.Update(first, true);
+                panel.Update(first, true);
+                Assert.That(first.IsLocked, Is.True);
+                panel.Update(second, true);
+                Assert.That(first.IsLocked, Is.True, "another owner's lock must survive");
+                Assert.That(second.IsLocked, Is.True);
+                panel.Update(second, false);
+                Assert.That(second.IsLocked, Is.False);
+                panel.Update(first, true);
+                panel.Update(null, true);
+                Assert.That(first.IsLocked, Is.True);
+            }
+            Assert.That(first.IsLocked, Is.False);
+            Assert.That(second.IsLocked, Is.False);
+        }
+
         [UnityTest]
         public IEnumerator InvalidInputMapCanBeFixedAndInitializedAgain()
         {
