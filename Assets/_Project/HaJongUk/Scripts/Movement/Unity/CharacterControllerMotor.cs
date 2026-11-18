@@ -12,6 +12,7 @@ namespace OpenSourceTeam6.Movement.Unity
         public void Move(Vector3 velocity, float seconds)
         {
             ActualVelocity = Vector3.zero;
+            HitCeiling = false;
             if (seconds <= 0 || controller == null || !controller.enabled) return;
             Vector3 before = controller.transform.position;
             CollisionFlags flags = controller.Move(velocity * seconds);

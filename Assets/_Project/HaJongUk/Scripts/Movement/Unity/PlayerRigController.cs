@@ -6,7 +6,7 @@ using UnityEngine.InputSystem;
 
 namespace OpenSourceTeam6.Movement.Unity
 {
-    [DisallowMultipleComponent]
+    [DefaultExecutionOrder(-50), DisallowMultipleComponent]
     public sealed class PlayerRigController : MonoBehaviour
     {
         [SerializeField] private MovementProfile profile;
@@ -15,7 +15,7 @@ namespace OpenSourceTeam6.Movement.Unity
         [SerializeField] private UnityEngine.Camera viewCamera;
         [SerializeField] private Renderer[] localVisuals = new Renderer[0];
         private PlayerInputReader input;
-        private PlayerInputGate inputGate;
+        private readonly PlayerInputGate inputGate = new PlayerInputGate();
         private CharacterControllerMotor motor;
         private FirstPersonCameraPresenter cameraPresenter;
         private LookState look;
@@ -26,11 +26,10 @@ namespace OpenSourceTeam6.Movement.Unity
         private void Awake()
         {
             var controller = GetComponent<CharacterController>();
-            if (profile == null || !profile.IsValid || actions == null || controller == null ||
+            if (profile == null || !profile.IsPlayerValid || actions == null || controller == null ||
                 eyePivot == null || viewCamera == null || !viewCamera.transform.IsChildOf(eyePivot))
             { Debug.LogError("PlayerRig has missing or invalid references/settings.", this); enabled = false; return; }
             input = new PlayerInputReader(actions);
-            inputGate = new PlayerInputGate();
             motor = new CharacterControllerMotor(controller);
             cameraPresenter = new FirstPersonCameraPresenter(eyePivot, viewCamera, localVisuals);
             try

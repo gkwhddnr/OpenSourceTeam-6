@@ -1,0 +1,100 @@
+Shader "OpenSourceTeam6/SkyOverlay" {
+ Properties {_Night("Night",Range(0,1))=0 _Drift("Drift",Float)=0 _Rain("Rain",Range(0,1))=0}
+ SubShader {Tags {"Queue"="Transparent-200"} Cull Front ZWrite Off Blend One OneMinusSrcAlpha Pass {HLSLPROGRAM
+ #pragma vertex vert
+ #pragma fragment frag
+ #pragma target 3.0
+ #include "UnityCG.cginc"
+ float _Night,_Drift,_MoonRadius,_Rain; float4 _MoonDirection,_SunDirection;
+ struct V{float4 pos:SV_POSITION;float3 d:TEXCOORD0;};
+ V vert(float4 v:POSITION){V o;o.pos=UnityObjectToClipPos(v);o.d=v.xyz;return o;}
+ float hash(float2 p){p=frac(p*float2(123.34,456.21));p+=dot(p,p+45.32);return frac(p.x*p.y);}
+ float h3(float3 p){p=frac(p*.1031);p+=dot(p,p.yzx+33.33);return frac((p.x+p.y)*p.z);}
+ float noise(float3 p){float3 a=floor(p),f=frac(p);f=f*f*f*(f*(f*6-15)+10);return lerp(lerp(lerp(h3(a),h3(a+float3(1,0,0)),f.x),lerp(h3(a+float3(0,1,0)),h3(a+float3(1,1,0)),f.x),f.y),lerp(lerp(h3(a+float3(0,0,1)),h3(a+float3(1,0,1)),f.x),lerp(h3(a+float3(0,1,1)),h3(a+1),f.x),f.y),f.z);}
+ float fbm(float3 p){float v=0,w=.5;for(int k=0;k<5;k++){v+=noise(p)*w;p=p*2.03+7.1;w*=.5;}return v;}
+ // Bounded 24-step cloud-layer integration gives density depth.
+ float cloudDensity(float3 p){
+ float height=(p.y-1)/.45;
+ float rain=saturate(_Rain);
+ float profile=smoothstep(0,lerp(.18,.10,rain),height)*(1-smoothstep(lerp(.55,.8,rain),1,height));
+ // The existing cloud field expands and joins into a lower-contrast rain deck.
+ // No texture swaps, regeneration or separate on/off cloud layer.
+ float3 q=p*lerp(float3(2.8,4.5,2.8),float3(1.8,3.2,1.8),rain);
+ float shape=noise(q)*.65+noise(q*2.03+7.1)*.25+noise(q*4.1+19)*.10;
+ float erosion=noise(q*9+31)*lerp(.045,.02,rain);
+ return saturate((shape-lerp(.58,.34,rain)-erosion)*7)*profile;
+ }
+ // Random positions and two populations avoid an evenly spaced dot pattern.
+ float stars(float2 uv,float scale,float threshold){
+ float2 g=uv*float2(scale,scale*.5),c=floor(g);
+ float seed=hash(c);float2 center=float2(hash(c+17),hash(c+43))*.7+.15;
+ float r=length(frac(g)-center);float aa=max(length(fwidth(g))*.45,.018);
+ float core=1-smoothstep(0,aa,r);
+ float glow=exp(-r*r/.006)*.12;
+ return step(threshold,seed)*(core+glow)*lerp(.12,1.4,pow(hash(c+91),3));}
+ half4 frag(V i):SV_Target {
+ float3 d=normalize(i.d);
+ float2 uv=float2(atan2(d.z,d.x)/6.283185+.5,.5-asin(clamp(d.y,-1,1))/3.141593);
+ // Original spherical cloud scale, rigid rotation instead of morphing slices.
+ float angle=_Drift*.225,s=sin(angle),c=cos(angle);
+ float3 cd=float3(c*d.x-s*d.z,d.y,s*d.x+c*d.z);
+ float transmittance=1;float3 accumulated=0;
+ float3 lightDirection=normalize(_SunDirection.xyz+float3(0,.001,0));
+ float entry=1/max(cd.y,.12);
+ float stepLength=min(.45/max(cd.y,.12),2.5)/24;
+ [loop] for(int sampleIndex=0;sampleIndex<24;sampleIndex++){
+ float3 p=cd*(entry+(sampleIndex+.5)*stepLength);
+ float density=cloudDensity(p);
+ float shadow=cloudDensity(p+lightDirection*.065);
+ float lighting=exp(-shadow*2.8);
+ float3 sampleColor=lerp(float3(.43,.53,.65),float3(1.08,1.07,1.03),lighting);
+ float opacity=1-exp(-density*stepLength*17);
+ accumulated+=transmittance*opacity*sampleColor;
+ transmittance*=1-opacity;
+ }
+ // Sparse high cloud streaks; independent from the cumulus density volume.
+ float3 high=cd*float3(3,16,5)+17;
+ float wisps=smoothstep(.55,.78,fbm(high))*.16;
+ accumulated+=transmittance*wisps*float3(.93,.96,1);
+ transmittance*=1-wisps;
+ float alphaCloud=1-transmittance;
+ float3 cloudColor=accumulated/max(alphaCloud,.0001);
+ float star=stars(uv,1300,.965)*.65+stars(uv,500,.989)*2;
+ float band=exp(-pow(dot(d,normalize(float3(.6,.25,-.7)))*4,2));
+ float dust=fbm(d*12+21);
+ float3 nightColor=float3(.0015,.003,.009)+band*dust*float3(.009,.014,.026);
+ nightColor+=star*float3(.83,.89,1)*smoothstep(.45,1,saturate(_Night));
+ float separation=atan2(length(cross(d,normalize(_MoonDirection.xyz))),dot(d,normalize(_MoonDirection.xyz)));
+ float moonAA=max(fwidth(separation),.00015);
+ float disk=1-smoothstep(_MoonRadius-moonAA,_MoonRadius+moonAA,separation);
+ float moonVisibility=smoothstep(-.025,.04,_MoonDirection.y);
+ float halo=(exp(-separation/.045)*.32+exp(-separation/.12)*.035)*moonVisibility;
+ float3 moon=disk*float3(2.1,2.2,2.4)*moonVisibility+halo*float3(.55,.68,1);
+ nightColor+=moon;
+ float night=saturate(_Night);
+ float horizon=smoothstep(.04,.20,d.y);
+ alphaCloud*=horizon;
+ float3 nightCloud=cloudColor*float3(.012,.018,.032)+halo*float3(.035,.045,.065);
+ float3 litCloud=lerp(cloudColor,nightCloud,night);
+ litCloud*=lerp(float3(1,1,1),lerp(float3(.36,.40,.46),float3(.62,.66,.72),night),saturate(_Rain));
+ // Premultiplied composition keeps tenuous cloud edges from turning into
+ // opaque white cutouts as the night background fades in.
+ float skyMask=smoothstep(-.02,.08,d.y);
+ // An opaque overcast base fills holes while preserving the ray-marched cloud detail.
+ // Fade it in with the same envelope that completes before rainfall begins.
+ float overcast=smoothstep(.35,1.0,saturate(_Rain));
+ float variation=fbm(cd*4.0+float3(12,5,8));
+ float3 baseDay=lerp(float3(.22,.25,.29),float3(.38,.41,.44),variation);
+ float3 baseNight=lerp(float3(.009,.013,.023),float3(.024,.031,.046),variation);
+ float3 cloudBase=lerp(baseDay,baseNight,night);
+ float3 cloudLayer=litCloud*alphaCloud+cloudBase*(1-alphaCloud);
+ float3 clearResult=litCloud*alphaCloud+nightColor*night*(1-alphaCloud);
+ float clearAlpha=alphaCloud+night*(1-alphaCloud);
+ float resultAlpha=lerp(clearAlpha,1,overcast)*skyMask;
+ float3 resultColor=lerp(clearResult,cloudLayer,overcast)*skyMask;
+ // Extend the overcast background below the horizon as well; scene geometry
+ // still occludes the far sky dome through the normal depth test.
+ float horizonCover=overcast*(1-skyMask);
+ return half4(resultColor+cloudBase*horizonCover,resultAlpha+horizonCover);
+ }
+ ENDHLSL}}}

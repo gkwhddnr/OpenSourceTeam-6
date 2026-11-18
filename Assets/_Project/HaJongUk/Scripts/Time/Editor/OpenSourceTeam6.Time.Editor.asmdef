@@ -1,0 +1,1 @@
+{"name": "OpenSourceTeam6.Time.Editor", "references": ["OpenSourceTeam6.Time.Core", "OpenSourceTeam6.Time.Unity"], "includePlatforms": ["Editor"]}

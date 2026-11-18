@@ -1,0 +1,8 @@
+{
+  "name": "OpenSourceTeam6.Time.Unity",
+  "rootNamespace": "OpenSourceTeam6.Time.Unity",
+  "references": [
+    "OpenSourceTeam6.Time.Core"
+  ],
+  "noEngineReferences": false
+}

@@ -40,6 +40,7 @@ namespace OpenSourceTeam6.UI.Unity
         private IDisposable settingsLockToken;
 
         private float remainingDaySeconds;
+        private float totalDaySeconds;
         private EmployeeHudSnapshot lastEmployeeSnapshot;
         private DaySettlementResult lastSettlementResult;
         private VoiceProcessStage lastVoiceStage = VoiceProcessStage.Idle;
@@ -52,6 +53,7 @@ namespace OpenSourceTeam6.UI.Unity
         public bool IsPauseMenuOpen => pausePanel != null && pausePanel.IsOpen;
         public bool IsSettingsOpen => settingsPanel != null && settingsPanel.IsOpen;
         public float RemainingDaySeconds => remainingDaySeconds;
+        public float TotalDaySeconds => totalDaySeconds;
 
         public event Action<EmployeePersonaSetupData> PersonaConfirmed;
         public event Action<string> TextCommandSubmitted;
@@ -352,6 +354,7 @@ namespace OpenSourceTeam6.UI.Unity
 
             settlementSession.Reset(dayNumber, startingBalanceWon);
             remainingDaySeconds = durationSeconds > 0f ? durationSeconds : settlementSettings.DayDurationSeconds;
+            totalDaySeconds = remainingDaySeconds;
 
             CloseSettingsPanel();
             ClosePauseMenu();
