@@ -11,7 +11,7 @@ namespace OpenSourceTeam6.Time.Unity
         [KoreanInspectorLabel("시작 시각"), SerializeField, Range(0, 23)] private float openingHour = 8;
         [KoreanInspectorLabel("종료 시각"), Tooltip("24시를 넘어 이어지는 시각입니다. 32는 다음 날 오전 8시입니다.")]
         [SerializeField, Range(1, 48)] private float closingHour = 32;
-        private bool demoClockEnabled;
+        private bool demoClockEnabled, externalClockOwned;
         private float demoElapsed, demoDurationSeconds = 60;
         public BusinessClock Clock { get; } = new BusinessClock();
         public float GameHour => Mathf.Repeat(Mathf.Lerp(openingHour, closingHour, (float)Clock.Progress), 24);
@@ -35,7 +35,7 @@ namespace OpenSourceTeam6.Time.Unity
         /// <summary>Enables the isolated demo's clock without taking ownership from a standalone clock.</summary>
         public bool ConfigureDemoClock(float durationSeconds)
         {
-            if (standaloneClock) return false;
+            if (standaloneClock || externalClockOwned) return false;
             demoDurationSeconds = float.IsFinite(durationSeconds) ? Mathf.Max(durationSeconds, 1) : 60;
             demoClockEnabled = true;
             return true;
@@ -49,6 +49,19 @@ namespace OpenSourceTeam6.Time.Unity
             Clock.ConfirmSettlement(Clock.DayId);
             if (BeginDay(Clock.DayId + 1)) demoElapsed = 0;
         }
+
+        /// <summary>Reserve the clock for one external timer before a day begins.</summary>
+        public bool AcquireExternalClock()
+        {
+            if (externalClockOwned || standaloneClock || (demoClockEnabled && (Clock.Phase == BusinessPhase.Open || Clock.Phase == BusinessPhase.Closing)))
+                return false;
+            externalClockOwned = true;
+            demoClockEnabled = false;
+            Clock.IsPaused = false;
+            return true;
+        }
+
+        public void ReleaseExternalClock() { externalClockOwned = false; }
         public bool BeginDay(int dayId)
         {
             if (!float.IsFinite(dayDurationSeconds) || dayDurationSeconds <= 0 ||

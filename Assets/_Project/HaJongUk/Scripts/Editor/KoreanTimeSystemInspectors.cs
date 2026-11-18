@@ -59,3 +59,7 @@ public sealed class KoreanEnvironmentInspector : KoreanTimeSystemInspector
 [CustomEditor(typeof(TimeMovementInputBridge)), CanEditMultipleObjects]
 public sealed class KoreanTimeMovementInspector : KoreanTimeSystemInspector
 { protected override string KoreanTitle => "시간 화면 입력 연결"; }
+
+[CustomEditor(typeof(UiBusinessTimeBridge)), CanEditMultipleObjects]
+public sealed class KoreanUiBusinessTimeInspector : KoreanTimeSystemInspector
+{ protected override string KoreanTitle => "영업 UI·시간 동기화"; }

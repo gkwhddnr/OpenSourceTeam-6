@@ -39,11 +39,13 @@ namespace OpenSourceTeam6.UI.Unity
         private IDisposable overlayLockToken;
 
         private float remainingDaySeconds;
+        private float totalDaySeconds;
         private EmployeeHudSnapshot lastEmployeeSnapshot;
 
         public UiScreenMode CurrentMode { get; private set; } = UiScreenMode.Lobby;
         public bool IsCommandOverlayOpen => commandOverlay != null && commandOverlay.IsOpen;
         public float RemainingDaySeconds => remainingDaySeconds;
+        public float TotalDaySeconds => totalDaySeconds;
 
         public event Action<string> TextCommandSubmitted;
         public event Action CancelWorkRequested;
@@ -178,6 +180,7 @@ namespace OpenSourceTeam6.UI.Unity
 
             settlementSession.Reset(dayNumber, startingBalanceWon);
             remainingDaySeconds = durationSeconds > 0f ? durationSeconds : settlementSettings.DayDurationSeconds;
+            totalDaySeconds = remainingDaySeconds;
 
             CloseCommandOverlay();
             ReleaseScreenLock();
