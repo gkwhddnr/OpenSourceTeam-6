@@ -23,9 +23,10 @@ namespace OpenSourceTeam6.Movement.Unity
         public float PlanningTimeout => planningTimeout;
         public float StalledTimeout => stalledTimeout;
         public float RequestTimeout => requestTimeout;
-        public bool IsValid => Positive(walkSpeed) && WorldPoint.Finite(gravity) && gravity < 0 &&
-            Positive(lookSensitivity) && Positive(projectionRadius) && Positive(arrivalDistance) &&
+        public bool IsPlayerValid => Positive(walkSpeed) && WorldPoint.Finite(gravity) && gravity < 0 && Positive(lookSensitivity);
+        public bool IsAgentValid => Positive(walkSpeed) && Positive(projectionRadius) && Positive(arrivalDistance) &&
             Positive(planningTimeout) && Positive(stalledTimeout) && Positive(requestTimeout);
+        public bool IsValid => IsPlayerValid && IsAgentValid;
         private static bool Positive(float value) => WorldPoint.Finite(value) && value > 0;
     }
 }

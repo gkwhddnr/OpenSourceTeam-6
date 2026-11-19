@@ -30,12 +30,12 @@ namespace OpenSourceTeam6.Movement.Unity
             }
         }
 
-        public void Enable() { if (ownedActions != null) ownedActions.Enable(); }
-        public void Disable() { if (ownedActions != null) ownedActions.Disable(); }
+        public void Enable() { move?.Enable(); look?.Enable(); }
+        public void Disable() { move?.Disable(); look?.Disable(); }
         public void Dispose()
         {
             if (ownedActions == null) return;
-            ownedActions.Disable();
+            Disable();
             UnityEngine.Object.Destroy(ownedActions);
             ownedActions = null;
             move = null;

@@ -37,6 +37,11 @@ namespace OpenSourceTeam6.Time.Core
             if (dayId != DayId || Phase != BusinessPhase.Closing) return false;
             Phase = BusinessPhase.Settled; Changed?.Invoke(); return true;
         }
+        public bool CancelDay(int dayId)
+        {
+            if (dayId != DayId || (Phase != BusinessPhase.Open && Phase != BusinessPhase.Closing)) return false;
+            Phase = BusinessPhase.Settled; Changed?.Invoke(); return true;
+        }
         private static bool Finite(double x) => !double.IsNaN(x) && !double.IsInfinity(x);
     }
 }

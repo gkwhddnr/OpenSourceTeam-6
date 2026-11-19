@@ -8,6 +8,8 @@ namespace OpenSourceTeam6.Movement.Core
         private readonly HashSet<Token> tokens = new HashSet<Token>();
         public bool IsLocked => tokens.Count != 0;
 
+        public bool ContainsOnly(IDisposable token) => token is Token owned && tokens.Count == 1 && tokens.Contains(owned);
+
         public IDisposable AcquireLock(string reason)
         {
             if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentException("A lock reason is required.", nameof(reason));
