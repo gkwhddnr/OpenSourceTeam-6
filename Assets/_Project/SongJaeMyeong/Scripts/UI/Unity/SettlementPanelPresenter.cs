@@ -14,20 +14,24 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Text breakdownBodyText;
         [SerializeField] private Text finalBalanceHighlightText;
         [SerializeField] private Text staffSummaryText;
+        [SerializeField] private Button viewEndingButton;
         [SerializeField] private Button retryDayButton;
         [SerializeField] private Button returnLobbyButton;
 
+        public event Action ViewEndingClicked;
         public event Action RetryDayClicked;
         public event Action ReturnLobbyClicked;
 
         private void OnEnable()
         {
+            if (viewEndingButton != null) viewEndingButton.onClick.AddListener(HandleViewEndingClicked);
             if (retryDayButton != null) retryDayButton.onClick.AddListener(HandleRetryClicked);
             if (returnLobbyButton != null) returnLobbyButton.onClick.AddListener(HandleReturnLobbyClicked);
         }
 
         private void OnDisable()
         {
+            if (viewEndingButton != null) viewEndingButton.onClick.RemoveListener(HandleViewEndingClicked);
             if (retryDayButton != null) retryDayButton.onClick.RemoveListener(HandleRetryClicked);
             if (returnLobbyButton != null) returnLobbyButton.onClick.RemoveListener(HandleReturnLobbyClicked);
         }
@@ -68,8 +72,8 @@ namespace OpenSourceTeam6.UI.Unity
             if (breakdownBodyText != null)
             {
                 string penaltyLine = result.RestockShortagePenaltyApplied
-                    ? "-20% 감산 적용 (유효 진열 25초 미만)"
-                    : "적용 없음 (진열 기준 충족)";
+                    ? $"-20% 감산 적용 (유효 진열 {result.MinEffectiveRestockSeconds:F0}초 미만)"
+                    : $"적용 없음 (유효 진열 {result.MinEffectiveRestockSeconds:F0}초 기준 충족)";
 
                 int totalCosts = result.CostOfGoodsWon + result.FixedOperatingCostWon;
 
@@ -94,6 +98,11 @@ namespace OpenSourceTeam6.UI.Unity
                 staffSummaryText.text =
                     $"직원 상태 기록  —  종료 스트레스: {Mathf.RoundToInt(result.EndingStress)} / 100   ·   분노 거부 누적: {result.AngerRefusalCount}회";
             }
+        }
+
+        private void HandleViewEndingClicked()
+        {
+            ViewEndingClicked?.Invoke();
         }
 
         private void HandleRetryClicked()

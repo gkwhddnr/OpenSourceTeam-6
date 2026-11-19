@@ -3,6 +3,8 @@
     "rootNamespace": "OpenSourceTeam6.UI.Unity",
     "references": [
         "OpenSourceTeam6.UI.Core",
+        "OpenSourceTeam6.Time.Core",
+        "OpenSourceTeam6.Time.Unity",
         "UnityEngine.UI",
         "Unity.InputSystem"
     ],
