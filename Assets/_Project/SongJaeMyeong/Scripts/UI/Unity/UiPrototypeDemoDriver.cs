@@ -5,6 +5,7 @@ using UnityEngine.InputSystem;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Time = UnityEngine.Time;
     /// <summary>
     /// 개인 검증 씬(SJM_UI_Work.unity)에서 외부 음성·이동 시스템 없이
     /// 1차 통합 데모 규격(음성 녹음 V 토글, 스트레스 구간별 반응 확률, 대사·말풍선 출력, 구역 이동, 120초 정산)을
@@ -263,6 +264,32 @@ namespace OpenSourceTeam6.UI.Unity
             else if (kb.f6Key.wasPressedThisFrame)
             {
                 uiController.CompleteDayAndShowSettlement(stress);
+            }
+            else if (kb.f7Key.wasPressedThisFrame)
+            {
+                float skipSeconds = uiController.TotalDaySeconds > 0f
+                    ? uiController.TotalDaySeconds / 6f
+                    : 20f;
+                uiController.AdvanceRemainingDaySeconds(skipSeconds);
+                string clock = StoreDayTimeRules.FormatGameClock(uiController.CurrentGameHour);
+                string phase = StoreDayTimeRules.GetPhaseLabel(uiController.CurrentTimeOfDayPhase);
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.Info,
+                    string.Empty,
+                    $"TIME_SKIP ({clock} · {phase})",
+                    $"게임 시간을 4시간 빠르게 진행했습니다. 현재 시각: {clock} ({phase})"));
+            }
+            else if (kb.f8Key.wasPressedThisFrame)
+            {
+                bool nextRain = !uiController.IsRainWeather;
+                uiController.SetRainWeather(nextRain);
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.Info,
+                    string.Empty,
+                    nextRain ? "WEATHER: RAIN_ON" : "WEATHER: RAIN_OFF",
+                    nextRain
+                        ? "비 날씨 이벤트를 켰습니다. 구름이 먼저 차오른 뒤 빗줄기가 내립니다. (2·3일차 날씨 프리뷰)"
+                        : "비 날씨 이벤트를 껐습니다. 빗줄기가 먼저 그친 뒤 구름이 걷힙니다."));
             }
         }
 

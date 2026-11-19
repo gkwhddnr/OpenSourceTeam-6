@@ -346,4 +346,188 @@ namespace OpenSourceTeam6.UI.Core
             return cachedResult;
         }
     }
+
+    /// <summary>
+    /// 하루 영업 시간 진행에 따른 낮·노을·밤·새벽 구간 구분.
+    /// </summary>
+    public enum StoreTimeOfDayPhase
+    {
+        Day = 0,
+        Sunset = 1,
+        Night = 2,
+        Dawn = 3
+    }
+
+    /// <summary>
+    /// 시간 시스템(BusinessTimeController · DayNightPresenter 9월 기본값)과 동일한 기준으로
+    /// UI 영업 타이머 진행률(0~1)을 게임 시각(08:00 ~ 익일 08:00) 및 낮·밤 상태로 변환하는 순수 규칙.
+    /// </summary>
+    public static class StoreDayTimeRules
+    {
+        public const float DefaultOpeningHour = 8f;
+        public const float DefaultClosingHour = 32f;
+        public const float DefaultSunriseHour = 6f;
+        public const float DefaultSunsetHour = 18.5f;
+
+        public static float ComputeDayProgress(float remainingSeconds, float totalSeconds)
+        {
+            if (float.IsNaN(remainingSeconds) || float.IsInfinity(remainingSeconds) ||
+                float.IsNaN(totalSeconds) || float.IsInfinity(totalSeconds) ||
+                totalSeconds <= 0f)
+            {
+                return 0f;
+            }
+
+            float clampedRemaining = Math.Max(0f, Math.Min(totalSeconds, remainingSeconds));
+            float progress = 1f - (clampedRemaining / totalSeconds);
+            if (progress < 0f) return 0f;
+            if (progress > 1f) return 1f;
+            return progress;
+        }
+
+        public static float ComputeGameHour(
+            float progress,
+            float openingHour = DefaultOpeningHour,
+            float closingHour = DefaultClosingHour)
+        {
+            float clampedProgress = float.IsNaN(progress) || float.IsInfinity(progress)
+                ? 0f
+                : Math.Max(0f, Math.Min(1f, progress));
+            float safeOpening = float.IsNaN(openingHour) || float.IsInfinity(openingHour)
+                ? DefaultOpeningHour
+                : openingHour;
+            float safeClosing = float.IsNaN(closingHour) || float.IsInfinity(closingHour) || closingHour <= safeOpening
+                ? DefaultClosingHour
+                : closingHour;
+
+            float rawHour = safeOpening + (safeClosing - safeOpening) * clampedProgress;
+            return WrapHour24(rawHour);
+        }
+
+        public static StoreTimeOfDayPhase ClassifyPhase(
+            float gameHour,
+            float sunriseHour = DefaultSunriseHour,
+            float sunsetHour = DefaultSunsetHour)
+        {
+            float wrapped = WrapHour24(gameHour);
+            float dawnStart = Math.Max(0f, sunriseHour - 0.5f);
+            float dawnEnd = Math.Min(24f, sunriseHour + 0.5f);
+            float sunsetStart = Math.Max(dawnEnd, sunsetHour - 1.0f);
+            float sunsetEnd = Math.Min(24f, sunsetHour + 0.5f);
+
+            if (wrapped >= dawnStart && wrapped < dawnEnd)
+            {
+                return StoreTimeOfDayPhase.Dawn;
+            }
+
+            if (wrapped >= dawnEnd && wrapped < sunsetStart)
+            {
+                return StoreTimeOfDayPhase.Day;
+            }
+
+            if (wrapped >= sunsetStart && wrapped < sunsetEnd)
+            {
+                return StoreTimeOfDayPhase.Sunset;
+            }
+
+            return StoreTimeOfDayPhase.Night;
+        }
+
+        public static bool IsNightTime(
+            float gameHour,
+            float sunriseHour = DefaultSunriseHour,
+            float sunsetHour = DefaultSunsetHour)
+        {
+            float wrapped = WrapHour24(gameHour);
+            return wrapped < sunriseHour || wrapped >= sunsetHour;
+        }
+
+        public static string GetPhaseLabel(StoreTimeOfDayPhase phase)
+        {
+            switch (phase)
+            {
+                case StoreTimeOfDayPhase.Dawn:
+                    return "새벽";
+                case StoreTimeOfDayPhase.Sunset:
+                    return "노을";
+                case StoreTimeOfDayPhase.Night:
+                    return "밤";
+                default:
+                    return "낮";
+            }
+        }
+
+        public static string FormatGameClock(float gameHour)
+        {
+            float wrapped = WrapHour24(gameHour);
+            int totalMinutes = (int)Math.Floor(wrapped * 60f + 0.0001f);
+            if (totalMinutes < 0) totalMinutes = 0;
+            int hours = (totalMinutes / 60) % 24;
+            int minutes = totalMinutes % 60;
+            return $"{hours:00}:{minutes:00}";
+        }
+
+        public static string FormatHudClockAndTimer(
+            float remainingSeconds,
+            float totalSeconds,
+            float? explicitGameHour = null,
+            float openingHour = DefaultOpeningHour,
+            float closingHour = DefaultClosingHour)
+        {
+            float safeRemaining = float.IsNaN(remainingSeconds) || float.IsInfinity(remainingSeconds)
+                ? 0f
+                : Math.Max(0f, remainingSeconds);
+            int clampedSec = Math.Max(0, (int)Math.Ceiling(safeRemaining));
+            int mins = clampedSec / 60;
+            int secs = clampedSec % 60;
+
+            bool hasValidTotal = !float.IsNaN(totalSeconds) && !float.IsInfinity(totalSeconds) && totalSeconds > 0f;
+            bool hasExplicitHour = explicitGameHour.HasValue &&
+                                   !float.IsNaN(explicitGameHour.Value) &&
+                                   !float.IsInfinity(explicitGameHour.Value);
+
+            if (!hasValidTotal && !hasExplicitHour)
+            {
+                return $"남은 시간  {mins:00}:{secs:00}";
+            }
+
+            float gameHour = hasExplicitHour
+                ? WrapHour24(explicitGameHour.Value)
+                : ComputeGameHour(ComputeDayProgress(safeRemaining, totalSeconds), openingHour, closingHour);
+            StoreTimeOfDayPhase phase = ClassifyPhase(gameHour);
+            string phaseLabel = GetPhaseLabel(phase);
+            string clockText = FormatGameClock(gameHour);
+            return $"{clockText} ({phaseLabel})  ·  남은 {mins:00}:{secs:00}";
+        }
+
+        /// <summary>
+        /// 일차별 기본 날씨(비) 적용 규칙. 1일차는 항상 맑은 낮과 밤으로 진행하며,
+        /// 추후 2일차 또는 3일차 날씨 이벤트 활성화 시 비 날씨를 적용한다.
+        /// </summary>
+        public static bool ShouldRainForDay(int dayNumber, bool enableDay2Or3RainEvent = false)
+        {
+            if (dayNumber <= 1)
+            {
+                return false;
+            }
+
+            if ((dayNumber == 2 || dayNumber == 3) && enableDay2Or3RainEvent)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static float WrapHour24(float hour)
+        {
+            if (float.IsNaN(hour) || float.IsInfinity(hour))
+            {
+                return DefaultOpeningHour;
+            }
+
+            float wrapped = hour % 24f;
+            return wrapped < 0f ? wrapped + 24f : wrapped;
+        }
+    }
 }

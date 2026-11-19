@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using OpenSourceTeam6.Time.Unity;
 using OpenSourceTeam6.UI.Core;
 using OpenSourceTeam6.UI.Unity;
 using UnityEditor;
@@ -8,6 +10,7 @@ using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using Object = UnityEngine.Object;
 
 namespace OpenSourceTeam6.UI.Editor
 {
@@ -36,6 +39,9 @@ namespace OpenSourceTeam6.UI.Editor
         [InitializeOnLoadMethod]
         private static void AutoSyncUiIfEndingPanelMissing()
         {
+            EditorSceneManager.sceneOpened -= OnEditorSceneOpened;
+            EditorSceneManager.sceneOpened += OnEditorSceneOpened;
+
             EditorApplication.delayCall += () =>
             {
                 if (EditorApplication.isPlayingOrWillChangePlaymode ||
@@ -46,14 +52,57 @@ namespace OpenSourceTeam6.UI.Editor
                 }
 
                 GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
-                if (prefab == null || prefab.transform.Find("EndingPanel") == null)
+                Scene activeScene = SceneManager.GetActiveScene();
+                bool isWorkSceneWithoutTimeSystem =
+                    activeScene.IsValid() &&
+                    activeScene.path == WorkScenePath &&
+                    Object.FindAnyObjectByType<TimeEnvironmentController>() == null;
+
+                if (prefab == null || prefab.transform.Find("EndingPanel") == null || isWorkSceneWithoutTimeSystem)
                 {
                     BuildUiPrefabAndWorkScene();
                     return;
                 }
 
+                EnsurePrefabTimerTextWidth(prefab);
                 SyncAudioClipsOnPrefabAndActiveScene(prefab);
             };
+        }
+
+        private static void OnEditorSceneOpened(Scene scene, OpenSceneMode mode)
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode ||
+                EditorApplication.isCompiling ||
+                EditorApplication.isUpdating)
+            {
+                return;
+            }
+
+            if (scene.IsValid() &&
+                scene.path == WorkScenePath &&
+                Object.FindAnyObjectByType<TimeEnvironmentController>() == null)
+            {
+                BuildUiPrefabAndWorkScene();
+            }
+        }
+
+        private static void EnsurePrefabTimerTextWidth(GameObject prefabAsset)
+        {
+            if (prefabAsset == null) return;
+            Transform timerTransform = prefabAsset.transform.Find("InGameHud/TopStoreBar/TimerText");
+            RectTransform timerRect = timerTransform != null ? timerTransform.GetComponent<RectTransform>() : null;
+            if (timerRect != null && timerRect.sizeDelta.x < 420f)
+            {
+                timerRect.sizeDelta = new Vector2(460f, timerRect.sizeDelta.y);
+                Text timerText = timerTransform.GetComponent<Text>();
+                if (timerText != null)
+                {
+                    timerText.fontSize = 24;
+                    timerText.text = "08:00 (낮)  ·  남은 02:00";
+                }
+                PrefabUtility.SavePrefabAsset(prefabAsset);
+                AssetDatabase.SaveAssets();
+            }
         }
 
         private static void SyncAudioClipsOnPrefabAndActiveScene(GameObject prefabAsset)
@@ -653,8 +702,8 @@ namespace OpenSourceTeam6.UI.Editor
             Button cmdBtn = CreateButton("OpenCommandOverlayBtn", topBar.transform, font, sprite, "[Tab] 텍스트 지시", 16, new Color(0.18f, 0.25f, 0.35f, 1f), new Color(0.88f, 0.94f, 1f, 1f));
             SetRect(cmdBtn.GetComponent<RectTransform>(), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(208f, 0f), new Vector2(184f, 40f));
 
-            Text timerText = CreateText("TimerText", topBar.transform, font, "남은 시간  02:00", 25, FontStyle.Bold, new Color(0.95f, 0.97f, 1f, 1f), TextAnchor.MiddleCenter);
-            SetRect(timerText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(300f, 44f));
+            Text timerText = CreateText("TimerText", topBar.transform, font, "08:00 (낮)  ·  남은 02:00", 24, FontStyle.Bold, new Color(0.95f, 0.97f, 1f, 1f), TextAnchor.MiddleCenter);
+            SetRect(timerText.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(460f, 44f));
 
             Text balanceText = CreateText("BalanceText", topBar.transform, font, "현재 50,000원  /  목표 80,000원", 21, FontStyle.Bold, new Color(0.98f, 0.82f, 0.32f, 1f), TextAnchor.MiddleRight);
             SetRect(balanceText.rectTransform, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-24f, 0f), new Vector2(460f, 44f));
@@ -1177,17 +1226,35 @@ namespace OpenSourceTeam6.UI.Editor
             GameObject camObj = new GameObject("Main Camera");
             camObj.tag = "MainCamera";
             Camera cam = camObj.AddComponent<Camera>();
-            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.clearFlags = CameraClearFlags.Skybox;
             cam.backgroundColor = new Color(0.14f, 0.18f, 0.24f, 1f);
-            camObj.transform.position = new Vector3(0f, 2.2f, -5.8f);
-            camObj.transform.eulerAngles = new Vector3(12f, 0f, 0f);
+            cam.farClipPlane = 1000f;
+            camObj.transform.position = new Vector3(0f, 2.0f, -6.0f);
+            camObj.transform.eulerAngles = new Vector3(5f, 0f, 0f);
             camObj.AddComponent<AudioListener>();
 
             GameObject lightObj = new GameObject("Directional Light");
             Light dirLight = lightObj.AddComponent<Light>();
             dirLight.type = LightType.Directional;
-            dirLight.intensity = 1.1f;
+            dirLight.intensity = 1.0f;
+            dirLight.shadows = LightShadows.Soft;
             lightObj.transform.eulerAngles = new Vector3(45f, -35f, 0f);
+            RenderSettings.sun = dirLight;
+
+            const string skyPath = "Assets/_Project/HaJongUk/Assets/TimeTestSky.mat";
+            Material skyMat = AssetDatabase.LoadAssetAtPath<Material>(skyPath);
+            if (skyMat != null)
+            {
+                RenderSettings.skybox = skyMat;
+            }
+            else
+            {
+                Shader procSkyShader = Shader.Find("Skybox/Procedural");
+                if (procSkyShader != null)
+                {
+                    RenderSettings.skybox = new Material(procSkyShader);
+                }
+            }
 
             GameObject eventSystemObj = new GameObject("EventSystem");
             eventSystemObj.AddComponent<EventSystem>();
@@ -1217,8 +1284,60 @@ namespace OpenSourceTeam6.UI.Editor
 
             GameObject uiInstance = (GameObject)PrefabUtility.InstantiatePrefab(savedUiPrefab);
             StoreUiSessionController uiController = uiInstance.GetComponent<StoreUiSessionController>();
+
+            // Time System & Day-Night Environment (TIME-01 연동: 1일차 낮→밤 변화, 2·3일차 비 날씨 확장 대응)
+            GameObject timeRoot = new GameObject("Time System");
+            timeRoot.SetActive(false);
+
+            BusinessTimeController timeController = timeRoot.AddComponent<BusinessTimeController>();
+            SerializedObject timeSo = new SerializedObject(timeController);
+            timeSo.FindProperty("standaloneClock").boolValue = false;
+            timeSo.FindProperty("dayDurationSeconds").floatValue = 120f;
+            timeSo.FindProperty("openingHour").floatValue = 8f;
+            timeSo.FindProperty("closingHour").floatValue = 32f;
+            timeSo.ApplyModifiedPropertiesWithoutUndo();
+
+            timeRoot.AddComponent<DayNightPresenter>();
+            timeRoot.AddComponent<CelestialBodyPresenter>();
+
+            RainWeatherController rainController = timeRoot.AddComponent<RainWeatherController>();
+            rainController.isRain = false;
+
+            TimeSkyExposure skyExposure = timeRoot.AddComponent<TimeSkyExposure>();
+            SerializedObject skySo = new SerializedObject(skyExposure);
+            if (skySo.FindProperty("cloudDegreesPerGameHour") != null)
+            {
+                skySo.FindProperty("cloudDegreesPerGameHour").floatValue = 3f;
+                skySo.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            TimeEnvironmentController timeEnvironment = timeRoot.AddComponent<TimeEnvironmentController>();
+            timeEnvironment.Configure(dirLight, cam);
+
+            Type bridgeType = Type.GetType("UiBusinessTimeBridge, Assembly-CSharp");
+            if (bridgeType != null)
+            {
+                Component bridgeComp = timeRoot.AddComponent(bridgeType);
+                SerializedObject bridgeSo = new SerializedObject(bridgeComp);
+                SerializedProperty uiProp = bridgeSo.FindProperty("ui");
+                SerializedProperty timeProp = bridgeSo.FindProperty("timeSystem");
+                if (uiProp != null) uiProp.objectReferenceValue = uiController;
+                if (timeProp != null) timeProp.objectReferenceValue = timeController;
+                bridgeSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+
+            timeRoot.SetActive(true);
+
             SerializedObject uiCtrlSo = new SerializedObject(uiController);
             uiCtrlSo.FindProperty("worldStatusPresenter").objectReferenceValue = worldPresenter;
+            if (uiCtrlSo.FindProperty("businessTimeController") != null)
+            {
+                uiCtrlSo.FindProperty("businessTimeController").objectReferenceValue = timeController;
+            }
+            if (uiCtrlSo.FindProperty("timeEnvironmentController") != null)
+            {
+                uiCtrlSo.FindProperty("timeEnvironmentController").objectReferenceValue = timeEnvironment;
+            }
             uiCtrlSo.ApplyModifiedPropertiesWithoutUndo();
 
             // Demo driver + non-intrusive bottom-left shortcut guide (UI-06, kept outside PF_StoreUIRoot prefab!)
@@ -1242,7 +1361,7 @@ namespace OpenSourceTeam6.UI.Editor
 
             GameObject hintBox = CreatePanel("DemoShortcutGuide", demoObj.transform, new Color(0.05f, 0.08f, 0.13f, 0.78f), whiteSprite);
             hintBox.GetComponent<Image>().raycastTarget = false;
-            SetRect(hintBox.GetComponent<RectTransform>(), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 24f), new Vector2(404f, 152f));
+            SetRect(hintBox.GetComponent<RectTransform>(), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-24f, 24f), new Vector2(424f, 174f));
 
             Text hintTxt = CreateText(
                 "ShortcutText",
@@ -1252,7 +1371,8 @@ namespace OpenSourceTeam6.UI.Editor
                 "• V : 음성 녹음 시작/종료   • Tab : 보조 텍스트창   • Esc : 일시정지\n" +
                 "• F1 : 음성 명령 시뮬레이션 (현재 스트레스 확률 반영)\n" +
                 "• F2 : ①단순 오인식   • F3 : ②분노 거부   • F4 : ③이동 오류\n" +
-                "• F5 : 스트레스 +25 가산   • F6 : 즉시 영업 종료·정산",
+                "• F5 : 스트레스 +25 가산   • F6 : 즉시 영업 종료·정산\n" +
+                "• F7 : 시간 +4시간 진행(낮→노을→밤)   • F8 : 비 날씨 토글(2·3일차)",
                 14,
                 FontStyle.Normal,
                 new Color(0.76f, 0.86f, 0.96f, 1f),

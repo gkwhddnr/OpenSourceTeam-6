@@ -353,5 +353,47 @@ namespace OpenSourceTeam6.UI.EditorTests
             StringAssert.Contains("실패 엔딩 2", r4.HeaderTitle);
             StringAssert.Contains("100/100", r4.NarrativeBodyText);
         }
+
+        [Test]
+        public void StoreDayTimeRules_ProgressAndDayNightTransition_MatchesTimeSystemSpec()
+        {
+            // 1. 시작 시점(남은 시간 120/120 -> 진행률 0.0 -> 08:00 낮)
+            float pStart = StoreDayTimeRules.ComputeDayProgress(120f, 120f);
+            Assert.AreEqual(0f, pStart, 0.0001f);
+            float hStart = StoreDayTimeRules.ComputeGameHour(pStart);
+            Assert.AreEqual(8f, hStart, 0.0001f);
+            Assert.AreEqual(StoreTimeOfDayPhase.Day, StoreDayTimeRules.ClassifyPhase(hStart));
+            Assert.IsFalse(StoreDayTimeRules.IsNightTime(hStart));
+            Assert.AreEqual("08:00 (낮)  ·  남은 02:00", StoreDayTimeRules.FormatHudClockAndTimer(120f, 120f));
+
+            // 2. 노을·일몰 구간(18:30 -> 진행률 10.5/24 = 0.4375 -> 남은 시간 67.5초)
+            float pSunset = StoreDayTimeRules.ComputeDayProgress(67.5f, 120f);
+            float hSunset = StoreDayTimeRules.ComputeGameHour(pSunset);
+            Assert.AreEqual(18.5f, hSunset, 0.001f);
+            Assert.AreEqual(StoreTimeOfDayPhase.Sunset, StoreDayTimeRules.ClassifyPhase(hSunset));
+            Assert.IsTrue(StoreDayTimeRules.IsNightTime(hSunset));
+            StringAssert.Contains("18:30 (노을)", StoreDayTimeRules.FormatHudClockAndTimer(67.5f, 120f));
+
+            // 3. 야간 구간(남은 시간 60/120 -> 진행률 0.5 -> 20:00 밤)
+            float pNight = StoreDayTimeRules.ComputeDayProgress(60f, 120f);
+            float hNight = StoreDayTimeRules.ComputeGameHour(pNight);
+            Assert.AreEqual(20f, hNight, 0.001f);
+            Assert.AreEqual(StoreTimeOfDayPhase.Night, StoreDayTimeRules.ClassifyPhase(hNight));
+            Assert.IsTrue(StoreDayTimeRules.IsNightTime(hNight));
+            Assert.AreEqual("20:00 (밤)  ·  남은 01:00", StoreDayTimeRules.FormatHudClockAndTimer(60f, 120f));
+
+            // 4. 새벽 일출 구간(06:00 -> 진행률 22/24 -> 남은 시간 10초)
+            float pDawn = StoreDayTimeRules.ComputeDayProgress(10f, 120f);
+            float hDawn = StoreDayTimeRules.ComputeGameHour(pDawn);
+            Assert.AreEqual(6f, hDawn, 0.01f);
+            Assert.AreEqual(StoreTimeOfDayPhase.Dawn, StoreDayTimeRules.ClassifyPhase(hDawn));
+
+            // 5. 1일차는 맑은 낮·밤 유지, 2·3일차 비 날씨 이벤트 옵션 검증
+            Assert.IsFalse(StoreDayTimeRules.ShouldRainForDay(1, enableDay2Or3RainEvent: false));
+            Assert.IsFalse(StoreDayTimeRules.ShouldRainForDay(1, enableDay2Or3RainEvent: true));
+            Assert.IsFalse(StoreDayTimeRules.ShouldRainForDay(2, enableDay2Or3RainEvent: false));
+            Assert.IsTrue(StoreDayTimeRules.ShouldRainForDay(2, enableDay2Or3RainEvent: true));
+            Assert.IsTrue(StoreDayTimeRules.ShouldRainForDay(3, enableDay2Or3RainEvent: true));
+        }
     }
 }

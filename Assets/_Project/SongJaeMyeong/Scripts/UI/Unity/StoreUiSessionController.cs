@@ -1,10 +1,13 @@
 using System;
+using OpenSourceTeam6.Time.Core;
+using OpenSourceTeam6.Time.Unity;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Time = UnityEngine.Time;
     public sealed class StoreUiSessionController : MonoBehaviour, IUISystemPresenter
     {
         [Header("Panels")]
@@ -28,6 +31,12 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private MonoBehaviour externalCursorLockGateComponent;
         [SerializeField] private StandaloneCursorLockGate standaloneFallbackGate;
 
+        [Header("Time & Day-Night Environment (TIME-01 연동)")]
+        [SerializeField] private BusinessTimeController businessTimeController;
+        [SerializeField] private TimeEnvironmentController timeEnvironmentController;
+        [Tooltip("추후 2일차 또는 3일차 날씨 이벤트(비) 자동 적용 여부. 1일차는 항상 맑은 낮과 밤으로 진행됩니다.")]
+        [SerializeField] private bool enableDay2Or3RainEvent = false;
+
         [Header("Settlement & Day Settings (1차 데모 120초 규격 기본값)")]
         [SerializeField] private DaySettlementSettings settlementSettings = DaySettlementSettings.CreateDemoPreset();
 
@@ -41,6 +50,8 @@ namespace OpenSourceTeam6.UI.Unity
 
         private float remainingDaySeconds;
         private float totalDaySeconds;
+        private bool ownsFallbackExternalClock;
+        private int fallbackActiveTimeDayId;
         private EmployeeHudSnapshot lastEmployeeSnapshot;
         private DaySettlementResult lastSettlementResult;
         private VoiceProcessStage lastVoiceStage = VoiceProcessStage.Idle;
@@ -54,6 +65,13 @@ namespace OpenSourceTeam6.UI.Unity
         public bool IsSettingsOpen => settingsPanel != null && settingsPanel.IsOpen;
         public float RemainingDaySeconds => remainingDaySeconds;
         public float TotalDaySeconds => totalDaySeconds;
+        public float DayProgress => StoreDayTimeRules.ComputeDayProgress(remainingDaySeconds, totalDaySeconds);
+        public float CurrentGameHour => businessTimeController != null
+            ? businessTimeController.GameHour
+            : StoreDayTimeRules.ComputeGameHour(DayProgress);
+        public StoreTimeOfDayPhase CurrentTimeOfDayPhase => StoreDayTimeRules.ClassifyPhase(CurrentGameHour);
+        public bool IsNightTime => StoreDayTimeRules.IsNightTime(CurrentGameHour);
+        public bool IsRainWeather => timeEnvironmentController != null && timeEnvironmentController.IsRain;
 
         public event Action<EmployeePersonaSetupData> PersonaConfirmed;
         public event Action<string> TextCommandSubmitted;
@@ -66,6 +84,7 @@ namespace OpenSourceTeam6.UI.Unity
             settlementSession = new DaySettlementSession(settlementSettings);
             ResolveCursorLockGate();
             ResolveAudioPlayer();
+            ResolveTimeSystem();
             CurrentPersona = EmployeePersonaPresets.CreatePreset1();
             EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
             lastEmployeeSnapshot = new EmployeeHudSnapshot(
@@ -83,6 +102,7 @@ namespace OpenSourceTeam6.UI.Unity
         {
             ResolveCursorLockGate();
             ResolveAudioPlayer();
+            ResolveTimeSystem();
             if (settingsPanel != null)
             {
                 settingsPanel.BindAudioPlayer(activeAudioPlayer);
@@ -194,6 +214,17 @@ namespace OpenSourceTeam6.UI.Unity
                 endingPanel.ReturnLobbyClicked -= ShowLobby;
             }
 
+            if (businessTimeController != null)
+            {
+                businessTimeController.Clock.IsPaused = false;
+                if (ownsFallbackExternalClock)
+                {
+                    businessTimeController.ReleaseExternalClock();
+                }
+            }
+            ownsFallbackExternalClock = false;
+            fallbackActiveTimeDayId = 0;
+
             RestoreTimeScale();
             ReleaseSettingsLock();
             ReleasePauseLock();
@@ -212,6 +243,10 @@ namespace OpenSourceTeam6.UI.Unity
             if (remainingDaySeconds > 0f)
             {
                 remainingDaySeconds = Mathf.Max(0f, remainingDaySeconds - Time.deltaTime);
+                if (ownsFallbackExternalClock && businessTimeController != null && fallbackActiveTimeDayId > 0)
+                {
+                    businessTimeController.ApplyExternalProgress(fallbackActiveTimeDayId, DayProgress);
+                }
                 RefreshTopBar();
 
                 if (remainingDaySeconds <= 0f)
@@ -219,6 +254,52 @@ namespace OpenSourceTeam6.UI.Unity
                     CompleteDayAndShowSettlement(lastEmployeeSnapshot.Stress);
                 }
             }
+        }
+
+        private void LateUpdate()
+        {
+            if (CurrentMode == UiScreenMode.InGame && !IsPauseMenuOpen && !IsSettingsOpen && businessTimeController != null)
+            {
+                RefreshTopBar();
+            }
+        }
+
+        public void BindTimeSystem(BusinessTimeController timeController, TimeEnvironmentController environmentController = null)
+        {
+            businessTimeController = timeController;
+            if (environmentController != null)
+            {
+                timeEnvironmentController = environmentController;
+            }
+            else if (businessTimeController != null && timeEnvironmentController == null)
+            {
+                timeEnvironmentController = businessTimeController.GetComponent<TimeEnvironmentController>();
+            }
+
+            SyncTimeSystemPauseState();
+            RefreshTopBar();
+        }
+
+        public void SetRainWeather(bool isRain)
+        {
+            ResolveTimeSystem();
+            if (timeEnvironmentController != null)
+            {
+                timeEnvironmentController.IsRain = isRain;
+            }
+        }
+
+        public void AdvanceRemainingDaySeconds(float secondsToSkip)
+        {
+            if (CurrentMode != UiScreenMode.InGame || remainingDaySeconds <= 0f) return;
+            if (float.IsNaN(secondsToSkip) || float.IsInfinity(secondsToSkip) || secondsToSkip <= 0f) return;
+
+            remainingDaySeconds = Mathf.Max(0.1f, remainingDaySeconds - secondsToSkip);
+            if (ownsFallbackExternalClock && businessTimeController != null && fallbackActiveTimeDayId > 0)
+            {
+                businessTimeController.ApplyExternalProgress(fallbackActiveTimeDayId, DayProgress);
+            }
+            RefreshTopBar();
         }
 
         public void SetWorldStatusPresenter(EmployeeWorldStatusPresenter presenter)
@@ -308,6 +389,12 @@ namespace OpenSourceTeam6.UI.Unity
             RestoreTimeScale();
 
             CurrentMode = UiScreenMode.Lobby;
+            SyncTimeSystemPauseState();
+            if (ownsFallbackExternalClock && businessTimeController != null && fallbackActiveTimeDayId > 0)
+            {
+                businessTimeController.Clock.CancelDay(fallbackActiveTimeDayId);
+                fallbackActiveTimeDayId = 0;
+            }
 
             if (lobbyPanel != null) lobbyPanel.SetVisible(true);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
@@ -386,10 +473,11 @@ namespace OpenSourceTeam6.UI.Unity
                 worldStatusPresenter.ShowSpeechBubble(string.Empty, CommandFeedbackKind.Info);
             }
 
+            PrepareTimeSystemForDayStart(dayNumber);
+            DayStarted?.Invoke();
             RefreshTopBar();
             activeAudioPlayer?.PlaySfx(StoreSfxId.StoreDoorChime);
             SyncBgmForCurrentState();
-            DayStarted?.Invoke();
         }
 
         public void UpdateEmployeeHud(EmployeeHudSnapshot snapshot)
@@ -483,6 +571,12 @@ namespace OpenSourceTeam6.UI.Unity
             DaySettlementResult result = settlementSession.SettleOnce(endingStress);
             lastSettlementResult = result;
             CurrentMode = UiScreenMode.Settlement;
+            SyncTimeSystemPauseState();
+            if (ownsFallbackExternalClock && businessTimeController != null && fallbackActiveTimeDayId > 0)
+            {
+                businessTimeController.ApplyExternalProgress(fallbackActiveTimeDayId, 1.0);
+                businessTimeController.Clock.ConfirmSettlement(fallbackActiveTimeDayId);
+            }
 
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
@@ -572,6 +666,7 @@ namespace OpenSourceTeam6.UI.Unity
                 activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
             }
             Time.timeScale = 0f;
+            SyncTimeSystemPauseState();
             if (pauseLockToken == null && activeLockGate != null)
             {
                 pauseLockToken = activeLockGate.AcquireLock("PauseMenuUI");
@@ -591,6 +686,7 @@ namespace OpenSourceTeam6.UI.Unity
             }
             ReleasePauseLock();
             RestoreTimeScale();
+            SyncTimeSystemPauseState();
         }
 
         public void OpenSettingsPanel()
@@ -602,6 +698,7 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
             }
+            SyncTimeSystemPauseState();
             if (settingsLockToken == null && activeLockGate != null)
             {
                 settingsLockToken = activeLockGate.AcquireLock("SettingsPanelUI");
@@ -620,6 +717,7 @@ namespace OpenSourceTeam6.UI.Unity
                 activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
             }
             ReleaseSettingsLock();
+            SyncTimeSystemPauseState();
         }
 
         private void HandleGlobalEscapeHotkey()
@@ -673,11 +771,123 @@ namespace OpenSourceTeam6.UI.Unity
         {
             if (inGameHud == null || settlementSession == null) return;
             int liveEstimatedBalance = settlementSession.StartingBalanceWon + settlementSession.EstimateLiveGrossSalesWon();
+            float? explicitGameHour = businessTimeController != null &&
+                                      (businessTimeController.Clock.Phase == BusinessPhase.Open ||
+                                       businessTimeController.Clock.Phase == BusinessPhase.Closing)
+                ? businessTimeController.GameHour
+                : (float?)null;
             inGameHud.UpdateTopBar(
                 settlementSession.DayNumber,
                 remainingDaySeconds,
                 liveEstimatedBalance,
-                settlementSession.TargetBalanceWon);
+                settlementSession.TargetBalanceWon,
+                totalDaySeconds,
+                explicitGameHour);
+        }
+
+        private void ResolveTimeSystem()
+        {
+            if (businessTimeController == null)
+            {
+                businessTimeController = FindAnyObjectByType<BusinessTimeController>();
+            }
+
+            if (timeEnvironmentController == null)
+            {
+                if (businessTimeController != null)
+                {
+                    timeEnvironmentController = businessTimeController.GetComponent<TimeEnvironmentController>();
+                }
+
+                if (timeEnvironmentController == null)
+                {
+                    timeEnvironmentController = FindAnyObjectByType<TimeEnvironmentController>();
+                }
+            }
+
+            if (Application.isPlaying && businessTimeController == null)
+            {
+                TryBootstrapRuntimeTimeSystem();
+            }
+        }
+
+        private void TryBootstrapRuntimeTimeSystem()
+        {
+            Camera viewCam = Camera.main != null ? Camera.main : FindAnyObjectByType<Camera>();
+            Light dirLight = RenderSettings.sun;
+            if (dirLight == null || dirLight.type != LightType.Directional)
+            {
+                Light[] lights = FindObjectsByType<Light>();
+                for (int i = 0; i < lights.Length; i++)
+                {
+                    if (lights[i] != null && lights[i].type == LightType.Directional)
+                    {
+                        dirLight = lights[i];
+                        break;
+                    }
+                }
+            }
+
+            if (viewCam == null || dirLight == null) return;
+
+            viewCam.clearFlags = CameraClearFlags.Skybox;
+            if (viewCam.farClipPlane < 1000f)
+            {
+                viewCam.farClipPlane = 1000f;
+            }
+
+            GameObject timeRoot = new GameObject("Time System (Runtime)");
+            timeRoot.SetActive(false);
+
+            businessTimeController = timeRoot.AddComponent<BusinessTimeController>();
+            timeRoot.AddComponent<DayNightPresenter>();
+            timeRoot.AddComponent<CelestialBodyPresenter>();
+            RainWeatherController rainCtrl = timeRoot.AddComponent<RainWeatherController>();
+            rainCtrl.isRain = false;
+            timeRoot.AddComponent<TimeSkyExposure>();
+            timeEnvironmentController = timeRoot.AddComponent<TimeEnvironmentController>();
+            timeEnvironmentController.Configure(dirLight, viewCam);
+
+            timeRoot.SetActive(true);
+            ownsFallbackExternalClock = businessTimeController.AcquireExternalClock();
+        }
+
+        private void PrepareTimeSystemForDayStart(int dayNumber)
+        {
+            ResolveTimeSystem();
+            if (businessTimeController != null)
+            {
+                businessTimeController.Clock.IsPaused = false;
+                if (businessTimeController.Clock.Phase == BusinessPhase.Open)
+                {
+                    businessTimeController.Clock.CancelDay(businessTimeController.Clock.DayId);
+                }
+                else if (businessTimeController.Clock.Phase == BusinessPhase.Closing)
+                {
+                    businessTimeController.Clock.ConfirmSettlement(businessTimeController.Clock.DayId);
+                }
+
+                if (ownsFallbackExternalClock)
+                {
+                    int nextDayId = businessTimeController.Clock.DayId + 1;
+                    if (businessTimeController.BeginDay(nextDayId))
+                    {
+                        fallbackActiveTimeDayId = nextDayId;
+                    }
+                }
+            }
+
+            if (timeEnvironmentController != null)
+            {
+                timeEnvironmentController.IsRain = StoreDayTimeRules.ShouldRainForDay(dayNumber, enableDay2Or3RainEvent);
+            }
+        }
+
+        private void SyncTimeSystemPauseState()
+        {
+            if (businessTimeController == null) return;
+            bool shouldPauseClock = CurrentMode == UiScreenMode.InGame && (IsPauseMenuOpen || IsSettingsOpen);
+            businessTimeController.Clock.IsPaused = shouldPauseClock;
         }
 
         private void ResolveAudioPlayer()
