@@ -1,0 +1,27 @@
+fileFormatVersion: 2
+guid: 462f1176a2c67af4ea366a49ca775106
+TrueTypeFontImporter:
+  externalObjects: {}
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 1
+  includeFontData: 1
+  fontNames:
+  - Kyobo Handwriting 2025
+  - KyoboHandwriting2025lyb
+  - Malgun Gothic
+  - "\uB9D1\uC740 \uACE0\uB515"
+  - Arial
+  fallbackFontReferences:
+  - {fileID: 12800000, guid: a4b01679ff7cd8d4982186ca84c83620, type: 3}
+  customCharacters: 
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  useLegacyBoundsCalculation: 0
+  shouldRoundAdvanceValue: 1
+  subsetRecipes: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

@@ -20,7 +20,8 @@ namespace OpenSourceTeam6.UI.Unity
 
         [Header("Initial Volume Settings (UI-04 연동 기본값)")]
         [SerializeField, Range(0f, 1f)] private float _initialMasterVolume = 1.0f;
-        [SerializeField, Range(0f, 1f)] private float _initialBgmVolume = 0.75f;
+        [SerializeField, Range(0f, 1f)] private float _initialBgmVolume = 0.30f;
+        [SerializeField, Range(0f, 1f)] private float _inGameBgmVolumeScale = 0.55f;
         [SerializeField, Range(0f, 1f)] private float _initialSfxVolume = 1.0f;
         [SerializeField] private bool _initialBgmMuted;
 
@@ -40,6 +41,7 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private AudioClip _barcodeCheckoutClip;
         [SerializeField] private AudioClip _workTaskCompleteClip;
         [SerializeField] private AudioClip _paperFlipClip;
+        [SerializeField] private AudioClip _pencilWriteClip;
 
         [Header("SND-03: 음성 명령 및 직원 감정 반응 알림음")]
         [SerializeField] private AudioClip _micRecordStartClip;
@@ -143,10 +145,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (clip == null) return;
 
             float clampedScale = StoreAudioRules.ClampVolume01(volumeScale);
-            float finalVolume = _volumeState.EffectiveSfxVolume * clampedScale;
-            if (finalVolume <= 0.0001f) return;
+            float effectiveSfx = _volumeState.EffectiveSfxVolume;
+            if (effectiveSfx * clampedScale <= 0.0001f) return;
 
-            _sfxSource.PlayOneShot(clip, finalVolume);
+            _sfxSource.volume = effectiveSfx;
+            _sfxSource.PlayOneShot(clip, clampedScale);
         }
 
         public void PlayReactionSfx(EmployeeReaction reaction)
@@ -237,7 +240,9 @@ namespace OpenSourceTeam6.UI.Unity
         {
             if (_bgmSource != null)
             {
-                _bgmSource.volume = _volumeState.EffectiveBgmVolume;
+                bool isInGameTrack = CurrentBgm == StoreBgmTrack.DayNormal || CurrentBgm == StoreBgmTrack.DayCrisis;
+                float trackScale = isInGameTrack ? Mathf.Clamp01(_inGameBgmVolumeScale) : 1f;
+                _bgmSource.volume = _volumeState.EffectiveBgmVolume * trackScale;
                 _bgmSource.mute = _volumeState.IsBgmMuted;
             }
 
@@ -304,6 +309,9 @@ namespace OpenSourceTeam6.UI.Unity
                 case StoreSfxId.PaperFlip:
                     assigned = _paperFlipClip;
                     break;
+                case StoreSfxId.PencilWrite:
+                    assigned = _pencilWriteClip;
+                    break;
                 case StoreSfxId.MicRecordStart:
                     assigned = _micRecordStartClip;
                     break;
@@ -361,6 +369,10 @@ namespace OpenSourceTeam6.UI.Unity
                 case StoreSfxId.PaperFlip:
                     // 정산서/클립보드 전환음 (짧고 부드러운 고역 스윕)
                     return CreateTwoToneClip("Fallback_PaperFlip", 440f, 660f, 0.05f, 0.07f, 0.16f);
+
+                case StoreSfxId.PencilWrite:
+                    // 이력서 확인 연필 체크/서명음 (짧은 사각임)
+                    return CreateTwoToneClip("Fallback_PencilWrite", 360f, 520f, 0.06f, 0.09f, 0.18f);
 
                 case StoreSfxId.MicRecordStart:
                     // 마이크 녹음 시작 ("띠리링": 상승 A5 -> E6)

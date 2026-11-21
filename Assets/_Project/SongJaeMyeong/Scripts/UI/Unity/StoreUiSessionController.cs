@@ -1,9 +1,11 @@
 using System;
+using System.Collections;
 using OpenSourceTeam6.Time.Core;
 using OpenSourceTeam6.Time.Unity;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.UI;
 
 namespace OpenSourceTeam6.UI.Unity
 {
@@ -40,6 +42,11 @@ namespace OpenSourceTeam6.UI.Unity
         [Header("Settlement & Day Settings (1차 데모 120초 규격 기본값)")]
         [SerializeField] private DaySettlementSettings settlementSettings = DaySettlementSettings.CreateDemoPreset();
 
+        [Header("Screen Transition Fade (화면 전환 페이드 연출)")]
+        [SerializeField, Min(0f)] private float transitionFadeOutSeconds = 0.45f;
+        [SerializeField, Min(0f)] private float transitionFadeHoldSeconds = 0.12f;
+        [SerializeField, Min(0f)] private float transitionFadeInSeconds = 0.55f;
+
         private DaySettlementSession settlementSession;
         private ICursorLockGate activeLockGate;
         private IStoreAudioPlayer activeAudioPlayer;
@@ -47,6 +54,9 @@ namespace OpenSourceTeam6.UI.Unity
         private IDisposable overlayLockToken;
         private IDisposable pauseLockToken;
         private IDisposable settingsLockToken;
+        private CanvasGroup transitionFadeOverlay;
+        private Coroutine activeFadeCoroutine;
+        private bool isTransitionFading;
 
         private float remainingDaySeconds;
         private float totalDaySeconds;
@@ -225,6 +235,7 @@ namespace OpenSourceTeam6.UI.Unity
             ownsFallbackExternalClock = false;
             fallbackActiveTimeDayId = 0;
 
+            CancelActiveFadeTransition();
             RestoreTimeScale();
             ReleaseSettingsLock();
             ReleasePauseLock();
@@ -234,6 +245,8 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void Update()
         {
+            if (isTransitionFading) return;
+
             HandleGlobalEscapeHotkey();
 
             if (CurrentMode != UiScreenMode.InGame || IsPauseMenuOpen || IsSettingsOpen) return;
@@ -427,12 +440,16 @@ namespace OpenSourceTeam6.UI.Unity
             if (endingPanel != null) endingPanel.SetVisible(false);
             personaSetupPanel.SetVisible(true);
 
-            activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
             SyncBgmForCurrentState();
             AcquireScreenLock("PersonaSetupScreen");
         }
 
         public void StartDay(int dayNumber, int startingBalanceWon, float durationSeconds)
+        {
+            StartDayInternal(dayNumber, startingBalanceWon, durationSeconds, playDoorChime: true);
+        }
+
+        private void StartDayInternal(int dayNumber, int startingBalanceWon, float durationSeconds, bool playDoorChime)
         {
             if (settlementSession == null)
             {
@@ -476,7 +493,10 @@ namespace OpenSourceTeam6.UI.Unity
             PrepareTimeSystemForDayStart(dayNumber);
             DayStarted?.Invoke();
             RefreshTopBar();
-            activeAudioPlayer?.PlaySfx(StoreSfxId.StoreDoorChime);
+            if (playDoorChime)
+            {
+                activeAudioPlayer?.PlaySfx(StoreSfxId.StoreDoorChime);
+            }
             SyncBgmForCurrentState();
         }
 
@@ -1010,20 +1030,155 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandlePersonaConfirmStartClicked(EmployeePersonaSetupData persona)
         {
-            CurrentPersona = persona;
-            EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
-            lastEmployeeSnapshot = new EmployeeHudSnapshot(
-                persona.EmployeeName,
-                persona.PersonalityTraits,
-                StaffWorkRole.Idle,
-                "IDLE",
-                StaffMoveBadge.Idle,
-                demoRates.InitialStress,
-                demoRates.InitialFatigue,
-                persona.Profile.Loyalty);
+            if (isTransitionFading) return;
 
-            PersonaConfirmed?.Invoke(persona);
-            StartDay(1, settlementSettings.StartingBalanceWon, settlementSettings.DayDurationSeconds);
+            StartFadeTransition(() =>
+            {
+                CurrentPersona = persona;
+                EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
+                lastEmployeeSnapshot = new EmployeeHudSnapshot(
+                    persona.EmployeeName,
+                    persona.PersonalityTraits,
+                    StaffWorkRole.Idle,
+                    "IDLE",
+                    StaffMoveBadge.Idle,
+                    demoRates.InitialStress,
+                    demoRates.InitialFatigue,
+                    persona.Profile.Loyalty);
+
+                PersonaConfirmed?.Invoke(persona);
+                StartDayInternal(1, settlementSettings.StartingBalanceWon, settlementSettings.DayDurationSeconds, playDoorChime: false);
+            });
+        }
+
+        private void StartFadeTransition(Action onMidpoint)
+        {
+            if (!isActiveAndEnabled)
+            {
+                onMidpoint?.Invoke();
+                return;
+            }
+
+            CancelActiveFadeTransition();
+            activeFadeCoroutine = StartCoroutine(RunFadeTransitionCoroutine(onMidpoint));
+        }
+
+        private IEnumerator RunFadeTransitionCoroutine(Action onMidpoint)
+        {
+            CanvasGroup fadeGroup = EnsureTransitionFadeOverlay();
+            if (fadeGroup == null)
+            {
+                onMidpoint?.Invoke();
+                activeFadeCoroutine = null;
+                yield break;
+            }
+
+            isTransitionFading = true;
+            fadeGroup.transform.SetAsLastSibling();
+            fadeGroup.gameObject.SetActive(true);
+            fadeGroup.blocksRaycasts = true;
+
+            float fadeOutDuration = Mathf.Max(0f, transitionFadeOutSeconds);
+            if (fadeOutDuration > 0.001f)
+            {
+                float elapsed = 0f;
+                while (elapsed < fadeOutDuration)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                    float t = Mathf.Clamp01(elapsed / fadeOutDuration);
+                    fadeGroup.alpha = Mathf.SmoothStep(0f, 1f, t);
+                    yield return null;
+                }
+            }
+            fadeGroup.alpha = 1f;
+
+            float holdDuration = Mathf.Max(0f, transitionFadeHoldSeconds);
+            if (holdDuration > 0.001f)
+            {
+                float elapsed = 0f;
+                while (elapsed < holdDuration)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+            }
+
+            onMidpoint?.Invoke();
+
+            float fadeInDuration = Mathf.Max(0f, transitionFadeInSeconds);
+            if (fadeInDuration > 0.001f)
+            {
+                float elapsed = 0f;
+                while (elapsed < fadeInDuration)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                    float t = Mathf.Clamp01(elapsed / fadeInDuration);
+                    fadeGroup.alpha = Mathf.SmoothStep(1f, 0f, t);
+                    yield return null;
+                }
+            }
+
+            fadeGroup.alpha = 0f;
+            fadeGroup.blocksRaycasts = false;
+            fadeGroup.gameObject.SetActive(false);
+            isTransitionFading = false;
+            activeFadeCoroutine = null;
+        }
+
+        private CanvasGroup EnsureTransitionFadeOverlay()
+        {
+            if (transitionFadeOverlay != null) return transitionFadeOverlay;
+
+            Transform existing = transform.Find("TransitionFadeOverlay");
+            GameObject overlayObj;
+            if (existing != null)
+            {
+                overlayObj = existing.gameObject;
+            }
+            else
+            {
+                overlayObj = new GameObject("TransitionFadeOverlay", typeof(RectTransform), typeof(Image), typeof(CanvasGroup));
+                overlayObj.transform.SetParent(transform, false);
+                RectTransform rt = overlayObj.GetComponent<RectTransform>();
+                rt.anchorMin = Vector2.zero;
+                rt.anchorMax = Vector2.one;
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.anchoredPosition = Vector2.zero;
+                rt.sizeDelta = Vector2.zero;
+
+                Image bg = overlayObj.GetComponent<Image>();
+                bg.color = Color.black;
+                bg.raycastTarget = true;
+            }
+
+            transitionFadeOverlay = overlayObj.GetComponent<CanvasGroup>();
+            if (transitionFadeOverlay == null)
+            {
+                transitionFadeOverlay = overlayObj.AddComponent<CanvasGroup>();
+            }
+
+            transitionFadeOverlay.alpha = 0f;
+            transitionFadeOverlay.interactable = false;
+            transitionFadeOverlay.blocksRaycasts = false;
+            overlayObj.SetActive(false);
+            return transitionFadeOverlay;
+        }
+
+        private void CancelActiveFadeTransition()
+        {
+            if (activeFadeCoroutine != null)
+            {
+                StopCoroutine(activeFadeCoroutine);
+                activeFadeCoroutine = null;
+            }
+
+            isTransitionFading = false;
+            if (transitionFadeOverlay != null)
+            {
+                transitionFadeOverlay.alpha = 0f;
+                transitionFadeOverlay.blocksRaycasts = false;
+                transitionFadeOverlay.gameObject.SetActive(false);
+            }
         }
 
         private void HandleRetryDayClicked()
