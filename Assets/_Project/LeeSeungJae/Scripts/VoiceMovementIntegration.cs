@@ -51,6 +51,10 @@ namespace EmployeeVoice
         [SerializeField] private bool useWhisperVocabulary = true;
         [Tooltip("Vocabulary supplied as context, not a command or guaranteed transcription.")]
         [SerializeField, TextArea] private string whisperVocabulary = "진열, 재고, 과자, 스낵, 라면, 생필품, 아이스크림, 냉장고, 워크인, 핫바, 청소, 계산대, 캐셔";
+        [Tooltip("Scale each conversational insult or urgent utterance, including repeats.")]
+        [SerializeField, Min(0f)] private float conversationStressIncreaseScale = 1f;
+        [Tooltip("Scale stress recovery for each conversational praise or apology.")]
+        [SerializeField, Min(0f)] private float conversationStressRecoveryScale = 1f;
         [SerializeField] private EmployeePersonality personality = new EmployeePersonality { employeeName = "민수" };
 
         private StoreUiSessionController ui;
@@ -215,7 +219,19 @@ namespace EmployeeVoice
             Camera viewCam = playerRig != null ? playerRig.GetComponentInChildren<Camera>() : Camera.main;
             ui.BindEmployeeTarget(employee.transform, viewCam != null ? viewCam.transform : null);
             if (employeeStatusAnchor != null)
-                ui.BindEmployeeTarget(employeeStatusAnchor, viewCam != null ? viewCam.transform : null);
+            {
+                Transform statusTarget = employeeStatusAnchor;
+                if (existingUi != null)
+                {
+                    // The team UI adds its own head offset; lift the integrated scene's
+                    // follow point slightly so the label clears the capsule's head.
+                    var offset = new GameObject("Employee Status UI Offset").transform;
+                    offset.SetParent(employeeStatusAnchor, false);
+                    offset.localPosition = Vector3.up * 0.3f;
+                    statusTarget = offset;
+                }
+                ui.BindEmployeeTarget(statusTarget, viewCam != null ? viewCam.transform : null);
+            }
             stressFloat = personality.stress;
             fatigueFloat = personality.fatigue;
             currentProfile = EmployeePersonaPresets.InferProfileFromTraits(personality.traits);
@@ -402,9 +418,8 @@ namespace EmployeeVoice
             }
         }
 
-        private bool ApplyCommandStressAndCheckOverflow(string commandText, StoreCommandIntent commandIntent, StaffWorkRole targetRole)
+        private bool ApplyCommandStressAndCheckOverflow(UtteranceTone tone, StoreCommandIntent commandIntent, StaffWorkRole targetRole)
         {
-            UtteranceTone tone = EmotionReactionRules.ParseKoreanTone(commandText);
             float delta = StressRules.EvaluateCommandStressDelta(
                 commandIntent,
                 tone,
@@ -412,6 +427,28 @@ namespace EmployeeVoice
                 targetRole,
                 currentProfile);
 
+            return ApplyStressAndCheckOverflow(delta);
+        }
+
+        internal static float ConversationStressDelta(UtteranceTone tone, EmployeePersonalityProfile profile, float scale)
+        {
+            float multiplier = Mathf.Max(0f, scale);
+            switch (tone)
+            {
+                case UtteranceTone.PoliteOrPraise: return -StressRules.PraiseBaseRecovery * profile.PraiseRecoveryMultiplier * multiplier;
+                case UtteranceTone.HarshOrNagging: return StressRules.HarshCommandBasePenalty * profile.HarshToneMultiplier * multiplier;
+                default: return 0f;
+            }
+        }
+
+        private bool ApplyConversationToneAndCheckOverflow(UtteranceTone tone)
+        {
+            float scale = tone == UtteranceTone.PoliteOrPraise ? conversationStressRecoveryScale : conversationStressIncreaseScale;
+            return ApplyStressAndCheckOverflow(ConversationStressDelta(tone, currentProfile, scale));
+        }
+
+        private bool ApplyStressAndCheckOverflow(float delta)
+        {
             if (Mathf.Abs(delta) > 0.001f)
             {
                 stressFloat = StressRules.ClampStat(stressFloat + delta);
@@ -483,6 +520,7 @@ namespace EmployeeVoice
                     microphone.SelectedMicDevice = selected;
                 }
                 else microphone.SelectedMicDevice = null;
+                SupersedePendingDecision();
                 CancelDialogue();
                 Debug.Log("[VoiceIntegration] 마이크: " + (microphone.SelectedMicDevice ?? "시스템 기본 장치") +
                     " | 사용 가능: " + string.Join(", ", Microphone.devices));
@@ -550,7 +588,8 @@ namespace EmployeeVoice
 
         private void SubmitText(string text)
         {
-            if (recording || transcriptionInFlight || ((processing || inferenceInFlight) && !IsCancelCommand(text, personality.employeeName))) { Feedback(CommandFeedbackKind.Info, "이전 명령을 처리 중입니다."); return; }
+            if (recording || transcriptionInFlight || (processing && !inferenceInFlight)) { Feedback(CommandFeedbackKind.Info, "이전 명령을 처리 중입니다."); return; }
+            SupersedePendingDecision();
             CancelDialogue();
             transcript = text ?? "";
             _ = ProcessText(transcript, selectedDestination);
@@ -560,27 +599,14 @@ namespace EmployeeVoice
         {
             if (ui == null || ui.CurrentMode != UiScreenMode.InGame) return;
             if (string.IsNullOrWhiteSpace(text)) { Fail(CommandFeedbackKind.RecognitionFailed, "명령을 다시 말씀해 주세요."); return; }
-            if (!TargetsEmployee(text, personality.employeeName)) { Fail(CommandFeedbackKind.Info, "현재 직원 " + personality.employeeName + "에게 명령해 주세요."); return; }
-            if (IsCancelCommand(text, personality.employeeName))
+            bool cancelledImmediately = IsCancelCommand(text, personality.employeeName);
+            if (cancelledImmediately)
             {
                 bool hadWork = activeMove != 0 || activeWorkRole != StaffWorkRole.Idle || inferenceInFlight;
                 CancelWork();
                 Feedback(CommandFeedbackKind.Info, hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
-                return;
             }
             if (processing || inferenceInFlight) { Feedback(CommandFeedbackKind.Info, "이전 명령을 처리 중입니다."); return; }
-            if (IsVagueCommand(text, personality.employeeName))
-            {
-                if (ApplyCommandStressAndCheckOverflow(text, StoreCommandIntent.Clarify, StaffWorkRole.Idle)) return;
-                Fail(CommandFeedbackKind.Info, "어떤 업무를 할지 다시 말씀해 주세요.");
-                return;
-            }
-            if (IsUnspecifiedRestockCommand(text, personality.employeeName))
-            {
-                if (ApplyCommandStressAndCheckOverflow(text, StoreCommandIntent.Clarify, StaffWorkRole.Idle)) return;
-                Fail(CommandFeedbackKind.Info, "어떤 상품 구역을 진열할지 다시 말씀해 주세요.");
-                return;
-            }
             if (aiService == null) aiService = new OpenAiEditorService();
             if (!aiService.IsAvailable(out string unavailableReason))
             { Fail(CommandFeedbackKind.SystemOrMoveError, unavailableReason); return; }
@@ -593,53 +619,74 @@ namespace EmployeeVoice
             ui.PushVoiceStage(VoiceProcessStage.Processing, text);
             try
             {
-                string examples = "예시 (반응은 성격과 상태에 따라 달라질 수 있음):\n" +
-                    "과자 좀 => RESTOCK|NONE|SNACK|ACCEPT_NORMAL\n민수야 과자 갖다놔 => RESTOCK|SELF|SNACK|ACCEPT_NORMAL\n" +
-                    "컵라면 진열해 => RESTOCK|NONE|RAMEN|ACCEPT_NORMAL\n생활용품 채워줘 => RESTOCK|NONE|DAILY_GOODS|ACCEPT_NORMAL\n" +
-                    "아이스크림 채워줘 => RESTOCK|NONE|ICE_CREAM|ACCEPT_NORMAL\n음료 냉장고 채워 => RESTOCK|NONE|WALK_IN|ACCEPT_NORMAL\n" +
-                    "핫바 진열해 => RESTOCK|NONE|HOT_FOOD|ACCEPT_NORMAL\n" +
-                    "진열해줘 => CLARIFY|NONE|NONE|NONE\n과자 치워 => CLARIFY|NONE|NONE|NONE\n과자 버려 => UNSUPPORTED|NONE|NONE|NONE\n" +
-                    "민수야 청소해라 => CLEAN|SELF|DEFAULT|ACCEPT_NORMAL\n손님 계산해줘 => CASHIER|NONE|DEFAULT|ACCEPT_NORMAL\n" +
-                    "스트레스 90, 피곤하고 화난 직원에게 계산해 => CASHIER|NONE|DEFAULT|REFUSE_EMOTION\n" +
-                    "저기로 가 => MOVE|NONE|CLICKED|NONE\n지수야 과자 채워 => RESTOCK|OTHER|SNACK|ACCEPT_NORMAL\n" +
-                    "가지 마 => CANCEL|NONE|NONE|NONE\n저것 좀 해 => CLARIFY|NONE|NONE|NONE\n";
+                string examples = "예시: 의도|대상|말투|반응 (반응은 성격과 상태에 따라 달라짐):\n" +
+                    "과자 좀 => RESTOCK|SNACK|NEUTRAL|ACCEPT_NORMAL\n" +
+                    "병신아 라면 채워 => RESTOCK|RAMEN|INSULT|ACCEPT_COMPLAIN\n" +
+                    "병신아 => TALK|NONE|INSULT|NONE\n고생했어 => TALK|NONE|PRAISE|NONE\n" +
+                    "아까는 미안해 => TALK|NONE|APOLOGY|NONE\n오늘 기분 어때 => TALK|NONE|NEUTRAL|NONE\n" +
+                    "빨리 계산해 => CASHIER|DEFAULT|URGENT|ACCEPT_NORMAL\n" +
+                    "라면 진열해 => RESTOCK|RAMEN|NEUTRAL|ACCEPT_NORMAL\n" +
+                    "진열해줘 => CLARIFY|NONE|NEUTRAL|NONE\n과자 버려 => UNSUPPORTED|NONE|NEUTRAL|NONE\n" +
+                    "저기로 가 => MOVE|CLICKED|NEUTRAL|NONE\n그만해 => CANCEL|NONE|NEUTRAL|NONE\n";
                 var classifierTimer = System.Diagnostics.Stopwatch.StartNew();
-                string response = await aiService.ClassifyAsync("Example employee for examples: 민수.\n" + examples +
-                    "Current employee: " + personality.employeeName + "; personality: " + personality.traits +
+                string response = await aiService.ClassifyAsync(examples +
+                    "Employee personality: " + personality.traits +
                     "; stress=" + personality.stress + "; fatigue=" + personality.fatigue + "; loyalty=" + personality.loyalty +
-                    ".\n명령: " + text + "\n답:", cancellation.Token);
+                    "; current work=" + activeWorkRole + ".\n플레이어 발화: " + text + "\n답:", cancellation.Token);
                 classifierTimer.Stop();
                 Debug.Log("[VoiceIntegration] timing classification_behavior_ms=" + classifierTimer.ElapsedMilliseconds);
                 if (!IsCurrent(request)) return;
                 while (recording || transcriptionInFlight) { await Task.Yield(); if (!IsCurrent(request)) return; }
-                if (!TryParseCombinedCommand(response, out string intent, out string employeeTarget, out string taskTarget, out EmployeeAction proposal))
+                if (!TryParseCombinedCommand(response, out string intent, out string taskTarget, out string toneName, out EmployeeAction proposal) ||
+                    !TryMapTone(toneName, out UtteranceTone tone))
                 { Fail(CommandFeedbackKind.RecognitionFailed, "명령 해석에 실패했습니다. 다시 말씀해 주세요."); return; }
                 Debug.Log("[VoiceIntegration] 명령 해석: " + response.Trim());
-                if (employeeTarget == "OTHER") { Fail(CommandFeedbackKind.Info, "현재 통합 테스트에는 " + personality.employeeName + " 직원 한 명만 있습니다."); return; }
-                if (IsMixedCommand(text) || (HasNegation(text) && intent != "CANCEL"))
+                if (cancelledImmediately) intent = "CANCEL";
+                if ((intent == "RESTOCK" || intent == "CLEAN" || intent == "CASHIER" || intent == "MOVE") &&
+                    (IsMixedCommand(text) || HasNegation(text)))
                 { Fail(CommandFeedbackKind.Info, "중지와 새 업무를 나누어 말씀해 주세요."); return; }
                 if (intent == "CANCEL")
                 {
-                    bool hadWork = activeMove != 0 || activeWorkRole != StaffWorkRole.Idle;
-                    CancelWork();
-                    Feedback(CommandFeedbackKind.Info, hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
+                    if (!cancelledImmediately)
+                    {
+                        bool hadWork = activeMove != 0 || activeWorkRole != StaffWorkRole.Idle;
+                        CancelWork();
+                        request = generation;
+                        Feedback(CommandFeedbackKind.Info, hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
+                    }
+                    if (ApplyConversationToneAndCheckOverflow(tone)) return;
+                    StartConversationDialogue(text, toneName, "요청에 따라 현재 업무를 중지했다", "네, 멈출게요.", request);
+                    return;
+                }
+                if ((IsVagueCommand(text, personality.employeeName) || IsUnspecifiedRestockCommand(text, personality.employeeName)) && intent != "UNSUPPORTED")
+                    intent = "CLARIFY";
+                if (intent == "TALK")
+                {
+                    if (ApplyConversationToneAndCheckOverflow(tone)) return;
+                    string continuing = activeMove != 0 ? "현재 이동 또는 업무를 그대로 계속한다" :
+                        activeWorkRole == StaffWorkRole.Idle ? "대기 중이며 새 업무는 없다" : "현재 업무를 그대로 계속한다";
+                    ui.PushVoiceStage(VoiceProcessStage.Completed, text);
+                    StartConversationDialogue(text, toneName, continuing, "네, 듣고 있어요.", request);
                     return;
                 }
                 if (intent == "CLARIFY")
                 {
-                    if (ApplyCommandStressAndCheckOverflow(text, StoreCommandIntent.Clarify, StaffWorkRole.Idle)) return;
+                    if (ApplyCommandStressAndCheckOverflow(tone, StoreCommandIntent.Clarify, StaffWorkRole.Idle)) return;
                     Fail(CommandFeedbackKind.Info, "어떤 업무와 상품 구역인지 다시 말씀해 주세요.");
+                    StartConversationDialogue(text, toneName, "요청이 불명확하여 다시 질문한다. 새 업무를 시작하지 않았다", "어떤 업무인지 다시 말씀해 주세요.", request);
                     return;
                 }
                 if (intent == "UNSUPPORTED")
                 {
-                    if (ApplyCommandStressAndCheckOverflow(text, StoreCommandIntent.Unsupported, StaffWorkRole.Idle)) return;
+                    if (ApplyCommandStressAndCheckOverflow(tone, StoreCommandIntent.Unsupported, StaffWorkRole.Idle)) return;
                     Fail(CommandFeedbackKind.Info, "아직 지원하지 않는 업무입니다. 진열, 청소, 계산, 캐셔 또는 이동을 말씀해 주세요.");
+                    StartConversationDialogue(text, toneName, "지원하지 않는 업무라 수행하지 않았다", "그 업무는 아직 할 수 없어요.", request);
                     return;
                 }
-                if (activeMove != 0) { Fail(CommandFeedbackKind.Info, "직원이 이미 이동 중입니다. 먼저 취소해 주세요."); return; }
                 if (intent == "MOVE")
                 {
+                    if (ApplyConversationToneAndCheckOverflow(tone)) return;
+                    if (activeMove != 0) { Fail(CommandFeedbackKind.Info, "직원이 이미 이동 중입니다. 먼저 취소해 주세요."); return; }
                     if (taskTarget != "CLICKED" || !destination.HasValue)
                     { Fail(CommandFeedbackKind.Info, "이동할 바닥을 조준해 클릭한 뒤 다시 말씀해 주세요."); return; }
                     Vector3 point = destination.Value;
@@ -670,10 +717,11 @@ namespace EmployeeVoice
                 { Fail(CommandFeedbackKind.SystemOrMoveError, WorkDescription(workAction, taskTarget) + " 임시 목적지가 설정되지 않았습니다."); return; }
                 // The API proposal uses the earlier state snapshot; the final
                 // team-weighted selection uses stress after applying this command.
-                if (ApplyCommandStressAndCheckOverflow(text, ToStoreCommandIntent(workAction), MapToStaffWorkRole(workAction)))
+                if (ApplyCommandStressAndCheckOverflow(tone, ToStoreCommandIntent(workAction), MapToStaffWorkRole(workAction)))
                 {
                     return;
                 }
+                if (activeMove != 0) { Fail(CommandFeedbackKind.Info, "직원이 이미 이동 중입니다. 먼저 취소해 주세요."); return; }
                 EmployeeAction action = SelectTeamReaction(personality, proposal, random.NextDouble());
                 decisionTimer.Stop();
                 Debug.Log("[VoiceIntegration] timing decision_total_ms=" + decisionTimer.ElapsedMilliseconds);
@@ -718,10 +766,25 @@ namespace EmployeeVoice
 
         private void StartDialogue(string command, EmployeeAction workAction, string target, EmployeeAction action, int request, long moveId)
         {
+            string outcome = "요청 업무: " + WorkDescription(workAction, target) + "\n확정된 행동: " + DialogueActionDescription(workAction, action);
+            CommandFeedbackKind kind = action == EmployeeAction.SLACK_OFF || action == EmployeeAction.REFUSE_EMOTION
+                ? CommandFeedbackKind.RefusedByEmotion : CommandFeedbackKind.Accepted;
+            StartDialogueRequest(command, outcome, FallbackDialogue(action), action.ToString(), kind, request, moveId);
+        }
+
+        private void StartConversationDialogue(string command, string tone, string outcome, string fallback, int request)
+        {
+            StartDialogueRequest(command, "말투: " + tone + "\n확정된 상황: " + outcome,
+                fallback, currentAction, CommandFeedbackKind.Info, request, 0);
+        }
+
+        private void StartDialogueRequest(string command, string outcome, string fallback, string actionLabel,
+            CommandFeedbackKind kind, int request, long moveId)
+        {
             CancelDialogue();
             var cancellation = new CancellationTokenSource();
             dialogueCancellation = cancellation;
-            _ = ShowDialogue(command, workAction, target, action, request, moveId, cancellation);
+            _ = ShowDialogue(command, outcome, fallback, actionLabel, kind, request, moveId, cancellation);
         }
 
         private void CancelDialogue()
@@ -731,11 +794,12 @@ namespace EmployeeVoice
             previous?.Cancel();
         }
 
-        private async Task ShowDialogue(string command, EmployeeAction workAction, string target, EmployeeAction action, int request, long moveId, CancellationTokenSource cancellation)
+        private async Task ShowDialogue(string command, string outcome, string fallback, string actionLabel,
+            CommandFeedbackKind kind, int request, long moveId, CancellationTokenSource cancellation)
         {
             try
             {
-                string line = FallbackDialogue(action);
+                string line = fallback;
                 bool generated = false;
                 if (aiService != null)
                 {
@@ -743,7 +807,7 @@ namespace EmployeeVoice
                     {
                         string prompt = "직원 성격: " + personality.traits + "; 스트레스: " + personality.stress +
                             "; 피로: " + personality.fatigue + "; 충성도: " + personality.loyalty +
-                            "\n요청 업무: " + WorkDescription(workAction, target) + "\n플레이어 발화: " + command + "\n확정된 행동: " + DialogueActionDescription(workAction, action) +
+                            "\n현재 업무: " + (activeWork ?? "대기 또는 이동") + "\n플레이어 발화: " + command + "\n" + outcome +
                             "\n확정된 행동과 모순되지 않는 짧은 한국어 대사만 작성하세요.";
                         var dialogueTimer = System.Diagnostics.Stopwatch.StartNew();
                         string response = await aiService.DialogueAsync(prompt, cancellation.Token);
@@ -760,8 +824,7 @@ namespace EmployeeVoice
                 if (recording || transcriptionInFlight || (moveId != 0 && activeMove != moveId && lastArrivedMove != moveId)) return;
                 string speaker = string.IsNullOrWhiteSpace(personality.employeeName) ? "직원" : personality.employeeName;
                 Debug.Log("[VoiceIntegration] 직원 대사 (" + (generated ? "OpenAI" : "기본") + "): " + speaker + ": " + line);
-                ui.PushCommandFeedback(new VoiceCommandFeedback(action == EmployeeAction.SLACK_OFF || action == EmployeeAction.REFUSE_EMOTION ? CommandFeedbackKind.RefusedByEmotion : CommandFeedbackKind.Accepted,
-                    command, action.ToString(), speaker + ": \"" + line + "\"", line));
+                ui.PushCommandFeedback(new VoiceCommandFeedback(kind, command, actionLabel, speaker + ": \"" + line + "\"", line));
             }
             finally
             {
@@ -830,37 +893,40 @@ namespace EmployeeVoice
             return Regex.Replace(normalized, @"^(?:" + names + @")(?:야|아|님|씨)?", "");
         }
 
-        public static bool TryParseCommand(string response, out string intent, out string employee, out string target)
+        public static bool TryParseCombinedCommand(string response, out string intent, out string target,
+            out string tone, out EmployeeAction proposal)
         {
-            intent = employee = target = "";
-            if (string.IsNullOrWhiteSpace(response)) return false;
-            string[] parts = response.Trim().Split('|');
-            if (parts.Length != 3) return false;
-            intent = parts[0].Trim(); employee = parts[1].Trim(); target = parts[2].Trim();
-            return (intent == "RESTOCK" || intent == "CLEAN" || intent == "CASHIER" || intent == "MOVE" || intent == "CANCEL" || intent == "CLARIFY" || intent == "UNSUPPORTED") &&
-                (employee == "SELF" || employee == "OTHER" || employee == "NONE") &&
-                (IsRestockTarget(target) || target == "DEFAULT" || target == "CLICKED" || target == "NONE");
-        }
-
-        public static bool TryParseCombinedCommand(string response, out string intent, out string employee,
-            out string target, out EmployeeAction proposal)
-        {
-            intent = employee = target = "";
+            intent = target = tone = "";
             proposal = default;
             if (string.IsNullOrWhiteSpace(response)) return false;
             string[] parts = response.Trim().Split('|');
-            if (parts.Length != 4 ||
-                !TryParseCommand(parts[0] + "|" + parts[1] + "|" + parts[2], out intent, out employee, out target)) return false;
+            if (parts.Length != 4) return false;
+            intent = parts[0].Trim(); target = parts[1].Trim(); tone = parts[2].Trim();
+            if (!TryMapTone(tone, out _)) return false;
             string reaction = parts[3].Trim();
             if (intent == "RESTOCK" || intent == "CLEAN" || intent == "CASHIER")
             {
                 if (intent == "RESTOCK" ? !IsRestockTarget(target) : target != "DEFAULT") return false;
-                return EmployeeVoiceDemo.TryParseAction(reaction, out proposal) &&
+                return Enum.TryParse(reaction, false, out proposal) && string.Equals(reaction, proposal.ToString(), StringComparison.Ordinal) &&
                     (proposal == EmployeeAction.ACCEPT_NORMAL || proposal == EmployeeAction.ACCEPT_COMPLAIN ||
                      proposal == EmployeeAction.SLACK_OFF || proposal == EmployeeAction.REFUSE_EMOTION);
             }
             if (intent == "MOVE") return target == "CLICKED" && reaction == "NONE";
-            return target == "NONE" && reaction == "NONE";
+            return (intent == "CANCEL" || intent == "TALK" || intent == "CLARIFY" || intent == "UNSUPPORTED") &&
+                target == "NONE" && reaction == "NONE";
+        }
+
+        public static bool TryMapTone(string value, out UtteranceTone tone)
+        {
+            switch (value)
+            {
+                case "NEUTRAL": tone = UtteranceTone.Neutral; return true;
+                case "PRAISE":
+                case "APOLOGY": tone = UtteranceTone.PoliteOrPraise; return true;
+                case "URGENT":
+                case "INSULT": tone = UtteranceTone.HarshOrNagging; return true;
+                default: tone = default; return false;
+            }
         }
 
         public static bool IsVagueCommand(string text)
@@ -896,6 +962,8 @@ namespace EmployeeVoice
         public static bool IsCancelCommand(string text, string employeeName)
         {
             string value = NormalizeCommand(text, employeeName);
+            // Any vocative addresses the sole employee, including an unfamiliar name or insult.
+            value = Regex.Replace(value, @"^[가-힣]{2,4}(?:야|아|님|씨)(?=(?:이제)?(?:진열|재고|청소|계산|캐셔|이동|작업|업무|그만|멈춰|멈추|중지|취소|하지마|하지말|가지마|됐어))", "");
             if (value.Contains("취소하지마") || value.Contains("멈추지마") || value.Contains("중지하지마")) return false;
             return Regex.IsMatch(value, @"^(?:이제)?(?:(?:진열|재고|청소|계산|캐셔|이동|작업|업무)(?:을|를)?(?:은|는)?)?(?:그만|그만해|그만해줘|그만해주세요|그만해요|그만하세요|멈춰|멈춰줘|멈춰요|멈춰주세요|멈추세요|중지|중지해|중지해줘|중지해요|취소|취소해|취소해줘|취소해요|취소해주세요|하지마|하지마요|하지말아줘|하지마세요|가지마|가지마요|가지마세요|이동하지마|됐어)$");
         }
@@ -905,26 +973,6 @@ namespace EmployeeVoice
             string value = NormalizeCommand(text);
             if (IsCancelCommand(text)) return false;
             return Regex.IsMatch(value, @"^(?:(?:저기|여기|거기|저쪽|이쪽|그쪽)(?:로|으로)?|절로|저리|이리|그리)?(?:가|가줘|가세요|가봐|가봐줘|이동해|이동해줘|이동하세요|움직여|움직여줘)$");
-        }
-
-        public static bool TargetsDemoEmployee(string text)
-            => TargetsEmployee(text, "민수");
-
-        public static bool TargetsEmployee(string text, string employeeName)
-        {
-            if (string.IsNullOrWhiteSpace(text) || string.IsNullOrWhiteSpace(employeeName)) return false;
-            string fullName = employeeName.Trim();
-            string givenName = fullName.Length == 3 ? fullName.Substring(1) : fullName;
-            // A single employee may receive unnamed commands; any named addressee must match.
-            MatchCollection names = Regex.Matches(text, @"(?<![가-힣A-Za-z0-9])([가-힣]{2,4})\s*(?:야|아|님|씨)(?=$|\s|[,，])");
-            if (names.Count == 0)
-            {
-                // Unmarked Korean words such as "과자 진열" may be product names, not an addressee.
-                // Let the classifier disambiguate names without a vocative suffix.
-                return true;
-            }
-            return names.Count == 1 && (names[0].Groups[1].Value == fullName || names[0].Groups[1].Value == givenName ||
-                (fullName == "민수" && names[0].Groups[1].Value == "김민수"));
         }
 
         public static string DescribeAudio(float[] samples, int frequency, int channels)
@@ -1290,7 +1338,10 @@ namespace EmployeeVoice
             processing = false;
             recordingHoldR = false;
             if (recording && microphone != null) { recording = false; microphone.StopRecord(); }
-            decisionCancellation?.Cancel();
+            var previousDecision = decisionCancellation;
+            decisionCancellation = null;
+            inferenceInFlight = false;
+            previousDecision?.Cancel();
             CancelDialogue();
             if (activeMove != 0 && !movement.Cancel(activeMove)) activeMove = 0;
             if (activeMove == 0)
@@ -1302,6 +1353,17 @@ namespace EmployeeVoice
             }
             ui.PushVoiceStage(VoiceProcessStage.Idle, "");
             if (activeMove == 0) { badge = StaffMoveBadge.Idle; currentAction = "IDLE"; UpdateHud(); }
+        }
+
+        private void SupersedePendingDecision()
+        {
+            if (!inferenceInFlight) return;
+            generation++;
+            var previous = decisionCancellation;
+            decisionCancellation = null;
+            inferenceInFlight = false;
+            processing = false;
+            previous?.Cancel();
         }
 
         private void UpdateHud()
