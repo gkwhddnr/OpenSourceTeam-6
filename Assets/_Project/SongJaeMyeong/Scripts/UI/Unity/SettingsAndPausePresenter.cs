@@ -1,15 +1,23 @@
 using System;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Time = UnityEngine.Time;
+
     /// <summary>
     /// 기능정의서 UI-04 (설정 화면) 및 UI-05 (일시정지 메뉴) 담당 컴포넌트.
     /// </summary>
     public sealed class SettingsPanelPresenter : MonoBehaviour
     {
+        private const float SfxPreviewCooldownSeconds = 0.2f;
+        public const string MouseSensitivityPrefKey = "OpenSourceTeam6.MouseSensitivity";
+        public const float MinMouseSensitivity = 0.2f;
+        public const float MaxMouseSensitivity = 3.0f;
+
         [SerializeField] private GameObject panelRoot;
         [SerializeField] private Slider masterVolumeSlider;
         [SerializeField] private Text masterVolumeValueText;
@@ -25,6 +33,10 @@ namespace OpenSourceTeam6.UI.Unity
 
         private int selectedMicIndex;
         private IStoreAudioPlayer boundAudioPlayer;
+        private SfxSliderPointerRelay sfxSliderPointerRelay;
+        private bool isDraggingSfxSlider;
+        private float sfxValueAtPointerDown;
+        private float lastSfxPreviewTime = -10f;
 
         public bool IsOpen => (panelRoot != null ? panelRoot : gameObject).activeSelf;
         public float MasterVolume { get; private set; } = 1.0f;
@@ -39,6 +51,14 @@ namespace OpenSourceTeam6.UI.Unity
         public event Action<float> SfxVolumeChanged;
         public event Action<float> MouseSensitivityChanged;
         public event Action<string> MicrophoneDeviceChanged;
+
+        private void Awake()
+        {
+            MouseSensitivityMultiplier = Mathf.Clamp(
+                PlayerPrefs.GetFloat(MouseSensitivityPrefKey, 1.0f),
+                MinMouseSensitivity,
+                MaxMouseSensitivity);
+        }
 
         public void BindAudioPlayer(IStoreAudioPlayer audioPlayer)
         {
@@ -88,6 +108,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (sfxVolumeSlider != null)
             {
                 sfxVolumeSlider.onValueChanged.AddListener(HandleSfxVolumeChanged);
+                AttachSfxSliderPointerRelay();
             }
 
             if (mouseSensitivitySlider != null)
@@ -125,6 +146,9 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 sfxVolumeSlider.onValueChanged.RemoveListener(HandleSfxVolumeChanged);
             }
+
+            DetachSfxSliderPointerRelay();
+            isDraggingSfxSlider = false;
 
             if (mouseSensitivitySlider != null)
             {
@@ -173,13 +197,27 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 sfxVolumeSlider.SetValueWithoutNotify(SfxVolume);
             }
+
+            if (mouseSensitivitySlider != null)
+            {
+                mouseSensitivitySlider.minValue = MinMouseSensitivity;
+                mouseSensitivitySlider.maxValue = MaxMouseSensitivity;
+                mouseSensitivitySlider.SetValueWithoutNotify(MouseSensitivityMultiplier);
+            }
         }
 
         private void HandleMasterVolumeChanged(float value)
         {
             MasterVolume = Mathf.Clamp01(value);
-            AudioListener.volume = MasterVolume;
-            boundAudioPlayer?.SetMasterVolume(MasterVolume);
+            if (boundAudioPlayer != null)
+            {
+                AudioListener.volume = 1f;
+                boundAudioPlayer.SetMasterVolume(MasterVolume);
+            }
+            else
+            {
+                AudioListener.volume = MasterVolume;
+            }
             RefreshLabels();
             MasterVolumeChanged?.Invoke(MasterVolume);
         }
@@ -198,15 +236,61 @@ namespace OpenSourceTeam6.UI.Unity
             if (boundAudioPlayer != null)
             {
                 boundAudioPlayer.SetSfxVolume(SfxVolume);
-                boundAudioPlayer.PlaySfx(StoreSfxId.UiClick, 0.7f);
+                if (!isDraggingSfxSlider)
+                {
+                    TryPlaySfxPreview();
+                }
             }
             RefreshLabels();
             SfxVolumeChanged?.Invoke(SfxVolume);
         }
 
+        private void AttachSfxSliderPointerRelay()
+        {
+            if (sfxVolumeSlider == null) return;
+            sfxSliderPointerRelay = sfxVolumeSlider.GetComponent<SfxSliderPointerRelay>();
+            if (sfxSliderPointerRelay == null)
+            {
+                sfxSliderPointerRelay = sfxVolumeSlider.gameObject.AddComponent<SfxSliderPointerRelay>();
+            }
+            sfxSliderPointerRelay.PointerDown += HandleSfxSliderPointerDown;
+            sfxSliderPointerRelay.PointerUp += HandleSfxSliderPointerUp;
+        }
+
+        private void DetachSfxSliderPointerRelay()
+        {
+            if (sfxSliderPointerRelay == null) return;
+            sfxSliderPointerRelay.PointerDown -= HandleSfxSliderPointerDown;
+            sfxSliderPointerRelay.PointerUp -= HandleSfxSliderPointerUp;
+        }
+
+        private void HandleSfxSliderPointerDown()
+        {
+            isDraggingSfxSlider = true;
+            sfxValueAtPointerDown = SfxVolume;
+        }
+
+        private void HandleSfxSliderPointerUp()
+        {
+            isDraggingSfxSlider = false;
+            bool draggedToNewValue = !Mathf.Approximately(SfxVolume, sfxValueAtPointerDown);
+            TryPlaySfxPreview(forcePlay: draggedToNewValue);
+        }
+
+        private void TryPlaySfxPreview(bool forcePlay = false)
+        {
+            if (boundAudioPlayer == null || SfxVolume <= 0.001f) return;
+            float now = Time.unscaledTime;
+            if (!forcePlay && (now - lastSfxPreviewTime) < SfxPreviewCooldownSeconds) return;
+            lastSfxPreviewTime = now;
+            boundAudioPlayer.PlaySfx(StoreSfxId.UiClick, 0.7f);
+        }
+
         private void HandleMouseSensitivityChanged(float value)
         {
-            MouseSensitivityMultiplier = Mathf.Clamp(value, 0.2f, 2.0f);
+            MouseSensitivityMultiplier = Mathf.Clamp(value, MinMouseSensitivity, MaxMouseSensitivity);
+            PlayerPrefs.SetFloat(MouseSensitivityPrefKey, MouseSensitivityMultiplier);
+            PlayerPrefs.Save();
             RefreshLabels();
             MouseSensitivityChanged?.Invoke(MouseSensitivityMultiplier);
         }
@@ -247,7 +331,7 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (mouseSensitivityValueText != null)
             {
-                mouseSensitivityValueText.text = $"{MouseSensitivityMultiplier:F1}x";
+                mouseSensitivityValueText.text = $"{MouseSensitivityMultiplier:F2}x";
             }
 
             if (microphoneDeviceText != null)
@@ -273,44 +357,12 @@ namespace OpenSourceTeam6.UI.Unity
         }
     }
 
-    public sealed class PausePanelPresenter : MonoBehaviour
+    internal sealed class SfxSliderPointerRelay : MonoBehaviour, IPointerDownHandler, IPointerUpHandler
     {
-        [SerializeField] private GameObject panelRoot;
-        [SerializeField] private Button resumeButton;
-        [SerializeField] private Button openSettingsButton;
-        [SerializeField] private Button returnLobbyButton;
+        public event Action PointerDown;
+        public event Action PointerUp;
 
-        public bool IsOpen => (panelRoot != null ? panelRoot : gameObject).activeSelf;
-
-        public event Action ResumeClicked;
-        public event Action OpenSettingsClicked;
-        public event Action ReturnLobbyClicked;
-
-        private void OnEnable()
-        {
-            if (resumeButton != null) resumeButton.onClick.AddListener(HandleResumeClicked);
-            if (openSettingsButton != null) openSettingsButton.onClick.AddListener(HandleSettingsClicked);
-            if (returnLobbyButton != null) returnLobbyButton.onClick.AddListener(HandleReturnLobbyClicked);
-        }
-
-        private void OnDisable()
-        {
-            if (resumeButton != null) resumeButton.onClick.RemoveListener(HandleResumeClicked);
-            if (openSettingsButton != null) openSettingsButton.onClick.RemoveListener(HandleSettingsClicked);
-            if (returnLobbyButton != null) returnLobbyButton.onClick.RemoveListener(HandleReturnLobbyClicked);
-        }
-
-        public void SetOpen(bool open)
-        {
-            GameObject target = panelRoot != null ? panelRoot : gameObject;
-            if (target.activeSelf != open)
-            {
-                target.SetActive(open);
-            }
-        }
-
-        private void HandleResumeClicked() => ResumeClicked?.Invoke();
-        private void HandleSettingsClicked() => OpenSettingsClicked?.Invoke();
-        private void HandleReturnLobbyClicked() => ReturnLobbyClicked?.Invoke();
+        public void OnPointerDown(PointerEventData eventData) => PointerDown?.Invoke();
+        public void OnPointerUp(PointerEventData eventData) => PointerUp?.Invoke();
     }
 }

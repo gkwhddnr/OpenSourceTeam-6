@@ -1050,7 +1050,7 @@ namespace EmployeeVoice
             if (!IsReaction(proposal)) throw new ArgumentException("Invalid reaction proposal.", nameof(proposal));
             if (double.IsNaN(sample) || sample < 0 || sample >= 1) throw new ArgumentOutOfRangeException(nameof(sample));
             int stress = Math.Max(0, Math.Min(100, employee.stress));
-            // Mistakes remain in the action enum but are disabled for this demo.  The remaining
+            // Mistakes remain in the action enum but are disabled for this demo. The remaining
             // weights are sampled relative to their total, which renormalizes each stress band.
             double[] weights = stress < 40 ? new double[] { 85, 10, 0, 2, 0 } :
                 stress < 70 ? new double[] { 35, 40, 0, 10, 5 } :

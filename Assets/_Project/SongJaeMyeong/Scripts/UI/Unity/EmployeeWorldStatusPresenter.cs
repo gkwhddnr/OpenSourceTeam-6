@@ -4,6 +4,8 @@ using UnityEngine.UI;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Camera = UnityEngine.Camera;
+    using Time = UnityEngine.Time;
     /// <summary>
     /// 기능정의서 UI-09 (NPC 머리 위 상태 표시 - World UI):
     /// 3D 공간 내 알바 NPC 머리 위에 이름, 현재 수행 상태, 감정 색상 및 반응 한 줄 말풍선을 표시한다.

@@ -1,10 +1,12 @@
 using System.Collections;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.InputSystem;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Time = UnityEngine.Time;
     /// <summary>
     /// 개인 검증 씬(SJM_UI_Work.unity)에서 외부 음성·이동 시스템 없이
     /// 1차 통합 데모 규격(음성 녹음 V 토글, 스트레스 구간별 반응 확률, 대사·말풍선 출력, 구역 이동, 120초 정산)을
@@ -45,6 +47,9 @@ namespace OpenSourceTeam6.UI.Unity
         private float loyalty = 75f;
         private float fallbackArrivalTimer;
         private Transform activeMoveDestination;
+        private NavMeshAgent demoEmployeeAgent;
+        private Vector3 lastDispatchedNavTarget;
+        private bool hasDispatchedNavTarget;
 
         private bool isRecordingVoice;
         private int sampleUtteranceIndex;
@@ -75,7 +80,13 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void Update()
         {
-            if (uiController == null || uiController.CurrentMode != UiScreenMode.InGame || uiController.IsPauseMenuOpen) return;
+            if (uiController == null ||
+                uiController.CurrentMode != UiScreenMode.InGame ||
+                uiController.IsPauseMenuOpen ||
+                uiController.IsTransitionFading)
+            {
+                return;
+            }
 
             SimulateContinuousWorkAndStats(Time.deltaTime);
             HandleSimulationHotkeys();
@@ -113,7 +124,21 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (demoEmployeeTransform != null && restTarget != null)
             {
-                demoEmployeeTransform.position = restTarget.position;
+                if (demoEmployeeAgent == null)
+                {
+                    demoEmployeeAgent = demoEmployeeTransform.GetComponent<NavMeshAgent>();
+                }
+
+                hasDispatchedNavTarget = false;
+                if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+                {
+                    demoEmployeeAgent.ResetPath();
+                    demoEmployeeAgent.Warp(restTarget.position);
+                }
+                else
+                {
+                    demoEmployeeTransform.position = restTarget.position;
+                }
             }
 
             PushSnapshot();
@@ -127,17 +152,43 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 if (demoEmployeeTransform != null && activeMoveDestination != null)
                 {
-                    Vector3 targetPos = activeMoveDestination.position;
-                    targetPos.y = demoEmployeeTransform.position.y;
-                    float effectiveWalkSpeed = demoWalkSpeed * _activeProfile.MoveSpeedMultiplier;
-                    demoEmployeeTransform.position = Vector3.MoveTowards(
-                        demoEmployeeTransform.position,
-                        targetPos,
-                        effectiveWalkSpeed * dt);
-
-                    if (Vector3.Distance(demoEmployeeTransform.position, targetPos) <= 0.08f)
+                    if (demoEmployeeAgent == null)
                     {
-                        currentMoveBadge = StaffMoveBadge.Arrived;
+                        demoEmployeeAgent = demoEmployeeTransform.GetComponent<NavMeshAgent>();
+                    }
+
+                    Vector3 targetPos = activeMoveDestination.position;
+                    float effectiveWalkSpeed = demoWalkSpeed * _activeProfile.MoveSpeedMultiplier;
+
+                    if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+                    {
+                        demoEmployeeAgent.speed = effectiveWalkSpeed;
+                        if (!hasDispatchedNavTarget || (targetPos - lastDispatchedNavTarget).sqrMagnitude > 0.01f)
+                        {
+                            demoEmployeeAgent.SetDestination(targetPos);
+                            lastDispatchedNavTarget = targetPos;
+                            hasDispatchedNavTarget = true;
+                        }
+
+                        if (!demoEmployeeAgent.pathPending &&
+                            demoEmployeeAgent.remainingDistance <= Mathf.Max(0.2f, demoEmployeeAgent.stoppingDistance + 0.08f))
+                        {
+                            currentMoveBadge = StaffMoveBadge.Arrived;
+                            hasDispatchedNavTarget = false;
+                        }
+                    }
+                    else
+                    {
+                        targetPos.y = demoEmployeeTransform.position.y;
+                        demoEmployeeTransform.position = Vector3.MoveTowards(
+                            demoEmployeeTransform.position,
+                            targetPos,
+                            effectiveWalkSpeed * dt);
+
+                        if (Vector3.Distance(demoEmployeeTransform.position, targetPos) <= 0.08f)
+                        {
+                            currentMoveBadge = StaffMoveBadge.Arrived;
+                        }
                     }
                 }
                 else
@@ -147,6 +198,14 @@ namespace OpenSourceTeam6.UI.Unity
                     {
                         currentMoveBadge = StaffMoveBadge.Arrived;
                     }
+                }
+            }
+            else if (hasDispatchedNavTarget)
+            {
+                hasDispatchedNavTarget = false;
+                if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+                {
+                    demoEmployeeAgent.ResetPath();
                 }
             }
 
@@ -217,7 +276,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleSimulationHotkeys()
         {
-            if (uiController.IsCommandOverlayOpen || uiController.IsSettingsOpen) return;
+            if (uiController.IsCommandOverlayOpen || uiController.IsSettingsOpen || uiController.IsExternalModalOpen) return;
 
             Keyboard kb = Keyboard.current;
             if (kb == null) return;
@@ -263,6 +322,32 @@ namespace OpenSourceTeam6.UI.Unity
             else if (kb.f6Key.wasPressedThisFrame)
             {
                 uiController.CompleteDayAndShowSettlement(stress);
+            }
+            else if (kb.f7Key.wasPressedThisFrame)
+            {
+                float skipSeconds = uiController.TotalDaySeconds > 0f
+                    ? uiController.TotalDaySeconds / 6f
+                    : 20f;
+                uiController.AdvanceRemainingDaySeconds(skipSeconds);
+                string clock = StoreDayTimeRules.FormatGameClock(uiController.CurrentGameHour);
+                string phase = StoreDayTimeRules.GetPhaseLabel(uiController.CurrentTimeOfDayPhase);
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.Info,
+                    string.Empty,
+                    $"TIME_SKIP ({clock} · {phase})",
+                    $"게임 시간을 4시간 빠르게 진행했습니다. 현재 시각: {clock} ({phase})"));
+            }
+            else if (kb.f8Key.wasPressedThisFrame)
+            {
+                bool nextRain = !uiController.IsRainWeather;
+                uiController.SetRainWeather(nextRain);
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.Info,
+                    string.Empty,
+                    nextRain ? "WEATHER: RAIN_ON" : "WEATHER: RAIN_OFF",
+                    nextRain
+                        ? "비 날씨 이벤트를 켰습니다. 구름이 먼저 차오른 뒤 빗줄기가 내립니다. (2·3일차 날씨 프리뷰)"
+                        : "비 날씨 이벤트를 껐습니다. 빗줄기가 먼저 그친 뒤 구름이 걷힙니다."));
             }
         }
 

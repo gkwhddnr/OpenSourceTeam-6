@@ -1,0 +1,29 @@
+fileFormatVersion: 2
+guid: 9b8325ee69a7f434ba856df5141d0af7
+TrueTypeFontImporter:
+  externalObjects: {}
+  serializedVersion: 4
+  fontSize: 16
+  forceTextureCase: -2
+  characterSpacing: 0
+  characterPadding: 1
+  includeFontData: 1
+  fontNames:
+  - Cafe24 Behappy
+  - BusanDandiMyeongjo
+  - "\uBD80\uC0B0\uB2E8\uB514\uBA85\uC870"
+  - Malgun Gothic
+  - "\uB9D1\uC740 \uACE0\uB515"
+  - AppleGothic
+  - Arial
+  fallbackFontReferences:
+  - {fileID: 12800000, guid: a4b01679ff7cd8d4982186ca84c83620, type: 3}
+  customCharacters: 
+  fontRenderingMode: 0
+  ascentCalculationMode: 1
+  useLegacyBoundsCalculation: 0
+  shouldRoundAdvanceValue: 1
+  subsetRecipes: []
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

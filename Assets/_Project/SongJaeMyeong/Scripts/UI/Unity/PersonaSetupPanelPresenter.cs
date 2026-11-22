@@ -263,7 +263,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleConfirmStartClicked()
         {
-            _audioPlayer?.PlaySfx(StoreSfxId.UiClick);
+            _audioPlayer?.PlaySfx(StoreSfxId.PencilWrite);
             EmployeePersonaSetupData confirmed = BuildCurrentPersonaData();
             ConfirmStartClicked?.Invoke(confirmed);
         }

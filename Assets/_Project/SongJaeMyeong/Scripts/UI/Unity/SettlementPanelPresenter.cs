@@ -5,35 +5,108 @@ using UnityEngine.UI;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Time = UnityEngine.Time;
+
+    /// <summary>
+    /// 일차 정산 화면(와이어프레임 2단계 연출):
+    /// 1단계: 검은 화면 위 3D 포스기 중앙 표시 + 화살표 클릭 안내
+    /// 2단계: 클릭 시 포스기 영수증 종이 출력 + 우측 [정산 내역] 영수증(목표/현재/추가정보 클릭 펼치기/다음→) 표시
+    /// </summary>
     public sealed class SettlementPanelPresenter : MonoBehaviour
     {
         [SerializeField] private GameObject panelRoot;
-        [SerializeField] private Image gradeHeaderBanner;
-        [SerializeField] private Text gradeTitleText;
-        [SerializeField] private Text gradeSummaryText;
-        [SerializeField] private Text breakdownBodyText;
-        [SerializeField] private Text finalBalanceHighlightText;
-        [SerializeField] private Text staffSummaryText;
+        [SerializeField] private Text screenTitleText;
+        [SerializeField] private Button posClickButton;
+        [SerializeField] private GameObject posPromptRoot;
+        [SerializeField] private RectTransform posPromptArrowRect;
+        [SerializeField] private GameObject dashedArrowRoot;
+        [SerializeField] private GameObject receiptSheetRoot;
+        [SerializeField] private CanvasGroup receiptCanvasGroup;
+        [SerializeField] private Text goalValueText;
+        [SerializeField] private Text currentValueText;
+        [SerializeField] private Button extraInfoToggleButton;
+        [SerializeField] private Text extraInfoSummaryText;
+        [SerializeField] private GameObject extraInfoDetailBox;
+        [SerializeField] private Text extraInfoDetailBodyText;
+        [SerializeField] private Button nextDayButton;
+        [SerializeField] private Text nextDayButtonLabel;
         [SerializeField] private Button viewEndingButton;
-        [SerializeField] private Button retryDayButton;
         [SerializeField] private Button returnLobbyButton;
 
+        private bool isReceiptPrinted;
+        private bool isAnimatingReceipt;
+        private bool isExtraInfoExpanded;
+        private bool proceedsToEnding;
+        private float receiptAnimElapsed;
+        private Vector2 promptArrowBasePos;
+        private bool hasCapturedArrowPos;
+        private IStoreAudioPlayer audioPlayer;
+
+        public bool IsVisible => (panelRoot != null ? panelRoot : gameObject).activeSelf;
+
+        public event Action PosPrintRequested;
+        public event Action NextDayClicked;
         public event Action ViewEndingClicked;
+#pragma warning disable CS0067
         public event Action RetryDayClicked;
+#pragma warning restore CS0067
         public event Action ReturnLobbyClicked;
+
+        public void BindAudioPlayer(IStoreAudioPlayer player)
+        {
+            audioPlayer = player;
+        }
 
         private void OnEnable()
         {
+            if (posClickButton != null) posClickButton.onClick.AddListener(HandlePosClicked);
+            if (extraInfoToggleButton != null) extraInfoToggleButton.onClick.AddListener(HandleExtraInfoToggleClicked);
+            if (nextDayButton != null) nextDayButton.onClick.AddListener(HandleNextDayClicked);
             if (viewEndingButton != null) viewEndingButton.onClick.AddListener(HandleViewEndingClicked);
-            if (retryDayButton != null) retryDayButton.onClick.AddListener(HandleRetryClicked);
             if (returnLobbyButton != null) returnLobbyButton.onClick.AddListener(HandleReturnLobbyClicked);
+
+            if (posPromptArrowRect != null && !hasCapturedArrowPos)
+            {
+                promptArrowBasePos = posPromptArrowRect.anchoredPosition;
+                hasCapturedArrowPos = true;
+            }
         }
 
         private void OnDisable()
         {
+            if (posClickButton != null) posClickButton.onClick.RemoveListener(HandlePosClicked);
+            if (extraInfoToggleButton != null) extraInfoToggleButton.onClick.RemoveListener(HandleExtraInfoToggleClicked);
+            if (nextDayButton != null) nextDayButton.onClick.RemoveListener(HandleNextDayClicked);
             if (viewEndingButton != null) viewEndingButton.onClick.RemoveListener(HandleViewEndingClicked);
-            if (retryDayButton != null) retryDayButton.onClick.RemoveListener(HandleRetryClicked);
             if (returnLobbyButton != null) returnLobbyButton.onClick.RemoveListener(HandleReturnLobbyClicked);
+        }
+
+        private void Update()
+        {
+            if (!IsVisible) return;
+
+            if (!isReceiptPrinted && posPromptArrowRect != null && hasCapturedArrowPos)
+            {
+                float bounce = Mathf.Sin(Time.unscaledTime * 4.5f) * 10f;
+                posPromptArrowRect.anchoredPosition = promptArrowBasePos + new Vector2(bounce, 0f);
+            }
+
+            if (isAnimatingReceipt)
+            {
+                receiptAnimElapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01((receiptAnimElapsed - 0.22f) / 0.45f);
+                if (receiptCanvasGroup != null)
+                {
+                    receiptCanvasGroup.alpha = Mathf.SmoothStep(0f, 1f, t);
+                    receiptCanvasGroup.interactable = t >= 0.85f;
+                    receiptCanvasGroup.blocksRaycasts = t >= 0.85f;
+                }
+
+                if (t >= 1f)
+                {
+                    isAnimatingReceipt = false;
+                }
+            }
         }
 
         public void SetVisible(bool visible)
@@ -45,73 +118,150 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
-        public void RenderResult(DaySettlementResult result)
+        public void RenderResult(
+            DaySettlementResult result,
+            int itemSalesRevenueWon = 0,
+            int cumulativeRevenueWon = 0,
+            int todayUnitsSold = 0,
+            string inventoryDetailReport = null,
+            bool isFinalDayOrForcedEnding = false)
         {
-            if (gradeHeaderBanner != null && gradeTitleText != null && gradeSummaryText != null)
+            isReceiptPrinted = false;
+            isAnimatingReceipt = false;
+            isExtraInfoExpanded = false;
+            proceedsToEnding = isFinalDayOrForcedEnding;
+            receiptAnimElapsed = 0f;
+
+            if (screenTitleText != null)
             {
-                switch (result.OutcomeGrade)
-                {
-                    case DayOutcomeGrade.StableSuccess:
-                        gradeHeaderBanner.color = new Color(0.12f, 0.56f, 0.38f, 1f);
-                        gradeTitleText.text = $"{result.DayNumber}일차 정산 결과  ·  안정 운영 성공";
-                        gradeSummaryText.text = "목표 잔액을 달성했으며 직원의 감정 상태도 안정적으로 유지했습니다.";
-                        break;
-                    case DayOutcomeGrade.UnstableAngerSuccess:
-                        gradeHeaderBanner.color = new Color(0.72f, 0.44f, 0.10f, 1f);
-                        gradeTitleText.text = $"{result.DayNumber}일차 정산 결과  ·  불안정 성공 (직원 분노 누적)";
-                        gradeSummaryText.text = "목표 잔액은 달성했으나 무리한 지시로 직원의 분노·거부 이력이 결말에 기록되었습니다.";
-                        break;
-                    default:
-                        gradeHeaderBanner.color = new Color(0.68f, 0.18f, 0.20f, 1f);
-                        gradeTitleText.text = $"{result.DayNumber}일차 정산 결과  ·  목표 잔액 미달 실패";
-                        gradeSummaryText.text = "당일 목표 잔액에 도달하지 못했습니다. 업무 분배와 감정 효율을 조정해 재도전하세요.";
-                        break;
-                }
+                screenTitleText.text = $"[ {result.DayNumber}일차 결과 및 정산 ]";
             }
 
-            if (breakdownBodyText != null)
+            if (goalValueText != null)
             {
-                string penaltyLine = result.RestockShortagePenaltyApplied
-                    ? $"-20% 감산 적용 (유효 진열 {result.MinEffectiveRestockSeconds:F0}초 미만)"
-                    : $"적용 없음 (유효 진열 {result.MinEffectiveRestockSeconds:F0}초 기준 충족)";
-
-                int totalCosts = result.CostOfGoodsWon + result.FixedOperatingCostWon;
-
-                breakdownBodyText.text =
-                    $"기초 자금 :  {result.StartingBalanceWon:N0}원\n" +
-                    $"계산 기여 매출 (유효 {result.EffectiveCheckoutSeconds:F1}초) :  +{result.CheckoutRevenueWon:N0}원\n" +
-                    $"진열 기여 매출 (유효 {result.EffectiveRestockSeconds:F1}초) :  +{result.RestockRevenueWon:N0}원\n" +
-                    $"진열 부족 패널티 :  {penaltyLine}\n" +
-                    $"당일 최종 매출 :  +{result.FinalSalesRevenueWon:N0}원\n" +
-                    $"운영 비용 (원가 {result.CostOfGoodsWon:N0}원 + 고정비 {result.FixedOperatingCostWon:N0}원) :  -{totalCosts:N0}원";
+                goalValueText.text = $"목표 :  {result.TargetBalanceWon:N0}원";
             }
 
-            if (finalBalanceHighlightText != null)
+            if (currentValueText != null)
             {
                 string sign = result.NetProfitWon >= 0 ? "+" : "";
-                finalBalanceHighlightText.text =
-                    $"당일 최종 잔액 :  {result.FinalBalanceWon:N0}원   (당일 순이익 {sign}{result.NetProfitWon:N0}원 / 목표 {result.TargetBalanceWon:N0}원)";
+                currentValueText.text = $"현재 :  {result.FinalBalanceWon:N0}원   (순이익 {sign}{result.NetProfitWon:N0}원)";
             }
 
-            if (staffSummaryText != null)
+            if (extraInfoSummaryText != null)
             {
-                staffSummaryText.text =
-                    $"직원 상태 기록  —  종료 스트레스: {Mathf.RoundToInt(result.EndingStress)} / 100   ·   분노 거부 누적: {result.AngerRefusalCount}회";
+                string gradeLabel = result.OutcomeGrade == DayOutcomeGrade.StableSuccess
+                    ? "목표 달성 (안정)"
+                    : (result.OutcomeGrade == DayOutcomeGrade.UnstableAngerSuccess ? "목표 달성 (불안정)" : "목표 미달");
+                extraInfoSummaryText.text =
+                    $"추가정보 :  {gradeLabel} · 당일 매출 +{result.FinalSalesRevenueWon:N0}원 (판매 {todayUnitsSold}개)\n" +
+                    "↳  클릭 시 품목별 판매·재고 정산내역 출력  ▾";
+            }
+
+            if (extraInfoDetailBodyText != null)
+            {
+                int totalCosts = result.CostOfGoodsWon + result.FixedOperatingCostWon;
+                string penaltyLine = result.RestockShortagePenaltyApplied ? "적용 (-20%)" : "없음";
+                string invBlock = string.IsNullOrWhiteSpace(inventoryDetailReport)
+                    ? $"[ 당일 판매 {todayUnitsSold}개 · 물품 매출 {itemSalesRevenueWon:N0}원 · 누적 매출 {cumulativeRevenueWon:N0}원 ]"
+                    : inventoryDetailReport;
+
+                extraInfoDetailBodyText.text =
+                    $"기초 자금 {result.StartingBalanceWon:N0}원  |  업무 매출 +{(result.CheckoutRevenueWon + result.RestockRevenueWon):N0}원  |  물품 판매 +{itemSalesRevenueWon:N0}원\n" +
+                    $"진열 패널티: {penaltyLine}  |  운영 비용(원가+고정비): -{totalCosts:N0}원\n" +
+                    $"알바 종료 스트레스: {Mathf.RoundToInt(result.EndingStress)} / 100  ·  분노 거부: {result.AngerRefusalCount}회\n" +
+                    "─────────────────────────────────────────\n" +
+                    invBlock;
+            }
+
+            if (extraInfoDetailBox != null)
+            {
+                extraInfoDetailBox.SetActive(false);
+            }
+
+            if (nextDayButtonLabel != null)
+            {
+                nextDayButtonLabel.text = proceedsToEnding
+                    ? "다음 (엔딩 보기)  →"
+                    : $"다음 ({result.DayNumber + 1}일차 영업)  →";
+            }
+
+            // 1단계: 포스기 클릭 대기 상태로 초기화
+            if (posClickButton != null) posClickButton.gameObject.SetActive(true);
+            if (posPromptRoot != null) posPromptRoot.SetActive(true);
+            if (dashedArrowRoot != null) dashedArrowRoot.SetActive(false);
+            if (receiptSheetRoot != null) receiptSheetRoot.SetActive(false);
+            if (receiptCanvasGroup != null)
+            {
+                receiptCanvasGroup.alpha = 0f;
+                receiptCanvasGroup.interactable = false;
+                receiptCanvasGroup.blocksRaycasts = false;
+            }
+        }
+
+        public void TriggerPosPrintFromExternalClick()
+        {
+            HandlePosClicked();
+        }
+
+        private void HandlePosClicked()
+        {
+            if (isReceiptPrinted) return;
+            isReceiptPrinted = true;
+            isAnimatingReceipt = true;
+            receiptAnimElapsed = 0f;
+
+            audioPlayer?.PlaySfx(StoreSfxId.BarcodeCheckout);
+            audioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
+
+            if (posClickButton != null) posClickButton.gameObject.SetActive(false);
+            if (posPromptRoot != null) posPromptRoot.SetActive(false);
+            if (dashedArrowRoot != null) dashedArrowRoot.SetActive(true);
+            if (receiptSheetRoot != null) receiptSheetRoot.SetActive(true);
+
+            PosPrintRequested?.Invoke();
+        }
+
+        private void HandleExtraInfoToggleClicked()
+        {
+            isExtraInfoExpanded = !isExtraInfoExpanded;
+            audioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
+
+            if (extraInfoDetailBox != null)
+            {
+                extraInfoDetailBox.SetActive(isExtraInfoExpanded);
+            }
+
+            if (extraInfoSummaryText != null)
+            {
+                extraInfoSummaryText.text = isExtraInfoExpanded
+                    ? extraInfoSummaryText.text.Replace("▾", "▴").Replace("출력", "접기")
+                    : extraInfoSummaryText.text.Replace("▴", "▾").Replace("접기", "출력");
+            }
+        }
+
+        private void HandleNextDayClicked()
+        {
+            audioPlayer?.PlaySfx(StoreSfxId.UiClick);
+            if (proceedsToEnding)
+            {
+                ViewEndingClicked?.Invoke();
+            }
+            else
+            {
+                NextDayClicked?.Invoke();
             }
         }
 
         private void HandleViewEndingClicked()
         {
+            audioPlayer?.PlaySfx(StoreSfxId.UiClick);
             ViewEndingClicked?.Invoke();
-        }
-
-        private void HandleRetryClicked()
-        {
-            RetryDayClicked?.Invoke();
         }
 
         private void HandleReturnLobbyClicked()
         {
+            audioPlayer?.PlaySfx(StoreSfxId.UiClick);
             ReturnLobbyClicked?.Invoke();
         }
     }

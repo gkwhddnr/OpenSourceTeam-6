@@ -90,7 +90,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleStartClicked()
         {
-            _audioPlayer?.PlaySfx(StoreSfxId.UiClick);
+            _audioPlayer?.PlaySfx(StoreSfxId.StoreDoorChime);
             StartClicked?.Invoke();
         }
 

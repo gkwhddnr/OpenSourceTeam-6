@@ -5,6 +5,7 @@ using UnityEngine.UI;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Time = UnityEngine.Time;
     public sealed class InGameHudPresenter : MonoBehaviour
     {
         [Header("Root")]
@@ -90,7 +91,13 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
-        public void UpdateTopBar(int dayNumber, float remainingSeconds, int displayedBalanceWon, int targetBalanceWon = 0)
+        public void UpdateTopBar(
+            int dayNumber,
+            float remainingSeconds,
+            int displayedBalanceWon,
+            int targetBalanceWon = 0,
+            float totalDaySeconds = 0f,
+            float? explicitGameHour = null)
         {
             if (dayLabelText != null)
             {
@@ -99,10 +106,10 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (timerText != null)
             {
-                int clampedSec = Mathf.Max(0, Mathf.CeilToInt(remainingSeconds));
-                int mins = clampedSec / 60;
-                int secs = clampedSec % 60;
-                timerText.text = $"남은 시간  {mins:00}:{secs:00}";
+                timerText.text = StoreDayTimeRules.FormatHudClockAndTimer(
+                    remainingSeconds,
+                    totalDaySeconds,
+                    explicitGameHour);
             }
 
             if (balanceText != null)
