@@ -324,7 +324,12 @@ namespace OpenSourceTeam6.UI.Core
             return checkoutWon + restockWon;
         }
 
-        public DaySettlementResult SettleOnce(float endingStress)
+        public void SetTargetBalanceWon(int targetBalanceWon)
+        {
+            settings.TargetBalanceWon = Math.Max(0, targetBalanceWon);
+        }
+
+        public DaySettlementResult SettleOnce(float endingStress, int extraItemSalesRevenueWon = 0)
         {
             if (IsSettled)
             {
@@ -341,7 +346,51 @@ namespace OpenSourceTeam6.UI.Core
                 endingStress,
                 AngerRefusalCount);
 
-            cachedResult = DaySettlementCalculator.Calculate(settings, input);
+            DaySettlementResult baseResult = DaySettlementCalculator.Calculate(settings, input);
+            int extraWon = Math.Max(0, extraItemSalesRevenueWon);
+            if (extraWon > 0)
+            {
+                int finalSalesWon = baseResult.FinalSalesRevenueWon + extraWon;
+                int cogsWon = (int)Math.Round(finalSalesWon * settings.CostOfGoodsRatio, MidpointRounding.AwayFromZero);
+                int netProfitWon = finalSalesWon - cogsWon - settings.FixedOperatingCostWon;
+                int finalBalanceWon = input.StartingBalanceWon + netProfitWon;
+
+                DayOutcomeGrade grade;
+                if (finalBalanceWon < settings.TargetBalanceWon)
+                {
+                    grade = DayOutcomeGrade.FailedTargetShortfall;
+                }
+                else if (input.EndingStress >= settings.AngerStressThreshold || input.AngerRefusalCount > settings.MaxAllowedAngerRefusals)
+                {
+                    grade = DayOutcomeGrade.UnstableAngerSuccess;
+                }
+                else
+                {
+                    grade = DayOutcomeGrade.StableSuccess;
+                }
+
+                baseResult = new DaySettlementResult(
+                    baseResult.DayNumber,
+                    baseResult.StartingBalanceWon,
+                    baseResult.TargetBalanceWon,
+                    baseResult.EffectiveCheckoutSeconds,
+                    baseResult.EffectiveRestockSeconds,
+                    baseResult.CheckoutRevenueWon,
+                    baseResult.RestockRevenueWon,
+                    baseResult.GrossBaseRevenueWon + extraWon,
+                    baseResult.RestockShortagePenaltyApplied,
+                    finalSalesWon,
+                    cogsWon,
+                    baseResult.FixedOperatingCostWon,
+                    netProfitWon,
+                    finalBalanceWon,
+                    baseResult.EndingStress,
+                    baseResult.AngerRefusalCount,
+                    grade,
+                    baseResult.MinEffectiveRestockSeconds);
+            }
+
+            cachedResult = baseResult;
             IsSettled = true;
             return cachedResult;
         }

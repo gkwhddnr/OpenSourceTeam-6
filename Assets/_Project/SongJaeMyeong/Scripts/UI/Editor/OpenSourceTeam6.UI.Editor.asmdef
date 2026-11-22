@@ -6,6 +6,9 @@
         "OpenSourceTeam6.UI.Unity",
         "OpenSourceTeam6.Time.Core",
         "OpenSourceTeam6.Time.Unity",
+        "OpenSourceTeam6.Customers.Unity",
+        "OpenSourceTeam6.Movement.Unity",
+        "Unity.AI.Navigation",
         "UnityEngine.UI",
         "Unity.InputSystem"
     ],

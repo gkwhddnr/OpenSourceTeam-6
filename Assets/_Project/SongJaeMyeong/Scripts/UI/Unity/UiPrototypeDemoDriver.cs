@@ -1,6 +1,7 @@
 using System.Collections;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.InputSystem;
 
 namespace OpenSourceTeam6.UI.Unity
@@ -46,6 +47,9 @@ namespace OpenSourceTeam6.UI.Unity
         private float loyalty = 75f;
         private float fallbackArrivalTimer;
         private Transform activeMoveDestination;
+        private NavMeshAgent demoEmployeeAgent;
+        private Vector3 lastDispatchedNavTarget;
+        private bool hasDispatchedNavTarget;
 
         private bool isRecordingVoice;
         private int sampleUtteranceIndex;
@@ -76,7 +80,13 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void Update()
         {
-            if (uiController == null || uiController.CurrentMode != UiScreenMode.InGame || uiController.IsPauseMenuOpen) return;
+            if (uiController == null ||
+                uiController.CurrentMode != UiScreenMode.InGame ||
+                uiController.IsPauseMenuOpen ||
+                uiController.IsTransitionFading)
+            {
+                return;
+            }
 
             SimulateContinuousWorkAndStats(Time.deltaTime);
             HandleSimulationHotkeys();
@@ -114,7 +124,21 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (demoEmployeeTransform != null && restTarget != null)
             {
-                demoEmployeeTransform.position = restTarget.position;
+                if (demoEmployeeAgent == null)
+                {
+                    demoEmployeeAgent = demoEmployeeTransform.GetComponent<NavMeshAgent>();
+                }
+
+                hasDispatchedNavTarget = false;
+                if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+                {
+                    demoEmployeeAgent.ResetPath();
+                    demoEmployeeAgent.Warp(restTarget.position);
+                }
+                else
+                {
+                    demoEmployeeTransform.position = restTarget.position;
+                }
             }
 
             PushSnapshot();
@@ -128,17 +152,43 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 if (demoEmployeeTransform != null && activeMoveDestination != null)
                 {
-                    Vector3 targetPos = activeMoveDestination.position;
-                    targetPos.y = demoEmployeeTransform.position.y;
-                    float effectiveWalkSpeed = demoWalkSpeed * _activeProfile.MoveSpeedMultiplier;
-                    demoEmployeeTransform.position = Vector3.MoveTowards(
-                        demoEmployeeTransform.position,
-                        targetPos,
-                        effectiveWalkSpeed * dt);
-
-                    if (Vector3.Distance(demoEmployeeTransform.position, targetPos) <= 0.08f)
+                    if (demoEmployeeAgent == null)
                     {
-                        currentMoveBadge = StaffMoveBadge.Arrived;
+                        demoEmployeeAgent = demoEmployeeTransform.GetComponent<NavMeshAgent>();
+                    }
+
+                    Vector3 targetPos = activeMoveDestination.position;
+                    float effectiveWalkSpeed = demoWalkSpeed * _activeProfile.MoveSpeedMultiplier;
+
+                    if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+                    {
+                        demoEmployeeAgent.speed = effectiveWalkSpeed;
+                        if (!hasDispatchedNavTarget || (targetPos - lastDispatchedNavTarget).sqrMagnitude > 0.01f)
+                        {
+                            demoEmployeeAgent.SetDestination(targetPos);
+                            lastDispatchedNavTarget = targetPos;
+                            hasDispatchedNavTarget = true;
+                        }
+
+                        if (!demoEmployeeAgent.pathPending &&
+                            demoEmployeeAgent.remainingDistance <= Mathf.Max(0.2f, demoEmployeeAgent.stoppingDistance + 0.08f))
+                        {
+                            currentMoveBadge = StaffMoveBadge.Arrived;
+                            hasDispatchedNavTarget = false;
+                        }
+                    }
+                    else
+                    {
+                        targetPos.y = demoEmployeeTransform.position.y;
+                        demoEmployeeTransform.position = Vector3.MoveTowards(
+                            demoEmployeeTransform.position,
+                            targetPos,
+                            effectiveWalkSpeed * dt);
+
+                        if (Vector3.Distance(demoEmployeeTransform.position, targetPos) <= 0.08f)
+                        {
+                            currentMoveBadge = StaffMoveBadge.Arrived;
+                        }
                     }
                 }
                 else
@@ -148,6 +198,14 @@ namespace OpenSourceTeam6.UI.Unity
                     {
                         currentMoveBadge = StaffMoveBadge.Arrived;
                     }
+                }
+            }
+            else if (hasDispatchedNavTarget)
+            {
+                hasDispatchedNavTarget = false;
+                if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+                {
+                    demoEmployeeAgent.ResetPath();
                 }
             }
 
@@ -218,7 +276,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleSimulationHotkeys()
         {
-            if (uiController.IsCommandOverlayOpen || uiController.IsSettingsOpen) return;
+            if (uiController.IsCommandOverlayOpen || uiController.IsSettingsOpen || uiController.IsExternalModalOpen) return;
 
             Keyboard kb = Keyboard.current;
             if (kb == null) return;

@@ -14,6 +14,9 @@ namespace OpenSourceTeam6.UI.Unity
     public sealed class SettingsPanelPresenter : MonoBehaviour
     {
         private const float SfxPreviewCooldownSeconds = 0.2f;
+        public const string MouseSensitivityPrefKey = "OpenSourceTeam6.MouseSensitivity";
+        public const float MinMouseSensitivity = 0.2f;
+        public const float MaxMouseSensitivity = 3.0f;
 
         [SerializeField] private GameObject panelRoot;
         [SerializeField] private Slider masterVolumeSlider;
@@ -48,6 +51,14 @@ namespace OpenSourceTeam6.UI.Unity
         public event Action<float> SfxVolumeChanged;
         public event Action<float> MouseSensitivityChanged;
         public event Action<string> MicrophoneDeviceChanged;
+
+        private void Awake()
+        {
+            MouseSensitivityMultiplier = Mathf.Clamp(
+                PlayerPrefs.GetFloat(MouseSensitivityPrefKey, 1.0f),
+                MinMouseSensitivity,
+                MaxMouseSensitivity);
+        }
 
         public void BindAudioPlayer(IStoreAudioPlayer audioPlayer)
         {
@@ -186,6 +197,13 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 sfxVolumeSlider.SetValueWithoutNotify(SfxVolume);
             }
+
+            if (mouseSensitivitySlider != null)
+            {
+                mouseSensitivitySlider.minValue = MinMouseSensitivity;
+                mouseSensitivitySlider.maxValue = MaxMouseSensitivity;
+                mouseSensitivitySlider.SetValueWithoutNotify(MouseSensitivityMultiplier);
+            }
         }
 
         private void HandleMasterVolumeChanged(float value)
@@ -270,7 +288,9 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleMouseSensitivityChanged(float value)
         {
-            MouseSensitivityMultiplier = Mathf.Clamp(value, 0.2f, 2.0f);
+            MouseSensitivityMultiplier = Mathf.Clamp(value, MinMouseSensitivity, MaxMouseSensitivity);
+            PlayerPrefs.SetFloat(MouseSensitivityPrefKey, MouseSensitivityMultiplier);
+            PlayerPrefs.Save();
             RefreshLabels();
             MouseSensitivityChanged?.Invoke(MouseSensitivityMultiplier);
         }
@@ -311,7 +331,7 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (mouseSensitivityValueText != null)
             {
-                mouseSensitivityValueText.text = $"{MouseSensitivityMultiplier:F1}x";
+                mouseSensitivityValueText.text = $"{MouseSensitivityMultiplier:F2}x";
             }
 
             if (microphoneDeviceText != null)
@@ -344,46 +364,5 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void OnPointerDown(PointerEventData eventData) => PointerDown?.Invoke();
         public void OnPointerUp(PointerEventData eventData) => PointerUp?.Invoke();
-    }
-
-    public sealed class PausePanelPresenter : MonoBehaviour
-    {
-        [SerializeField] private GameObject panelRoot;
-        [SerializeField] private Button resumeButton;
-        [SerializeField] private Button openSettingsButton;
-        [SerializeField] private Button returnLobbyButton;
-
-        public bool IsOpen => (panelRoot != null ? panelRoot : gameObject).activeSelf;
-
-        public event Action ResumeClicked;
-        public event Action OpenSettingsClicked;
-        public event Action ReturnLobbyClicked;
-
-        private void OnEnable()
-        {
-            if (resumeButton != null) resumeButton.onClick.AddListener(HandleResumeClicked);
-            if (openSettingsButton != null) openSettingsButton.onClick.AddListener(HandleSettingsClicked);
-            if (returnLobbyButton != null) returnLobbyButton.onClick.AddListener(HandleReturnLobbyClicked);
-        }
-
-        private void OnDisable()
-        {
-            if (resumeButton != null) resumeButton.onClick.RemoveListener(HandleResumeClicked);
-            if (openSettingsButton != null) openSettingsButton.onClick.RemoveListener(HandleSettingsClicked);
-            if (returnLobbyButton != null) returnLobbyButton.onClick.RemoveListener(HandleReturnLobbyClicked);
-        }
-
-        public void SetOpen(bool open)
-        {
-            GameObject target = panelRoot != null ? panelRoot : gameObject;
-            if (target.activeSelf != open)
-            {
-                target.SetActive(open);
-            }
-        }
-
-        private void HandleResumeClicked() => ResumeClicked?.Invoke();
-        private void HandleSettingsClicked() => OpenSettingsClicked?.Invoke();
-        private void HandleReturnLobbyClicked() => ReturnLobbyClicked?.Invoke();
     }
 }

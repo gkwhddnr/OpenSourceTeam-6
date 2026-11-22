@@ -4,6 +4,7 @@ using UnityEngine.UI;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Camera = UnityEngine.Camera;
     using Time = UnityEngine.Time;
     /// <summary>
     /// 기능정의서 UI-09 (NPC 머리 위 상태 표시 - World UI):

@@ -1,12 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using OpenSourceTeam6.Customers.Unity;
+using OpenSourceTeam6.Movement.Unity;
 using OpenSourceTeam6.Time.Unity;
 using OpenSourceTeam6.UI.Core;
 using OpenSourceTeam6.UI.Unity;
+using Unity.AI.Navigation;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem.UI;
 using UnityEngine.SceneManagement;
@@ -15,6 +19,7 @@ using Object = UnityEngine.Object;
 
 namespace OpenSourceTeam6.UI.Editor
 {
+    using Camera = UnityEngine.Camera;
     public static class UiSceneAndPrefabBuilder
     {
         private const string MenuPath = "OpenSourceTeam6/UI/Create Initial UI Scene And Prefab";
@@ -38,6 +43,32 @@ namespace OpenSourceTeam6.UI.Editor
         private const string PrefabPath = "Assets/_Project/SongJaeMyeong/Prefabs/PF_StoreUIRoot.prefab";
         private const string WorldUiPrefabPath = "Assets/_Project/SongJaeMyeong/Prefabs/PF_EmployeeWorldStatusUI.prefab";
         private const string WorkScenePath = "Assets/_Project/SongJaeMyeong/Scenes/SJM_UI_Work.unity";
+        private const string ConvenienceStoreMapScenePath = "Assets/_Project/LeeSeungJae/Scenes/KoreanConvenienceStore.unity";
+        private const string EmployeeUniformMatPath = "Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Green.mat";
+        private const string PlayerRigPrefabPath = "Assets/_Project/HaJongUk/Prefabs/PlayerRig.prefab";
+        private const string PlayerVisualMatPath = "Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Orange.mat";
+        private const string ManualCubeMatPath = "Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Yellow.mat";
+        private const string ManualSpineMatPath = "Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Dark.mat";
+        private const string CustomerCapsulePrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/CustomerCapsule.prefab";
+        private const string PedestrianCapsulePrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/PedestrianCapsule.prefab";
+        private const string CustomerProductPrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/ProductBox.prefab";
+
+        private static readonly HashSet<string> ConvenienceStoreEnvironmentRoots = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Architecture",
+            "Storefront",
+            "WalkIn_and_Storage",
+            "Snack_Shelf",
+            "Ramen_Shelf",
+            "DailyGoods_Shelf",
+            "IceCream_Freezer",
+            "Checkout_1",
+            "Checkout_2",
+            "HotFood",
+            "ATM_and_Bin",
+            "Table_and_Stools",
+            "Outdoor_View"
+        };
 
         private static Sprite _panelCardSprite;
         private static Sprite _buttonDepthSprite;
@@ -68,14 +99,23 @@ namespace OpenSourceTeam6.UI.Editor
                 Font targetKoreanFont = ResolvePrimaryUiFont();
                 Font targetPaperFont = ResolvePaperHandwritingFont(targetKoreanFont);
                 Scene activeScene = SceneManager.GetActiveScene();
-                bool isWorkSceneWithoutTimeSystem =
+                bool isWorkSceneMissingEnvironment =
                     activeScene.IsValid() &&
                     activeScene.path == WorkScenePath &&
-                    Object.FindAnyObjectByType<TimeEnvironmentController>() == null;
+                    (Object.FindAnyObjectByType<TimeEnvironmentController>() == null ||
+                     (File.Exists(ConvenienceStoreMapScenePath) &&
+                      (GameObject.Find("ConvenienceStore_Map") == null ||
+                       GameObject.Find("Counter_ManualCube") == null ||
+                       GameObject.Find("LobbyOverviewCamera") == null ||
+                       GameObject.Find("PosSettlementStage") == null ||
+                       Object.FindAnyObjectByType<StoreInventoryManager>() == null ||
+                       (ConvenienceStoreProductPopulator.HasSellableAssetsImported() &&
+                        ConvenienceStoreProductPopulator.NeedsProductShelfRefresh(GameObject.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName))) ||
+                       Object.FindAnyObjectByType<PlayerRigController>() == null)));
 
                 bool needsFontOrLobbyRefresh = NeedsFontOrTransparentLobbySync(prefab, worldPrefab, targetKoreanFont, targetPaperFont);
 
-                if (prefab == null || prefab.transform.Find("EndingPanel") == null || isWorkSceneWithoutTimeSystem || needsFontOrLobbyRefresh)
+                if (prefab == null || prefab.transform.Find("EndingPanel") == null || isWorkSceneMissingEnvironment || needsFontOrLobbyRefresh)
                 {
                     BuildUiPrefabAndWorkScene();
                     return;
@@ -144,6 +184,26 @@ namespace OpenSourceTeam6.UI.Editor
                 }
             }
 
+            Transform sensSliderTr = uiPrefab.transform.Find("SettingsPanel/SettingsCard/마우스 감도_Slider");
+            Slider sensSlider = sensSliderTr != null ? sensSliderTr.GetComponent<Slider>() : null;
+            if (sensSlider != null && sensSlider.maxValue < 2.5f)
+            {
+                return true;
+            }
+
+            Transform pausePanelTr = uiPrefab.transform.Find("PausePanel");
+            if (pausePanelTr == null ||
+                pausePanelTr.Find("PauseCard") != null ||
+                pausePanelTr.GetComponent<PausePanelPresenter>() == null)
+            {
+                return true;
+            }
+
+            if (uiPrefab.transform.Find("SettlementPanel/PosClickAreaButton") == null)
+            {
+                return true;
+            }
+
             if (targetFont != null)
             {
                 Transform titleTr = uiPrefab.transform.Find("LobbyPanel/TitleGroup/TitleText");
@@ -182,9 +242,19 @@ namespace OpenSourceTeam6.UI.Editor
                 return;
             }
 
-            if (scene.IsValid() &&
+            if (mode == OpenSceneMode.Single &&
+                scene.IsValid() &&
                 scene.path == WorkScenePath &&
-                Object.FindAnyObjectByType<TimeEnvironmentController>() == null)
+                (Object.FindAnyObjectByType<TimeEnvironmentController>() == null ||
+                 (File.Exists(ConvenienceStoreMapScenePath) &&
+                  (GameObject.Find("ConvenienceStore_Map") == null ||
+                   GameObject.Find("Counter_ManualCube") == null ||
+                   GameObject.Find("LobbyOverviewCamera") == null ||
+                   GameObject.Find("PosSettlementStage") == null ||
+                   Object.FindAnyObjectByType<StoreInventoryManager>() == null ||
+                   (ConvenienceStoreProductPopulator.HasSellableAssetsImported() &&
+                    ConvenienceStoreProductPopulator.NeedsProductShelfRefresh(GameObject.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName))) ||
+                   Object.FindAnyObjectByType<PlayerRigController>() == null))))
             {
                 BuildUiPrefabAndWorkScene();
             }
@@ -298,7 +368,7 @@ namespace OpenSourceTeam6.UI.Editor
             GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(tempRoot, PrefabPath);
             Object.DestroyImmediate(tempRoot);
 
-            BuildWorkScene(savedPrefab, savedWorldUiPrefab, paperHandwritingFont != null ? paperHandwritingFont : koreanFont, fillSprite);
+            BuildWorkScene(savedPrefab, savedWorldUiPrefab, koreanFont, paperHandwritingFont != null ? paperHandwritingFont : koreanFont, fillSprite);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
@@ -859,7 +929,7 @@ namespace OpenSourceTeam6.UI.Editor
             PersonaSetupPanelPresenter personaSetupPresenter = BuildPersonaSetupPanel(root.transform, resolvedPaperFont, englishAccentFont, whiteSprite, portraitSprite);
             InGameHudPresenter hudPresenter = BuildInGameHud(root.transform, font, resolvedPaperFont, whiteSprite, smoothRectSprite);
             CommandOverlayPresenter overlayPresenter = BuildCommandOverlay(root.transform, font, whiteSprite);
-            SettlementPanelPresenter settlementPresenter = BuildSettlementPanel(root.transform, font, whiteSprite);
+            SettlementPanelPresenter settlementPresenter = BuildSettlementPanel(root.transform, font, resolvedPaperFont, whiteSprite);
             EndingPanelPresenter endingPresenter = BuildEndingPanel(root.transform, font, whiteSprite);
             PausePanelPresenter pausePresenter = BuildPausePanel(root.transform, font, whiteSprite);
             SettingsPanelPresenter settingsPresenter = BuildSettingsPanel(root.transform, font, whiteSprite);
@@ -1732,59 +1802,184 @@ namespace OpenSourceTeam6.UI.Editor
             return presenter;
         }
 
-        private static SettlementPanelPresenter BuildSettlementPanel(Transform parent, Font font, Sprite sprite)
+        private static SettlementPanelPresenter BuildSettlementPanel(
+            Transform parent,
+            Font uiFont,
+            Font paperFont,
+            Sprite sprite)
         {
-            GameObject dimBg = CreatePanel("SettlementPanel", parent, new Color(0.04f, 0.06f, 0.11f, 0.88f), sprite);
-            StretchFull(dimBg.GetComponent<RectTransform>());
-            SettlementPanelPresenter presenter = dimBg.AddComponent<SettlementPanelPresenter>();
+            // 배경은 투명(alpha 0)으로 두고 전용 검은 3D 포스기 카메라(PosSettlementCamera)가 뒤에서 보이도록 구성
+            GameObject rootBg = CreateFlatRect("SettlementPanel", parent, new Color(0.02f, 0.025f, 0.04f, 0f), sprite);
+            rootBg.GetComponent<Image>().raycastTarget = false;
+            StretchFull(rootBg.GetComponent<RectTransform>());
+            SettlementPanelPresenter presenter = rootBg.AddComponent<SettlementPanelPresenter>();
 
-            GameObject card = CreatePanel("SettlementCard", dimBg.transform, new Color(0.11f, 0.15f, 0.22f, 0.99f), sprite);
-            SetRect(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(780f, 590f));
+            Sprite smoothSprite = _smoothRectSprite != null ? _smoothRectSprite : sprite;
 
-            GameObject headerBanner = CreatePanel("GradeHeaderBanner", card.transform, new Color(0.12f, 0.56f, 0.38f, 1f), sprite);
-            SetRect(headerBanner.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 108f));
+            // 1. 상단 중앙 타이틀: [ 1일차 결과 및 정산 ]
+            GameObject titleHolder = new GameObject("SettlementTitleHolder", typeof(RectTransform));
+            titleHolder.transform.SetParent(rootBg.transform, false);
+            RectTransform titleHolderRt = titleHolder.GetComponent<RectTransform>();
+            SetRect(titleHolderRt, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -34f), new Vector2(1800f, 140f));
+            titleHolderRt.localScale = new Vector3(0.5f, 0.5f, 1f);
 
-            Text gradeTitle = CreateText("GradeTitleText", headerBanner.transform, font, "1일차 정산 결과  ·  안정 운영 성공", 28, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
-            SetRect(gradeTitle.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -16f), new Vector2(-40f, 42f));
+            Text screenTitle = CreatePaperText("SettlementScreenTitle", titleHolder.transform, uiFont, "[ 1일차 결과 및 정산 ]", 76, FontStyle.Normal, Color.white, TextAnchor.MiddleCenter);
+            StretchFull(screenTitle.rectTransform);
 
-            Text gradeSummary = CreateText("GradeSummaryText", headerBanner.transform, font, "목표 잔액을 달성했으며 직원의 감정 상태도 안정적으로 유지했습니다.", 17, FontStyle.Normal, new Color(0.92f, 0.97f, 0.95f, 1f), TextAnchor.MiddleCenter);
-            SetRect(gradeSummary.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 14f), new Vector2(-40f, 32f));
+            // 2. 1단계: 중앙 3D 포스기 클릭 영역 + 화살표 안내 텍스트 (클릭 시 영수증 출력)
+            GameObject posHitObj = new GameObject("PosClickAreaButton", typeof(RectTransform), typeof(Image));
+            posHitObj.transform.SetParent(rootBg.transform, false);
+            SetRect(posHitObj.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, -20f), new Vector2(760f, 660f));
+            Image hitImg = posHitObj.GetComponent<Image>();
+            hitImg.color = new Color(1f, 1f, 1f, 0f);
+            hitImg.raycastTarget = true;
+            Button posClickBtn = posHitObj.AddComponent<Button>();
+            posClickBtn.transition = Selectable.Transition.None;
 
-            GameObject receiptBox = CreatePanel("ReceiptBox", card.transform, new Color(0.07f, 0.10f, 0.16f, 1f), sprite);
-            SetRect(receiptBox.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -128f), new Vector2(716f, 236f));
+            GameObject promptRoot = new GameObject("PosClickPrompt", typeof(RectTransform));
+            promptRoot.transform.SetParent(rootBg.transform, false);
+            RectTransform promptRt = promptRoot.GetComponent<RectTransform>();
+            SetRect(promptRt, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 0.5f), new Vector2(235f, 40f), new Vector2(960f, 220f));
+            promptRt.localScale = new Vector3(0.5f, 0.5f, 1f);
 
-            Text breakdownTxt = CreateText("BreakdownBodyText", receiptBox.transform, font, "정산 내역 계산 대기 중...", 19, FontStyle.Normal, new Color(0.88f, 0.93f, 0.98f, 1f), TextAnchor.MiddleLeft);
-            breakdownTxt.lineSpacing = 1.32f;
-            SetRect(breakdownTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-44f, -24f));
+            Text promptTxt = CreatePaperText(
+                "PosClickPromptText",
+                promptRoot.transform,
+                paperFont,
+                "←  [ 포스기 클릭 ]\n      영수증 출력하기",
+                64,
+                FontStyle.Normal,
+                new Color(1f, 0.94f, 0.66f, 1f),
+                TextAnchor.MiddleLeft);
+            promptTxt.lineSpacing = 1.25f;
+            StretchFull(promptTxt.rectTransform);
 
-            GameObject highlightBar = CreatePanel("FinalBalanceBar", card.transform, new Color(0.16f, 0.24f, 0.34f, 1f), sprite);
-            SetRect(highlightBar.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 152f), new Vector2(716f, 58f));
+            // 3. 2단계: 포스기 → 정산 내역 점선 화살표
+            GameObject dashedArrow = new GameObject("DashedArrowIndicator", typeof(RectTransform));
+            dashedArrow.transform.SetParent(rootBg.transform, false);
+            RectTransform arrowRt = dashedArrow.GetComponent<RectTransform>();
+            SetRect(arrowRt, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-58f, 48f), new Vector2(500f, 120f));
+            arrowRt.localScale = new Vector3(0.5f, 0.5f, 1f);
 
-            Text finalBalTxt = CreateText("FinalBalanceHighlightText", highlightBar.transform, font, "당일 최종 잔액 :  80,000원", 22, FontStyle.Bold, new Color(0.98f, 0.84f, 0.34f, 1f), TextAnchor.MiddleCenter);
-            StretchFull(finalBalTxt.rectTransform);
+            Text arrowTxt = CreatePaperText("DashedArrowText", dashedArrow.transform, uiFont, "- - - - - ▸", 62, FontStyle.Normal, new Color(0.92f, 0.95f, 1f, 0.88f), TextAnchor.MiddleCenter);
+            StretchFull(arrowTxt.rectTransform);
+            dashedArrow.SetActive(false);
 
-            Text staffSummaryTxt = CreateText("StaffSummaryText", card.transform, font, "직원 상태 기록  —  종료 스트레스: 25 / 100   ·   분노 거부 누적: 0회", 17, FontStyle.Normal, new Color(0.75f, 0.82f, 0.90f, 1f), TextAnchor.MiddleCenter);
-            SetRect(staffSummaryTxt.rectTransform, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 104f), new Vector2(716f, 34f));
+            // 4. 2단계: 우측 [ 정산 내역 ] 영수증 시트 + [ 다음 → ] 버튼 (와이어프레임 1:1 반영)
+            GameObject receiptRoot = new GameObject("ReceiptSheetContainer", typeof(RectTransform), typeof(CanvasGroup));
+            receiptRoot.transform.SetParent(rootBg.transform, false);
+            SetRect(receiptRoot.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(400f, -26f), new Vector2(740f, 820f));
+            CanvasGroup receiptCg = receiptRoot.GetComponent<CanvasGroup>();
+            receiptCg.alpha = 0f;
 
-            Button viewEndingBtn = CreateButton("ViewEndingButton", card.transform, font, sprite, "엔딩 결과 보기 →", 20, new Color(0.84f, 0.46f, 0.12f, 1f), Color.white);
-            SetRect(viewEndingBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-244f, 28f), new Vector2(228f, 56f));
+            // 2x 슈퍼샘플링 콘텐츠 컨테이너
+            GameObject receiptInner = new GameObject("ReceiptInner2x", typeof(RectTransform));
+            receiptInner.transform.SetParent(receiptRoot.transform, false);
+            RectTransform innerRt = receiptInner.GetComponent<RectTransform>();
+            innerRt.anchorMin = new Vector2(0.5f, 0.5f);
+            innerRt.anchorMax = new Vector2(0.5f, 0.5f);
+            innerRt.pivot = new Vector2(0.5f, 0.5f);
+            innerRt.sizeDelta = new Vector2(1480f, 1640f);
+            innerRt.localScale = new Vector3(0.5f, 0.5f, 1f);
 
-            Button retryBtn = CreateButton("RetryDayButton", card.transform, font, sprite, "다시 영업 시작", 20, new Color(0.06f, 0.65f, 0.57f, 1f), Color.white);
-            SetRect(retryBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 28f), new Vector2(228f, 56f));
+            Text receiptHeader = CreatePaperText("ReceiptHeaderTitle", receiptInner.transform, uiFont, "[ 정산 내역 ]", 54, FontStyle.Normal, Color.white, TextAnchor.MiddleLeft);
+            SetRect(receiptHeader.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(20f, 0f), new Vector2(-40f, 80f));
 
-            Button returnLobbyBtn = CreateButton("ReturnLobbyButton", card.transform, font, sprite, "로비 화면으로", 20, new Color(0.24f, 0.30f, 0.39f, 1f), Color.white);
-            SetRect(returnLobbyBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(244f, 28f), new Vector2(228f, 56f));
+            // 영수증 종이 카드
+            GameObject paperBorder = CreateFlatRect("ReceiptPaperBorder", receiptInner.transform, new Color(0.86f, 0.84f, 0.78f, 0.96f), smoothSprite);
+            SetRect(paperBorder.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -92f), new Vector2(-20f, 1280f));
+
+            GameObject paperCard = CreateFlatRect("ReceiptPaperCard", paperBorder.transform, new Color(0.98f, 0.97f, 0.93f, 0.98f), smoothSprite);
+            SetRect(paperCard.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-10f, -10f));
+
+            Color inkPrimary = new Color(0.12f, 0.12f, 0.11f, 1f);
+            Color inkAccent = new Color(0.10f, 0.45f, 0.36f, 1f);
+            Color inkRule = new Color(0.20f, 0.20f, 0.18f, 0.32f);
+
+            Text goalTxt = CreatePaperText("GoalValueText", paperCard.transform, paperFont, "목표 :  80,000원", 62, FontStyle.Normal, inkPrimary, TextAnchor.MiddleLeft);
+            SetRect(goalTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -44f), new Vector2(-96f, 96f));
+
+            CreatePaperRule("GoalRule", paperCard.transform, smoothSprite, -156f, 5f, inkRule);
+
+            Text currentTxt = CreatePaperText("CurrentValueText", paperCard.transform, paperFont, "현재 :  50,000원  (순이익 +0원)", 58, FontStyle.Normal, inkAccent, TextAnchor.MiddleLeft);
+            SetRect(currentTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -180f), new Vector2(-96f, 96f));
+
+            CreatePaperRule("CurrentRule", paperCard.transform, smoothSprite, -294f, 5f, inkRule);
+
+            // 클릭 가능한 [ 추가정보 ] 토글 버튼 (클릭 시 품목별 판매·재고 상세 내역 출력)
+            GameObject extraBtnObj = CreateFlatRect("ExtraInfoToggleButton", paperCard.transform, new Color(0.93f, 0.91f, 0.84f, 0.95f), smoothSprite);
+            SetRect(extraBtnObj.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -324f), new Vector2(-84f, 146f));
+            Button extraToggleBtn = extraBtnObj.AddComponent<Button>();
+            ColorBlock extraCb = extraToggleBtn.colors;
+            extraCb.normalColor = Color.white;
+            extraCb.highlightedColor = new Color(0.95f, 0.93f, 0.86f, 1f);
+            extraCb.pressedColor = new Color(0.88f, 0.85f, 0.78f, 1f);
+            extraToggleBtn.colors = extraCb;
+
+            Text extraSummaryTxt = CreatePaperText(
+                "ExtraInfoSummaryText",
+                extraBtnObj.transform,
+                uiFont,
+                "추가정보 :  당일 매출 +0원\n↳  클릭 시 품목별 판매·재고 정산내역 출력  ▾",
+                38,
+                FontStyle.Normal,
+                inkPrimary,
+                TextAnchor.MiddleLeft);
+            extraSummaryTxt.lineSpacing = 1.24f;
+            SetRect(extraSummaryTxt.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-48f, -16f));
+
+            // 클릭 시 펼쳐지는 상세 품목별 판매·재고 영수증 내역 박스
+            GameObject detailBox = CreateFlatRect("ExtraInfoDetailBox", paperCard.transform, new Color(0.94f, 0.93f, 0.88f, 0.96f), smoothSprite);
+            SetRect(detailBox.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -492f), new Vector2(-84f, 736f));
+
+            Text detailBodyTxt = CreatePaperText("ExtraInfoDetailBodyText", detailBox.transform, uiFont, "상세 정산 내역 준비 중...", 32, FontStyle.Normal, inkPrimary, TextAnchor.UpperLeft);
+            detailBodyTxt.lineSpacing = 1.28f;
+            SetRect(detailBodyTxt.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-48f, -40f));
+            detailBox.SetActive(false);
+
+            // 하단 [ 다음 → ] 메인 버튼 (1일차 종료 시 2일차로 진행!)
+            Button nextDayBtn = CreatePaperButton(
+                "NextDayButton",
+                receiptInner.transform,
+                uiFont,
+                smoothSprite,
+                "다음 (2일차 영업)  →",
+                46,
+                new Color(0.08f, 0.58f, 0.49f, 1f),
+                Color.white,
+                new Color(0.75f, 0.95f, 0.90f, 0.45f),
+                FontStyle.Normal,
+                borderInset: 6f);
+            SetRect(nextDayBtn.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 92f), new Vector2(-20f, 134f));
+            Text nextDayLabel = nextDayBtn.transform.Find("Fill/Label").GetComponent<Text>();
+
+            // 보조 링크 2종 (엔딩 미리보기 / 메인 로비)
+            Button viewEndingBtn = CreateTransparentTextButton("ViewEndingButton", receiptInner.transform, uiFont, "엔딩 결과 바로보기", 34, new Color(0.76f, 0.82f, 0.90f, 0.88f), new Color(1f, 0.82f, 0.42f, 1f), TextAnchor.MiddleLeft);
+            SetRect(viewEndingBtn.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(20f, 10f), new Vector2(460f, 66f));
+
+            Button returnLobbyBtn = CreateTransparentTextButton("ReturnLobbyButton", receiptInner.transform, uiFont, "메인 로비로 이동", 34, new Color(0.76f, 0.82f, 0.90f, 0.88f), new Color(1f, 0.62f, 0.62f, 1f), TextAnchor.MiddleRight);
+            SetRect(returnLobbyBtn.GetComponent<RectTransform>(), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-20f, 10f), new Vector2(460f, 66f));
+
+            receiptRoot.SetActive(false);
 
             SerializedObject so = new SerializedObject(presenter);
-            so.FindProperty("panelRoot").objectReferenceValue = dimBg;
-            so.FindProperty("gradeHeaderBanner").objectReferenceValue = headerBanner.GetComponent<Image>();
-            so.FindProperty("gradeTitleText").objectReferenceValue = gradeTitle;
-            so.FindProperty("gradeSummaryText").objectReferenceValue = gradeSummary;
-            so.FindProperty("breakdownBodyText").objectReferenceValue = breakdownTxt;
-            so.FindProperty("finalBalanceHighlightText").objectReferenceValue = finalBalTxt;
-            so.FindProperty("staffSummaryText").objectReferenceValue = staffSummaryTxt;
+            so.FindProperty("panelRoot").objectReferenceValue = rootBg;
+            so.FindProperty("screenTitleText").objectReferenceValue = screenTitle;
+            so.FindProperty("posClickButton").objectReferenceValue = posClickBtn;
+            so.FindProperty("posPromptRoot").objectReferenceValue = promptRoot;
+            so.FindProperty("posPromptArrowRect").objectReferenceValue = promptRt;
+            so.FindProperty("dashedArrowRoot").objectReferenceValue = dashedArrow;
+            so.FindProperty("receiptSheetRoot").objectReferenceValue = receiptRoot;
+            so.FindProperty("receiptCanvasGroup").objectReferenceValue = receiptCg;
+            so.FindProperty("goalValueText").objectReferenceValue = goalTxt;
+            so.FindProperty("currentValueText").objectReferenceValue = currentTxt;
+            so.FindProperty("extraInfoToggleButton").objectReferenceValue = extraToggleBtn;
+            so.FindProperty("extraInfoSummaryText").objectReferenceValue = extraSummaryTxt;
+            so.FindProperty("extraInfoDetailBox").objectReferenceValue = detailBox;
+            so.FindProperty("extraInfoDetailBodyText").objectReferenceValue = detailBodyTxt;
+            so.FindProperty("nextDayButton").objectReferenceValue = nextDayBtn;
+            so.FindProperty("nextDayButtonLabel").objectReferenceValue = nextDayLabel;
             so.FindProperty("viewEndingButton").objectReferenceValue = viewEndingBtn;
-            so.FindProperty("retryDayButton").objectReferenceValue = retryBtn;
             so.FindProperty("returnLobbyButton").objectReferenceValue = returnLobbyBtn;
             so.ApplyModifiedPropertiesWithoutUndo();
 
@@ -1911,24 +2106,63 @@ namespace OpenSourceTeam6.UI.Editor
 
         private static PausePanelPresenter BuildPausePanel(Transform parent, Font font, Sprite sprite)
         {
-            GameObject dimBg = CreatePanel("PausePanel", parent, new Color(0.03f, 0.05f, 0.09f, 0.76f), sprite);
+            // 게임 진행 화면을 그대로 두고 어둡게 덮는 전체 화면 딤 오버레이 (중앙 카드 없음)
+            GameObject dimBg = CreatePanel("PausePanel", parent, new Color(0.02f, 0.03f, 0.06f, 0.66f), sprite);
             StretchFull(dimBg.GetComponent<RectTransform>());
             PausePanelPresenter presenter = dimBg.AddComponent<PausePanelPresenter>();
 
-            GameObject card = CreatePanel("PauseCard", dimBg.transform, new Color(0.11f, 0.15f, 0.22f, 0.99f), sprite);
-            SetRect(card.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(460f, 340f));
+            // 1. 좌측 상단: 첫 화면(로비) 제목과 완전히 동일한 위치·크기·스타일의 '일시정지' 타이틀
+            GameObject titleGroup = new GameObject("TitleGroup", typeof(RectTransform));
+            titleGroup.transform.SetParent(dimBg.transform, false);
+            SetRect(titleGroup.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(88f, -92f), new Vector2(960f, 280f));
 
-            Text title = CreateText("PauseTitle", card.transform, font, "영업 일시정지", 28, FontStyle.Bold, Color.white, TextAnchor.MiddleCenter);
-            SetRect(title.rectTransform, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -34f), new Vector2(380f, 42f));
+            Text title = CreateText(
+                "PauseTitle",
+                titleGroup.transform,
+                font,
+                "일시정지",
+                84,
+                FontStyle.Bold,
+                new Color(0.98f, 0.99f, 1f, 1f),
+                TextAnchor.MiddleLeft);
+            SetRect(title.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, -56f), new Vector2(0f, 114f));
+            Outline titleOutline = title.gameObject.AddComponent<Outline>();
+            titleOutline.effectColor = new Color(0f, 0f, 0f, 0.72f);
+            titleOutline.effectDistance = new Vector2(1.8f, -1.8f);
 
-            Button resumeBtn = CreateButton("ResumeButton", card.transform, font, sprite, "영업 계속하기 [Esc]", 19, new Color(0.06f, 0.65f, 0.57f, 1f), Color.white);
-            SetRect(resumeBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 176f), new Vector2(340f, 52f));
+            // 2. 좌측 하단: 첫 화면(로비) 버튼 3종과 완전히 동일한 위치·크기·투명 호버 스타일
+            Button resumeBtn = CreateTransparentTextButton(
+                "ResumeButton",
+                dimBg.transform,
+                font,
+                "계속하기",
+                38,
+                Color.white,
+                new Color(0.24f, 0.96f, 0.84f, 1f),
+                TextAnchor.MiddleLeft);
+            SetRect(resumeBtn.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(92f, 264f), new Vector2(320f, 72f));
 
-            Button settingsBtn = CreateButton("OpenSettingsButton", card.transform, font, sprite, "환경 설정", 19, new Color(0.18f, 0.28f, 0.42f, 1f), Color.white);
-            SetRect(settingsBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 108f), new Vector2(340f, 52f));
+            Button settingsBtn = CreateTransparentTextButton(
+                "OpenSettingsButton",
+                dimBg.transform,
+                font,
+                "설정",
+                36,
+                new Color(0.92f, 0.96f, 1f, 1f),
+                new Color(0.24f, 0.96f, 0.84f, 1f),
+                TextAnchor.MiddleLeft);
+            SetRect(settingsBtn.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(92f, 180f), new Vector2(320f, 72f));
 
-            Button lobbyBtn = CreateButton("ReturnLobbyButton", card.transform, font, sprite, "메인 로비로 이동", 19, new Color(0.26f, 0.30f, 0.38f, 1f), Color.white);
-            SetRect(lobbyBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 40f), new Vector2(340f, 52f));
+            Button lobbyBtn = CreateTransparentTextButton(
+                "ReturnLobbyButton",
+                dimBg.transform,
+                font,
+                "종료",
+                36,
+                new Color(0.86f, 0.90f, 0.96f, 1f),
+                new Color(1f, 0.62f, 0.62f, 1f),
+                TextAnchor.MiddleLeft);
+            SetRect(lobbyBtn.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(92f, 96f), new Vector2(320f, 72f));
 
             SerializedObject so = new SerializedObject(presenter);
             so.FindProperty("panelRoot").objectReferenceValue = dimBg;
@@ -1969,7 +2203,18 @@ namespace OpenSourceTeam6.UI.Editor
 
             Slider sensSlider;
             Text sensValue;
-            BuildSliderRow(card.transform, font, sprite, "마우스 감도", -262f, 0.2f, 2.0f, 1.0f, "1.0x", out sensSlider, out sensValue);
+            BuildSliderRow(
+                card.transform,
+                font,
+                sprite,
+                "마우스 감도",
+                -262f,
+                SettingsPanelPresenter.MinMouseSensitivity,
+                SettingsPanelPresenter.MaxMouseSensitivity,
+                1.0f,
+                "1.00x",
+                out sensSlider,
+                out sensValue);
 
             Button micBtn = CreateButton("CycleMicButton", card.transform, font, sprite, "마이크 입력 장치 확인 중...", 16, new Color(0.16f, 0.23f, 0.33f, 1f), new Color(0.90f, 0.95f, 1f, 1f));
             SetRect(micBtn.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 48f), new Vector2(584f, 56f));
@@ -2081,19 +2326,14 @@ namespace OpenSourceTeam6.UI.Editor
             return root;
         }
 
-        private static void BuildWorkScene(GameObject savedUiPrefab, GameObject savedWorldUiPrefab, Font font, Sprite whiteSprite)
+        private static void BuildWorkScene(
+            GameObject savedUiPrefab,
+            GameObject savedWorldUiPrefab,
+            Font uiFont,
+            Font paperFont,
+            Sprite whiteSprite)
         {
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-
-            GameObject camObj = new GameObject("Main Camera");
-            camObj.tag = "MainCamera";
-            Camera cam = camObj.AddComponent<Camera>();
-            cam.clearFlags = CameraClearFlags.Skybox;
-            cam.backgroundColor = new Color(0.14f, 0.18f, 0.24f, 1f);
-            cam.farClipPlane = 1000f;
-            camObj.transform.position = new Vector3(0f, 2.0f, -6.0f);
-            camObj.transform.eulerAngles = new Vector3(5f, 0f, 0f);
-            camObj.AddComponent<AudioListener>();
 
             GameObject lightObj = new GameObject("Directional Light");
             Light dirLight = lightObj.AddComponent<Light>();
@@ -2122,30 +2362,167 @@ namespace OpenSourceTeam6.UI.Editor
             eventSystemObj.AddComponent<EventSystem>();
             eventSystemObj.AddComponent<InputSystemUIInputModule>();
 
-            // Simple 3D Convenience Store Stage & Zone Targets for visual verification
+            // 1. 한국형 편의점 3D 맵 복사 (없으면 기본 바닥으로 폴백)
+            bool hasStoreMap = TryImportConvenienceStoreMap(scene, out GameObject storeMapRoot, out Dictionary<string, int> spawnedItemCounts);
             GameObject stageRoot = new GameObject("Demo_StoreStage");
-            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            floor.name = "StoreFloor";
-            floor.transform.SetParent(stageRoot.transform);
-            floor.transform.localScale = new Vector3(1.2f, 1f, 0.9f);
 
-            Transform counterTarget = CreateZoneMarker(stageRoot.transform, "Target_Counter", new Vector3(-2.6f, 0f, 0.8f), new Vector3(1.5f, 0.9f, 0.8f));
-            Transform shelfTarget = CreateZoneMarker(stageRoot.transform, "Target_Shelf", new Vector3(2.6f, 0f, 1.2f), new Vector3(1.4f, 1.6f, 0.6f));
-            Transform restTarget = CreateZoneMarker(stageRoot.transform, "Target_Rest", new Vector3(0f, 0f, -0.8f), new Vector3(1.1f, 0.45f, 0.8f));
+            Transform counterTarget;
+            Transform shelfTarget;
+            Transform restTarget;
+            Camera cam = null;
+            PlayerRigController rigCtrl = null;
+            Renderer playerVisRenderer = null;
+            Component cursorLockAdapter = null;
 
-            GameObject npcCapsule = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            npcCapsule.name = "Demo_Employee_NPC";
-            npcCapsule.transform.SetParent(stageRoot.transform);
-            npcCapsule.transform.position = new Vector3(0f, 1.0f, -0.8f);
+            if (hasStoreMap)
+            {
+                // 1-A. 플레이어 1인칭 캡슐 (계산대 안쪽 스폰 — WASD 이동 + 마우스 시점 + 왼쪽 통로로 매장 자유 이동)
+                GameObject playerRigPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerRigPrefabPath);
+                if (playerRigPrefab != null)
+                {
+                    GameObject playerInstance = (GameObject)PrefabUtility.InstantiatePrefab(playerRigPrefab);
+                    playerInstance.name = "PlayerRig";
+                    playerInstance.transform.position = new Vector3(-3.55f, 0f, -3.08f);
+                    playerInstance.transform.rotation = Quaternion.Euler(0f, 18f, 0f);
+
+                    GameObject playerVisual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+                    playerVisual.name = "PlayerVisualCapsule";
+                    playerVisual.transform.SetParent(playerInstance.transform, false);
+                    playerVisual.transform.localPosition = new Vector3(0f, 0.9f, 0f);
+                    playerVisual.transform.localScale = new Vector3(0.6f, 0.9f, 0.6f);
+                    Collider playerVisCol = playerVisual.GetComponent<Collider>();
+                    if (playerVisCol != null) Object.DestroyImmediate(playerVisCol);
+
+                    Material playerMat = AssetDatabase.LoadAssetAtPath<Material>(PlayerVisualMatPath);
+                    playerVisRenderer = playerVisual.GetComponent<Renderer>();
+                    if (playerMat != null && playerVisRenderer != null)
+                    {
+                        playerVisRenderer.sharedMaterial = playerMat;
+                    }
+
+                    rigCtrl = playerInstance.GetComponent<PlayerRigController>();
+                    if (rigCtrl != null && playerVisRenderer != null)
+                    {
+                        SerializedObject rigSo = new SerializedObject(rigCtrl);
+                        SerializedProperty visualsProp = rigSo.FindProperty("localVisuals");
+                        if (visualsProp != null)
+                        {
+                            visualsProp.arraySize = 1;
+                            visualsProp.GetArrayElementAtIndex(0).objectReferenceValue = playerVisRenderer;
+                            rigSo.ApplyModifiedPropertiesWithoutUndo();
+                        }
+                    }
+
+                    cam = playerInstance.GetComponentInChildren<Camera>(true);
+                    if (cam != null)
+                    {
+                        cam.clearFlags = CameraClearFlags.Skybox;
+                        cam.backgroundColor = new Color(0.14f, 0.18f, 0.24f, 1f);
+                        cam.fieldOfView = 70f;
+                        cam.farClipPlane = 1000f;
+                    }
+
+                    Type adapterType = Type.GetType("PlayerUiCursorLockAdapter, Assembly-CSharp");
+                    if (adapterType != null)
+                    {
+                        cursorLockAdapter = playerInstance.AddComponent(adapterType);
+                    }
+                }
+
+                counterTarget = CreateEmptyWaypoint(stageRoot.transform, "Target_Counter", new Vector3(-3.80f, 0f, -1.55f));
+                shelfTarget = CreateEmptyWaypoint(stageRoot.transform, "Target_Shelf", new Vector3(-0.90f, 0f, 0.65f));
+                restTarget = CreateEmptyWaypoint(stageRoot.transform, "Target_Rest", new Vector3(-0.90f, 0f, -1.55f));
+            }
+            else
+            {
+                GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Plane);
+                floor.name = "StoreFloor";
+                floor.transform.SetParent(stageRoot.transform);
+                floor.transform.localScale = new Vector3(1.2f, 1f, 0.9f);
+
+                counterTarget = CreateZoneMarker(stageRoot.transform, "Target_Counter", new Vector3(-2.6f, 0f, 0.8f), new Vector3(1.5f, 0.9f, 0.8f));
+                shelfTarget = CreateZoneMarker(stageRoot.transform, "Target_Shelf", new Vector3(2.6f, 0f, 1.2f), new Vector3(1.4f, 1.6f, 0.6f));
+                restTarget = CreateZoneMarker(stageRoot.transform, "Target_Rest", new Vector3(0f, 0f, -0.8f), new Vector3(1.1f, 0.45f, 0.8f));
+            }
+
+            if (cam == null)
+            {
+                GameObject camObj = new GameObject("Main Camera");
+                camObj.tag = "MainCamera";
+                cam = camObj.AddComponent<Camera>();
+                cam.clearFlags = CameraClearFlags.Skybox;
+                cam.backgroundColor = new Color(0.14f, 0.18f, 0.24f, 1f);
+                cam.fieldOfView = 60f;
+                cam.farClipPlane = 1000f;
+                camObj.transform.position = new Vector3(0f, 2.0f, -6.0f);
+                camObj.transform.eulerAngles = new Vector3(5f, 0f, 0f);
+                camObj.AddComponent<AudioListener>();
+            }
+
+            // 2. 알바 직원 캡슐 (초록 유니폼, NavMeshAgent 탑재 — 손님(빨강)/행인(파랑)/플레이어(주황)와 시각적으로 구분)
+            GameObject npcRoot = new GameObject("Demo_Employee_NPC");
+            npcRoot.transform.SetParent(stageRoot.transform);
+            npcRoot.transform.position = restTarget.position;
+
+            NavMeshAgent employeeAgent = npcRoot.AddComponent<NavMeshAgent>();
+            employeeAgent.radius = 0.34f;
+            employeeAgent.height = 1.44f;
+            employeeAgent.speed = 3.2f;
+            employeeAgent.acceleration = 14f;
+            employeeAgent.angularSpeed = 480f;
+            employeeAgent.stoppingDistance = 0.12f;
+
+            GameObject npcVisual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
+            npcVisual.name = "EmployeeVisualCapsule";
+            npcVisual.transform.SetParent(npcRoot.transform, false);
+            npcVisual.transform.localPosition = new Vector3(0f, 0.72f, 0f);
+            npcVisual.transform.localScale = new Vector3(0.76f, 0.72f, 0.76f);
+            Collider npcCol = npcVisual.GetComponent<Collider>();
+            if (npcCol != null) Object.DestroyImmediate(npcCol);
+
+            Material employeeMat = AssetDatabase.LoadAssetAtPath<Material>(EmployeeUniformMatPath);
+            if (employeeMat != null)
+            {
+                Renderer empRenderer = npcVisual.GetComponent<Renderer>();
+                if (empRenderer != null) empRenderer.sharedMaterial = employeeMat;
+            }
 
             GameObject worldUiInstance = (GameObject)PrefabUtility.InstantiatePrefab(savedWorldUiPrefab);
             EmployeeWorldStatusPresenter worldPresenter = worldUiInstance.GetComponent<EmployeeWorldStatusPresenter>();
             SerializedObject worldSo = new SerializedObject(worldPresenter);
-            worldSo.FindProperty("followTarget").objectReferenceValue = npcCapsule.transform;
+            worldSo.FindProperty("followTarget").objectReferenceValue = npcRoot.transform;
             worldSo.ApplyModifiedPropertiesWithoutUndo();
 
             GameObject uiInstance = (GameObject)PrefabUtility.InstantiatePrefab(savedUiPrefab);
             StoreUiSessionController uiController = uiInstance.GetComponent<StoreUiSessionController>();
+
+            // 3. 손님(빨강) · 보행자(파랑) 캡슐 NPC 시스템 + 런타임 NavMesh 생성
+            NpcPopulationController npcPopulation = hasStoreMap
+                ? BuildConvenienceStoreCustomerNpcSystem(stageRoot.transform)
+                : null;
+
+            GameObject navObj = new GameObject("Environment_Navigation");
+            NavMeshSurface navSurface = navObj.AddComponent<NavMeshSurface>();
+            navSurface.collectObjects = CollectObjects.All;
+            navSurface.useGeometry = NavMeshCollectGeometry.PhysicsColliders;
+            navSurface.layerMask = 1;
+            navSurface.overrideVoxelSize = true;
+            navSurface.voxelSize = 0.05f;
+            navSurface.minRegionArea = 0.2f;
+            navSurface.ignoreNavMeshAgent = true;
+            navSurface.ignoreNavMeshObstacle = true;
+
+            WorkSceneNavMeshBootstrap navBootstrap = navObj.AddComponent<WorkSceneNavMeshBootstrap>();
+            SerializedObject navBootSo = new SerializedObject(navBootstrap);
+            navBootSo.FindProperty("uiController").objectReferenceValue = uiController;
+            navBootSo.FindProperty("npcPopulation").objectReferenceValue = npcPopulation;
+            navBootSo.FindProperty("demoEmployeeAgent").objectReferenceValue = employeeAgent;
+            navBootSo.ApplyModifiedPropertiesWithoutUndo();
+
+            if (hasStoreMap)
+            {
+                navSurface.BuildNavMesh();
+            }
 
             // Time System & Day-Night Environment (TIME-01 연동: 1일차 낮→밤 변화, 2·3일차 비 날씨 확장 대응)
             GameObject timeRoot = new GameObject("Time System");
@@ -2190,8 +2567,37 @@ namespace OpenSourceTeam6.UI.Editor
 
             timeRoot.SetActive(true);
 
+            // 4. 물품별 단가·재고·판매량·총매출 원장 매니저 생성 (실물 배치 개수 자동 반영)
+            GameObject invObj = new GameObject("Store_InventoryManager");
+            invObj.transform.SetParent(stageRoot.transform, false);
+            StoreInventoryManager inventoryManager = invObj.AddComponent<StoreInventoryManager>();
+            SerializedObject invSo = new SerializedObject(inventoryManager);
+            invSo.FindProperty("uiController").objectReferenceValue = uiController;
+            invSo.FindProperty("npcPopulation").objectReferenceValue = npcPopulation;
+            if (spawnedItemCounts != null && spawnedItemCounts.Count > 0)
+            {
+                SerializedProperty seedsProp = invSo.FindProperty("initialStockSeeds");
+                seedsProp.arraySize = spawnedItemCounts.Count;
+                int idx = 0;
+                foreach (KeyValuePair<string, int> kv in spawnedItemCounts)
+                {
+                    SerializedProperty elem = seedsProp.GetArrayElementAtIndex(idx++);
+                    elem.FindPropertyRelative("itemId").stringValue = kv.Key;
+                    elem.FindPropertyRelative("initialStock").intValue = kv.Value;
+                }
+            }
+            invSo.ApplyModifiedPropertiesWithoutUndo();
+
             SerializedObject uiCtrlSo = new SerializedObject(uiController);
             uiCtrlSo.FindProperty("worldStatusPresenter").objectReferenceValue = worldPresenter;
+            if (uiCtrlSo.FindProperty("inventoryManager") != null)
+            {
+                uiCtrlSo.FindProperty("inventoryManager").objectReferenceValue = inventoryManager;
+            }
+            if (cursorLockAdapter != null && uiCtrlSo.FindProperty("externalCursorLockGateComponent") != null)
+            {
+                uiCtrlSo.FindProperty("externalCursorLockGateComponent").objectReferenceValue = cursorLockAdapter;
+            }
             if (uiCtrlSo.FindProperty("businessTimeController") != null)
             {
                 uiCtrlSo.FindProperty("businessTimeController").objectReferenceValue = timeController;
@@ -2202,12 +2608,43 @@ namespace OpenSourceTeam6.UI.Editor
             }
             uiCtrlSo.ApplyModifiedPropertiesWithoutUndo();
 
-            // Demo driver + non-intrusive bottom-left shortcut guide (UI-06, kept outside PF_StoreUIRoot prefab!)
+            // 5. 게임 시작(로비·채용) 제3자 조망 카메라 + 설정 마우스 감도 + 일차 정산 3D 포스기 스튜디오
+            if (hasStoreMap)
+            {
+                GameObject lobbyCamObj = new GameObject("LobbyOverviewCamera");
+                Vector3 lobbyCamPos = new Vector3(3.95f, 2.35f, -1.95f);
+                Vector3 lobbyLookTarget = new Vector3(-1.85f, 1.05f, 0.75f);
+                lobbyCamObj.transform.position = lobbyCamPos;
+                lobbyCamObj.transform.rotation = Quaternion.LookRotation(lobbyLookTarget - lobbyCamPos, Vector3.up);
+
+                Camera lobbyCam = lobbyCamObj.AddComponent<Camera>();
+                lobbyCam.clearFlags = CameraClearFlags.Skybox;
+                lobbyCam.backgroundColor = new Color(0.14f, 0.18f, 0.24f, 1f);
+                lobbyCam.fieldOfView = 58f;
+                lobbyCam.farClipPlane = 1000f;
+                lobbyCam.depth = 1f;
+
+                WorkSceneCameraAndSensitivityController camSensCtrl = lobbyCamObj.AddComponent<WorkSceneCameraAndSensitivityController>();
+                SerializedObject camSensSo = new SerializedObject(camSensCtrl);
+                camSensSo.FindProperty("uiController").objectReferenceValue = uiController;
+                camSensSo.FindProperty("playerRig").objectReferenceValue = rigCtrl;
+                camSensSo.FindProperty("playerFirstPersonCamera").objectReferenceValue = cam;
+                camSensSo.FindProperty("lobbyOverviewCamera").objectReferenceValue = lobbyCam;
+                camSensSo.FindProperty("playerVisualRenderer").objectReferenceValue = playerVisRenderer;
+                camSensSo.FindProperty("timeEnvironment").objectReferenceValue = timeEnvironment;
+                camSensSo.FindProperty("sunLight").objectReferenceValue = dirLight;
+                camSensSo.ApplyModifiedPropertiesWithoutUndo();
+
+                BuildCounterManualInteractable(stageRoot.transform, uiController, cam, uiFont, paperFont, whiteSprite);
+                BuildPosSettlementStage(storeMapRoot, uiController);
+            }
+
+            // Demo driver + non-intrusive bottom-right shortcut guide (UI-06, kept outside PF_StoreUIRoot prefab!)
             GameObject demoObj = new GameObject("UI_PrototypeDemo");
             UiPrototypeDemoDriver driver = demoObj.AddComponent<UiPrototypeDemoDriver>();
             SerializedObject driverSo = new SerializedObject(driver);
             driverSo.FindProperty("uiController").objectReferenceValue = uiController;
-            driverSo.FindProperty("demoEmployeeTransform").objectReferenceValue = npcCapsule.transform;
+            driverSo.FindProperty("demoEmployeeTransform").objectReferenceValue = npcRoot.transform;
             driverSo.FindProperty("counterTarget").objectReferenceValue = counterTarget;
             driverSo.FindProperty("shelfTarget").objectReferenceValue = shelfTarget;
             driverSo.FindProperty("restTarget").objectReferenceValue = restTarget;
@@ -2215,7 +2652,7 @@ namespace OpenSourceTeam6.UI.Editor
 
             Canvas demoHintCanvas = demoObj.AddComponent<Canvas>();
             demoHintCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            demoHintCanvas.sortingOrder = 60;
+            demoHintCanvas.sortingOrder = 49;
             CanvasScaler hintScaler = demoObj.AddComponent<CanvasScaler>();
             hintScaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             hintScaler.referenceResolution = new Vector2(1920f, 1080f);
@@ -2242,13 +2679,13 @@ namespace OpenSourceTeam6.UI.Editor
             Text hintTxt = CreatePaperText(
                 "ShortcutText",
                 hintContent,
-                font,
+                paperFont,
                 "[조작 가이드 · 시연 단축키]\n" +
-                "• R(홀드)/V : 음성 지시   • Tab : 텍스트창\n" +
-                "• Esc : 일시정지   • F1 : 음성 명령 시뮬\n" +
-                "• F2 : ①오인식  • F3 : ②분노 거부  • F4 : ③이동 오류\n" +
-                "• F5 : 스트레스 +25   • F6 : 즉시 마감·정산\n" +
-                "• F7 : +4시간(낮→노을→밤)  • F8 : 비 날씨 토글",
+                "• WASD : 이동 · E : 계산대 설명서\n" +
+                "• R(홀드)/V : 음성 지시 · Tab : 텍스트창\n" +
+                "• P / Esc : 일시정지 · F1 : 음성 명령 시뮬\n" +
+                "• F2~F4 : 오인식/분노/이동오류 · F5 : 스트레스\n" +
+                "• F6 : 정산 · F7 : +4시간 · F8 : 비 날씨",
                 32,
                 FontStyle.Normal,
                 new Color(0.16f, 0.14f, 0.12f, 1f),
@@ -2258,6 +2695,449 @@ namespace OpenSourceTeam6.UI.Editor
             StretchFull(hintTxt.rectTransform);
 
             EditorSceneManager.SaveScene(scene, WorkScenePath);
+        }
+
+        private static void BuildCounterManualInteractable(
+            Transform stageRoot,
+            StoreUiSessionController uiController,
+            Camera playerCamera,
+            Font uiFont,
+            Font paperFont,
+            Sprite whiteSprite)
+        {
+            // 1. 계산대 상판(y = 1.04) 위에 올려둔 작은 설명서 큐브
+            GameObject manualCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            manualCube.name = "Counter_ManualCube";
+            manualCube.transform.SetParent(stageRoot, false);
+            manualCube.transform.position = new Vector3(-3.36f, 1.11f, -2.42f);
+            manualCube.transform.localScale = new Vector3(0.28f, 0.14f, 0.22f);
+            manualCube.transform.localEulerAngles = new Vector3(0f, -14f, 0f);
+
+            Material coverMat = AssetDatabase.LoadAssetAtPath<Material>(ManualCubeMatPath);
+            if (coverMat != null)
+            {
+                Renderer r = manualCube.GetComponent<Renderer>();
+                if (r != null) r.sharedMaterial = coverMat;
+            }
+
+            // 책등(바인더) 디테일 장식 (충돌체 제거)
+            GameObject spine = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            spine.name = "ManualSpineAccent";
+            spine.transform.SetParent(manualCube.transform, false);
+            spine.transform.localPosition = new Vector3(-0.46f, 0.04f, 0f);
+            spine.transform.localScale = new Vector3(0.12f, 1.04f, 1.02f);
+            Collider spineCol = spine.GetComponent<Collider>();
+            if (spineCol != null) Object.DestroyImmediate(spineCol);
+
+            Material spineMat = AssetDatabase.LoadAssetAtPath<Material>(ManualSpineMatPath);
+            if (spineMat != null)
+            {
+                Renderer sr = spine.GetComponent<Renderer>();
+                if (sr != null) sr.sharedMaterial = spineMat;
+            }
+
+            // 2. 상호작용 안내 프롬프트 + 설명서 모달 UI (sortingOrder 65)
+            GameObject canvasObj = new GameObject("ManualInteractCanvas");
+            Canvas canvas = canvasObj.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 65;
+            CanvasScaler scaler = canvasObj.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            scaler.matchWidthOrHeight = 0.5f;
+            canvasObj.AddComponent<GraphicRaycaster>();
+
+            // 2-A. 조준 시 하단 중앙에 뜨는 [E] 안내 배지
+            GameObject promptObj = CreatePanel("ManualPromptBadge", canvasObj.transform, new Color(0.08f, 0.12f, 0.19f, 0.92f), whiteSprite);
+            promptObj.GetComponent<Image>().raycastTarget = false;
+            SetRect(promptObj.GetComponent<RectTransform>(), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 178f), new Vector2(410f, 50f));
+
+            GameObject promptInner = new GameObject("PromptContent", typeof(RectTransform));
+            promptInner.transform.SetParent(promptObj.transform, false);
+            RectTransform promptInnerRt = promptInner.GetComponent<RectTransform>();
+            promptInnerRt.anchorMin = new Vector2(0.5f, 0.5f);
+            promptInnerRt.anchorMax = new Vector2(0.5f, 0.5f);
+            promptInnerRt.pivot = new Vector2(0.5f, 0.5f);
+            promptInnerRt.sizeDelta = new Vector2(820f, 100f);
+            promptInnerRt.localScale = new Vector3(0.5f, 0.5f, 1f);
+
+            Text promptTxt = CreatePaperText("PromptText", promptInner.transform, uiFont, "[E]  편의점 점장 설명서 보기", 38, FontStyle.Normal, new Color(1f, 0.95f, 0.72f, 1f), TextAnchor.MiddleCenter);
+            StretchFull(promptTxt.rectTransform);
+            promptObj.SetActive(false);
+
+            // 2-B. E 키 상호작용 시 열리는 점장 운영 설명서 모달
+            GameObject dimBg = CreateFlatRect("StoreManualOverlay", canvasObj.transform, new Color(0.02f, 0.04f, 0.08f, 0.68f), whiteSprite);
+            StretchFull(dimBg.GetComponent<RectTransform>());
+
+            Sprite smoothSprite = _smoothRectSprite != null ? _smoothRectSprite : whiteSprite;
+            GameObject manualBorder = CreateFlatRect("ManualPaperBorder", dimBg.transform, new Color(0.32f, 0.26f, 0.20f, 0.95f), smoothSprite);
+            SetRect(manualBorder.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(844f, 656f));
+
+            GameObject manualCard = CreateFlatRect("ManualPaperCard", manualBorder.transform, new Color(0.98f, 0.96f, 0.89f, 1f), smoothSprite);
+            SetRect(manualCard.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-10f, -10f));
+
+            // 2x 슈퍼샘플링 콘텐츠 영역
+            GameObject manualContent = new GameObject("ManualContent", typeof(RectTransform));
+            manualContent.transform.SetParent(manualCard.transform, false);
+            RectTransform mcRt = manualContent.GetComponent<RectTransform>();
+            mcRt.anchorMin = new Vector2(0.5f, 0.5f);
+            mcRt.anchorMax = new Vector2(0.5f, 0.5f);
+            mcRt.pivot = new Vector2(0.5f, 0.5f);
+            mcRt.sizeDelta = new Vector2(1540f, 1180f);
+            mcRt.localScale = new Vector3(0.5f, 0.5f, 1f);
+
+            Color inkPrimary = new Color(0.14f, 0.13f, 0.11f, 1f);
+            Color inkAccent = new Color(0.11f, 0.44f, 0.38f, 1f);
+            Color inkRule = new Color(0.24f, 0.21f, 0.17f, 0.35f);
+
+            Text titleTxt = CreatePaperText("ManualTitle", manualContent.transform, paperFont, "편의점 점장 운영 설명서", 72, FontStyle.Normal, inkPrimary, TextAnchor.MiddleLeft);
+            SetRect(titleTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, 1f), new Vector2(0f, -8f), new Vector2(-340f, 92f));
+
+            Button closeBtn = CreatePaperButton(
+                "CloseManualButton",
+                manualContent.transform,
+                uiFont,
+                smoothSprite,
+                "닫기  [E / Esc]",
+                36,
+                new Color(0.16f, 0.44f, 0.39f, 1f),
+                Color.white,
+                inkRule,
+                FontStyle.Normal,
+                borderInset: 4f);
+            SetRect(closeBtn.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(0f, -14f), new Vector2(290f, 76f));
+
+            CreatePaperRule("ManualHeaderRule", manualContent.transform, smoothSprite, -112f, 6f, inkRule);
+
+            string manualBody =
+                "1. 매장 이동 및 시점 조작\n" +
+                "   • WASD : 편의점 내부 자유 이동 (계산대 왼쪽 통로로 출입 가능)\n" +
+                "   • 마우스 이동 : 1인칭 시점 회전  /  E 키 : 계산대 설명서 열기·닫기\n\n" +
+                "2. 알바생 업무 지시 방법\n" +
+                "   • R 키(누른 채 말하기) 또는 V 키 : 마이크로 알바생에게 직접 음성 지시\n" +
+                "   • Tab 키 : 보조 텍스트 명령창 열기 (계산·진열·휴식 지시 가능)\n\n" +
+                "3. 알바생 감정 · 스트레스 관리\n" +
+                "   • 스트레스 0~39 (안정) / 40~69 (불만) / 70~99 (분노·업무 거부 위험)\n" +
+                "   • 스트레스 100 도달 시 알바생이 즉시 퇴사하며 게임이 종료됩니다.\n" +
+                "   • 부드러운 말투로 칭찬하거나 '잠깐 쉬어' 지시로 스트레스를 낮추세요.\n\n" +
+                "4. 영업 목표 및 시연 단축키\n" +
+                "   • 영업 시간(08:00 ~ 익일 08:00) 동안 목표 매출을 달성해 정산에 통과하세요.\n" +
+                "   • F1~F5 : 음성·오류·스트레스 시뮬 / F6 : 즉시 마감 / F7 : +4시간 / F8 : 비 토글";
+
+            Text bodyTxt = CreatePaperText("ManualBodyText", manualContent.transform, uiFont, manualBody, 36, FontStyle.Normal, inkPrimary, TextAnchor.UpperLeft);
+            bodyTxt.lineSpacing = 1.32f;
+            SetRect(bodyTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -146f), new Vector2(0f, 920f));
+
+            Text footerTxt = CreatePaperText("ManualFooterText", manualContent.transform, paperFont, "※ 카운터 앞 노란 바인더를 바라보고 [E]를 누르면 언제든 다시 확인할 수 있습니다.", 36, FontStyle.Normal, inkAccent, TextAnchor.MiddleCenter);
+            SetRect(footerTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(0f, 64f));
+
+            dimBg.SetActive(false);
+
+            // 3. 큐브에 상호작용 컴포넌트 부착 및 연결
+            StoreCounterManualInteractable interactable = manualCube.AddComponent<StoreCounterManualInteractable>();
+            SerializedObject interSo = new SerializedObject(interactable);
+            interSo.FindProperty("uiController").objectReferenceValue = uiController;
+            interSo.FindProperty("playerCamera").objectReferenceValue = playerCamera;
+            interSo.FindProperty("promptRoot").objectReferenceValue = promptObj;
+            interSo.FindProperty("manualPanelRoot").objectReferenceValue = dimBg;
+            interSo.FindProperty("closeButton").objectReferenceValue = closeBtn;
+            interSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void BuildPosSettlementStage(GameObject storeMapRoot, StoreUiSessionController uiController)
+        {
+            // 매장 아래 검은 공간(y = -60)에 일차 정산 전용 3D 포스기 스튜디오 구성
+            GameObject controllerObj = new GameObject("PosSettlementStage");
+            controllerObj.transform.position = new Vector3(0f, -60f, 0f);
+
+            GameObject posCamObj = new GameObject("PosSettlementCamera");
+            posCamObj.transform.SetParent(controllerObj.transform, false);
+            posCamObj.transform.localPosition = Vector3.zero;
+            posCamObj.transform.localRotation = Quaternion.identity;
+
+            Camera posCam = posCamObj.AddComponent<Camera>();
+            posCam.clearFlags = CameraClearFlags.SolidColor;
+            posCam.backgroundColor = new Color(0.02f, 0.025f, 0.04f, 1f);
+            posCam.fieldOfView = 36f;
+            posCam.nearClipPlane = 0.05f;
+            posCam.farClipPlane = 20f;
+            posCam.depth = 5f;
+            posCam.enabled = false;
+
+            GameObject stageVisualRoot = new GameObject("PosStageVisualRoot");
+            stageVisualRoot.transform.SetParent(controllerObj.transform, false);
+
+            // 스튜디오 전용 조명 (범위를 좁혀 위쪽 편의점 맵에는 영향을 주지 않음)
+            GameObject keyLightObj = new GameObject("PosStudioKeyLight");
+            keyLightObj.transform.SetParent(stageVisualRoot.transform, false);
+            keyLightObj.transform.localPosition = new Vector3(1.1f, 1.4f, 0.9f);
+            Light keyLight = keyLightObj.AddComponent<Light>();
+            keyLight.type = LightType.Point;
+            keyLight.range = 8f;
+            keyLight.intensity = 6.5f;
+            keyLight.color = new Color(1f, 0.97f, 0.92f, 1f);
+
+            GameObject rimLightObj = new GameObject("PosStudioRimLight");
+            rimLightObj.transform.SetParent(stageVisualRoot.transform, false);
+            rimLightObj.transform.localPosition = new Vector3(-1.4f, 0.9f, 2.8f);
+            Light rimLight = rimLightObj.AddComponent<Light>();
+            rimLight.type = LightType.Point;
+            rimLight.range = 7f;
+            rimLight.intensity = 4.2f;
+            rimLight.color = new Color(0.55f, 0.88f, 0.98f, 1f);
+
+            // 포스기 피벗 (중앙 대기 -> 클릭 시 좌측 이동)
+            GameObject posPivot = new GameObject("PosMachinePivot");
+            posPivot.transform.SetParent(stageVisualRoot.transform, false);
+            posPivot.transform.localPosition = new Vector3(0f, -0.35f, 1.95f);
+            posPivot.transform.localRotation = Quaternion.Euler(12f, 165f, 0f);
+            posPivot.transform.localScale = Vector3.one * 1.55f;
+
+            // 실제 편의점 맵의 Checkout_2 포스기(Register_Base, Register_Screen) 머티리얼과 형태를 그대로 복제
+            Transform checkout2 = storeMapRoot != null ? storeMapRoot.transform.Find("Checkout_2") : null;
+            Transform srcRegBase = checkout2 != null ? checkout2.Find("Register_Base") : null;
+            Transform srcRegScreen = checkout2 != null ? checkout2.Find("Register_Screen") : null;
+            Transform srcCounterTop = checkout2 != null ? checkout2.Find("Counter_Top") : null;
+
+            Material darkMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Dark.mat");
+            Material screenMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Screen.mat");
+            Material whiteMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/White.mat");
+            Material blackMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Black.mat");
+
+            // 하단 포스기 받침대(카운터 상판 + 서랍)
+            GameObject baseDesk = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            baseDesk.name = "PosCounterPedestal";
+            baseDesk.transform.SetParent(posPivot.transform, false);
+            baseDesk.transform.localPosition = new Vector3(0f, -0.06f, 0f);
+            baseDesk.transform.localScale = new Vector3(0.68f, 0.14f, 0.52f);
+            if (srcCounterTop != null && srcCounterTop.GetComponent<Renderer>() != null)
+            {
+                baseDesk.GetComponent<Renderer>().sharedMaterial = srcCounterTop.GetComponent<Renderer>().sharedMaterial;
+            }
+            else if (darkMat != null)
+            {
+                baseDesk.GetComponent<Renderer>().sharedMaterial = darkMat;
+            }
+
+            // 포스기 본체 (맵의 Register_Base 복제)
+            GameObject regBase;
+            if (srcRegBase != null)
+            {
+                regBase = Object.Instantiate(srcRegBase.gameObject, posPivot.transform);
+                regBase.name = "Register_Base";
+            }
+            else
+            {
+                regBase = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                regBase.name = "Register_Base";
+                regBase.transform.SetParent(posPivot.transform, false);
+                if (darkMat != null) regBase.GetComponent<Renderer>().sharedMaterial = darkMat;
+            }
+            regBase.transform.localPosition = new Vector3(0f, 0.06f, 0f);
+            regBase.transform.localRotation = Quaternion.identity;
+            regBase.transform.localScale = new Vector3(0.42f, 0.11f, 0.36f);
+
+            // 포스기 모니터 (맵의 Register_Screen 복제)
+            GameObject regScreen;
+            if (srcRegScreen != null)
+            {
+                regScreen = Object.Instantiate(srcRegScreen.gameObject, posPivot.transform);
+                regScreen.name = "Register_Screen";
+            }
+            else
+            {
+                regScreen = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                regScreen.name = "Register_Screen";
+                regScreen.transform.SetParent(posPivot.transform, false);
+                if (screenMat != null) regScreen.GetComponent<Renderer>().sharedMaterial = screenMat;
+            }
+            regScreen.transform.localPosition = new Vector3(0f, 0.28f, -0.08f);
+            regScreen.transform.localRotation = Quaternion.Euler(-12f, 0f, 0f);
+            regScreen.transform.localScale = new Vector3(0.40f, 0.34f, 0.05f);
+
+            // 모니터 스탠드 기둥
+            GameObject stand = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            stand.name = "Register_Stand";
+            stand.transform.SetParent(posPivot.transform, false);
+            stand.transform.localPosition = new Vector3(0f, 0.14f, -0.07f);
+            stand.transform.localScale = new Vector3(0.08f, 0.12f, 0.07f);
+            if (blackMat != null) stand.GetComponent<Renderer>().sharedMaterial = blackMat;
+
+            // 영수증 출력 슬롯 (포스기 앞쪽)
+            GameObject printerSlot = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            printerSlot.name = "ReceiptPrinterSlot";
+            printerSlot.transform.SetParent(posPivot.transform, false);
+            printerSlot.transform.localPosition = new Vector3(0f, 0.118f, 0.10f);
+            printerSlot.transform.localScale = new Vector3(0.20f, 0.02f, 0.06f);
+            if (blackMat != null) printerSlot.GetComponent<Renderer>().sharedMaterial = blackMat;
+
+            // 클릭 시 슬롯에서 위로 출력되는 3D 영수증 종이 스트립 (피벗을 아래쪽 끝에 맞춰 위로 자라게 구성)
+            GameObject receiptPivot = new GameObject("PosReceiptPaperPivot");
+            receiptPivot.transform.SetParent(posPivot.transform, false);
+            receiptPivot.transform.localPosition = new Vector3(0f, 0.12f, 0.105f);
+            receiptPivot.transform.localRotation = Quaternion.Euler(22f, 0f, 0f);
+            receiptPivot.transform.localScale = new Vector3(1f, 0.01f, 1f);
+
+            GameObject paperMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            paperMesh.name = "PosReceiptPaperMesh";
+            paperMesh.transform.SetParent(receiptPivot.transform, false);
+            paperMesh.transform.localPosition = new Vector3(0f, 0.5f, 0f);
+            paperMesh.transform.localScale = new Vector3(0.16f, 1.0f, 0.008f);
+            Collider paperCol = paperMesh.GetComponent<Collider>();
+            if (paperCol != null) Object.DestroyImmediate(paperCol);
+            if (whiteMat != null) paperMesh.GetComponent<Renderer>().sharedMaterial = whiteMat;
+
+            // 영수증 위 인쇄 줄 디테일 4줄
+            for (int line = 0; line < 4; line++)
+            {
+                GameObject inkLine = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                inkLine.name = $"ReceiptInkLine_{line + 1}";
+                inkLine.transform.SetParent(receiptPivot.transform, false);
+                inkLine.transform.localPosition = new Vector3(0f, 0.22f + line * 0.18f, 0.006f);
+                inkLine.transform.localScale = new Vector3(0.11f, 0.032f, 0.004f);
+                Collider lc = inkLine.GetComponent<Collider>();
+                if (lc != null) Object.DestroyImmediate(lc);
+                if (darkMat != null) inkLine.GetComponent<Renderer>().sharedMaterial = darkMat;
+            }
+
+            receiptPivot.SetActive(false);
+
+            // 클릭 감지용 통합 박스 콜라이더
+            BoxCollider hitBox = posPivot.AddComponent<BoxCollider>();
+            hitBox.center = new Vector3(0f, 0.16f, 0f);
+            hitBox.size = new Vector3(0.72f, 0.58f, 0.56f);
+
+            SettlementPanelPresenter settlementPresenter = uiController != null
+                ? uiController.GetComponentInChildren<SettlementPanelPresenter>(true)
+                : null;
+
+            PosSettlementStageController stageCtrl = controllerObj.AddComponent<PosSettlementStageController>();
+            SerializedObject stageSo = new SerializedObject(stageCtrl);
+            stageSo.FindProperty("uiController").objectReferenceValue = uiController;
+            stageSo.FindProperty("settlementPanel").objectReferenceValue = settlementPresenter;
+            stageSo.FindProperty("posSettlementCamera").objectReferenceValue = posCam;
+            stageSo.FindProperty("posStageRoot").objectReferenceValue = stageVisualRoot;
+            stageSo.FindProperty("posMachinePivot").objectReferenceValue = posPivot.transform;
+            stageSo.FindProperty("receiptPaperStrip").objectReferenceValue = receiptPivot.transform;
+            stageSo.ApplyModifiedPropertiesWithoutUndo();
+
+            stageVisualRoot.SetActive(false);
+        }
+
+        private static bool TryImportConvenienceStoreMap(
+            Scene targetScene,
+            out GameObject importedMapRoot,
+            out Dictionary<string, int> spawnedItemCounts)
+        {
+            importedMapRoot = null;
+            spawnedItemCounts = null;
+            if (!File.Exists(ConvenienceStoreMapScenePath))
+            {
+                return false;
+            }
+
+            Scene mapScene = EditorSceneManager.OpenScene(ConvenienceStoreMapScenePath, OpenSceneMode.Additive);
+            if (!mapScene.IsValid())
+            {
+                return false;
+            }
+
+            try
+            {
+                EditorSceneManager.SetActiveScene(targetScene);
+                GameObject mapRoot = new GameObject("ConvenienceStore_Map");
+                SceneManager.MoveGameObjectToScene(mapRoot, targetScene);
+
+                int importedCount = 0;
+                GameObject[] roots = mapScene.GetRootGameObjects();
+                for (int i = 0; i < roots.Length; i++)
+                {
+                    GameObject src = roots[i];
+                    if (src == null || !ConvenienceStoreEnvironmentRoots.Contains(src.name))
+                    {
+                        continue;
+                    }
+
+                    GameObject clone = Object.Instantiate(src);
+                    clone.name = src.name;
+                    SceneManager.MoveGameObjectToScene(clone, targetScene);
+                    clone.transform.SetParent(mapRoot.transform, true);
+                    importedCount++;
+                }
+
+                if (importedCount > 0)
+                {
+                    spawnedItemCounts = ConvenienceStoreProductPopulator.PopulateMap(mapRoot);
+                    importedMapRoot = mapRoot;
+                }
+
+                return importedCount > 0;
+            }
+            finally
+            {
+                EditorSceneManager.CloseScene(mapScene, true);
+                EditorSceneManager.SetActiveScene(targetScene);
+            }
+        }
+
+        private static NpcPopulationController BuildConvenienceStoreCustomerNpcSystem(Transform parent)
+        {
+            GameObject customerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CustomerCapsulePrefabPath);
+            GameObject pedestrianPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PedestrianCapsulePrefabPath);
+            GameObject productPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CustomerProductPrefabPath);
+            if (customerPrefab == null || pedestrianPrefab == null || productPrefab == null)
+            {
+                return null;
+            }
+
+            GameObject npcSysObj = new GameObject("Store_CustomerNpcSystem");
+            npcSysObj.transform.SetParent(parent, false);
+
+            Transform leftSidewalk = CreateEmptyWaypoint(npcSysObj.transform, "Sidewalk_Left", new Vector3(-5.20f, 0f, 4.65f));
+            Transform rightSidewalk = CreateEmptyWaypoint(npcSysObj.transform, "Sidewalk_Right", new Vector3(5.20f, 0f, 4.65f));
+            Transform entrance = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Entrance", new Vector3(4.25f, 0f, 3.05f));
+            Transform shelf = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Shelf", new Vector3(-0.90f, 0f, 0.65f));
+            Transform checkout = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Checkout", new Vector3(-3.80f, 0f, -1.55f));
+            Transform exit = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Exit", new Vector3(4.25f, 0f, 4.35f));
+
+            Transform[] queueSlots =
+            {
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_0", new Vector3(-2.70f, 0f, -1.55f)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_1", new Vector3(-1.60f, 0f, -1.55f)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_2", new Vector3(-0.50f, 0f, -1.55f)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_3", new Vector3(0.60f, 0f, -1.55f))
+            };
+
+            NpcPopulationController population = npcSysObj.AddComponent<NpcPopulationController>();
+            SerializedObject popSo = new SerializedObject(population);
+            popSo.FindProperty("customerPrefab").objectReferenceValue = customerPrefab;
+            popSo.FindProperty("pedestrianPrefab").objectReferenceValue = pedestrianPrefab;
+            popSo.FindProperty("productPrefab").objectReferenceValue = productPrefab;
+            popSo.FindProperty("leftSidewalkZone").objectReferenceValue = leftSidewalk;
+            popSo.FindProperty("rightSidewalkZone").objectReferenceValue = rightSidewalk;
+            popSo.FindProperty("sidewalkZoneSize").vector2Value = new Vector2(2.2f, 1.3f);
+            popSo.FindProperty("entrance").objectReferenceValue = entrance;
+            popSo.FindProperty("shelf").objectReferenceValue = shelf;
+            popSo.FindProperty("checkout").objectReferenceValue = checkout;
+            popSo.FindProperty("exit").objectReferenceValue = exit;
+
+            SerializedProperty slotsProp = popSo.FindProperty("queueSlots");
+            slotsProp.arraySize = queueSlots.Length;
+            for (int i = 0; i < queueSlots.Length; i++)
+            {
+                slotsProp.GetArrayElementAtIndex(i).objectReferenceValue = queueSlots[i];
+            }
+
+            popSo.ApplyModifiedPropertiesWithoutUndo();
+            return population;
+        }
+
+        private static Transform CreateEmptyWaypoint(Transform parent, string waypointName, Vector3 worldPos)
+        {
+            GameObject marker = new GameObject(waypointName);
+            marker.transform.SetParent(parent, false);
+            marker.transform.position = worldPos;
+            return marker.transform;
         }
 
         private static Transform CreateZoneMarker(Transform parent, string markerName, Vector3 pos, Vector3 propScale)
