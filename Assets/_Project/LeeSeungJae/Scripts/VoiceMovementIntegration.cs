@@ -791,7 +791,7 @@ namespace EmployeeVoice
                 if (workAction != EmployeeAction.RESTOCK && taskTarget != "DEFAULT")
                 { Fail(CommandFeedbackKind.Info, "해당 업무의 대상은 아직 지정할 수 없습니다. 다시 말씀해 주세요."); return; }
                 Transform workDestination = GetWorkDestination(workAction, taskTarget);
-                if (workDestination == null)
+                if (workAction != EmployeeAction.CASHIER && workDestination == null)
                 { Fail(CommandFeedbackKind.SystemOrMoveError, WorkDescription(workAction, taskTarget) + " 임시 목적지가 설정되지 않았습니다."); return; }
                 // The API proposal uses the earlier state snapshot; the final
                 // team-weighted selection uses stress after applying this command.
@@ -817,7 +817,9 @@ namespace EmployeeVoice
                         CommandFeedbackKind.RefusedByEmotion, request, 0, requestId);
                     return;
                 }
-                Vector3 position = workDestination.position;
+                Vector3 position = workAction == EmployeeAction.CASHIER
+                    ? new Vector3(-6.155f, 0f, -3.1f)
+                    : workDestination.position;
                 MoveReceipt receipt = movement.RequestMove(new WorldPoint(position.x, position.y, position.z));
                 if (!receipt.Accepted)
                 { badge = StaffMoveBadge.Failed; UpdateHud(); Fail(CommandFeedbackKind.SystemOrMoveError, "이동 요청 거절: " + receipt.RejectReason); return; }
