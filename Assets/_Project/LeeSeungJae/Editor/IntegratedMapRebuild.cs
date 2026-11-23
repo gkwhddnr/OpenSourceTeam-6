@@ -20,6 +20,67 @@ namespace EmployeeVoice.Editor
         private const float OriginalShelfZ = 0.65f;
         private const float ProductStretch = 1.72f;
 
+        public static void FixWindowCollisions()
+        {
+            Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            Transform storefront = Child(Root(scene, "ConvenienceStore_Map"), "Storefront");
+            foreach (string name in new[] { "Window_Glass_Left", "Window_Glass_Right" })
+            {
+                Transform window = Child(storefront, name);
+                if (window.GetComponent<Renderer>() == null || window.gameObject.layer != 0 ||
+                    Mathf.Abs(window.lossyScale.z) < 0.001f)
+                    throw new InvalidOperationException("Cannot configure window collision: " + name);
+                BoxCollider box = window.GetComponent<BoxCollider>();
+                if (box == null) box = window.gameObject.AddComponent<BoxCollider>();
+                box.enabled = true;
+                box.isTrigger = false;
+                box.center = Vector3.zero;
+                // The glass mesh is thin; make collision 12 cm thick in world space.
+                box.size = new Vector3(1f, 1f, 0.12f / Mathf.Abs(window.lossyScale.z));
+            }
+            ValidateWindowsAndDoor(scene);
+            EditorSceneManager.MarkSceneDirty(scene);
+            if (!EditorSceneManager.SaveScene(scene)) throw new InvalidOperationException("Could not save window collision.");
+            Debug.Log("[WindowCollision] Saved window colliders and preserved the entrance.");
+        }
+
+        public static void VerifyWindowCollisions()
+        {
+            Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            ValidateWindowsAndDoor(scene);
+            Debug.Log("[WindowCollision] Saved scene window and entrance checks passed.");
+        }
+
+        private static void ValidateWindowsAndDoor(Scene scene)
+        {
+            Transform storefront = Child(Root(scene, "ConvenienceStore_Map"), "Storefront");
+            var left = Child(storefront, "Window_Glass_Left").GetComponent<BoxCollider>();
+            var right = Child(storefront, "Window_Glass_Right").GetComponent<BoxCollider>();
+            Physics.SyncTransforms();
+            foreach (BoxCollider box in new[] { left, right })
+            {
+                if (box == null || !box.enabled || box.isTrigger) throw new InvalidOperationException("Window collision missing.");
+                Bounds b = box.bounds;
+                Vector3 center = b.center;
+                center.x = Mathf.Lerp(b.min.x, b.max.x, 0.27f);
+                for (int direction = -1; direction <= 1; direction += 2)
+                {
+                    Vector3 origin = center + Vector3.forward * direction * 0.7f;
+                    RaycastHit[] hits = Physics.RaycastAll(origin, Vector3.back * direction, 1.4f, ~0, QueryTriggerInteraction.Ignore);
+                    if (!hits.Any(hit => hit.collider == box))
+                        throw new InvalidOperationException("Window does not block from both sides: " + box.name);
+                }
+                Debug.Log("[WindowCollision] Both sides blocked: " + box.name + " " + b);
+            }
+            Vector3 doorway = new Vector3((left.bounds.max.x + right.bounds.min.x) * 0.5f, 1.4f, left.bounds.center.z);
+            if (right.bounds.min.x - left.bounds.max.x < 1.2f ||
+                Physics.Raycast(doorway + Vector3.back * 0.6f, Vector3.forward, 1.2f, ~0, QueryTriggerInteraction.Ignore))
+                throw new InvalidOperationException("Entrance is blocked by collision.");
+            var voice = new SerializedObject(Root(scene, "OpenAI Voice Integration").GetComponent<VoiceMovementIntegration>());
+            ValidateNavigation(scene, voice, Child(Root(scene, "Demo_StoreStage"), "Store_CustomerNpcSystem"));
+            Debug.Log("[WindowCollision] Entrance remains open and customer routes are connected.");
+        }
+
         public static void Verify()
         {
             Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
