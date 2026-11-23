@@ -889,8 +889,10 @@ namespace OpenSourceTeam6.UI.Editor
             "_DiffuseMap"
         };
 
-        private static void EnsureUrpMaterialsOnRenderers(GameObject instance, Dictionary<Material, Material> cache)
+        public static void EnsureUrpMaterialsOnRenderers(GameObject instance, Dictionary<Material, Material> cache = null)
         {
+            if (instance == null) return;
+            if (cache == null) cache = new Dictionary<Material, Material>();
             Shader urpLit = Shader.Find("Universal Render Pipeline/Lit");
             if (urpLit == null) return;
 

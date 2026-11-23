@@ -17,6 +17,11 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Text balanceText;
         [SerializeField] private Button openCommandOverlayButton;
 
+        [Header("3D Counter Monitor Screen (World Space)")]
+        [SerializeField] private Text counterMonitorDayText;
+        [SerializeField] private Text counterMonitorTimerText;
+        [SerializeField] private Text counterMonitorBalanceText;
+
         [Header("Employee Status Card")]
         [SerializeField] private Text employeeHeaderText;
         [SerializeField] private Text currentRoleText;
@@ -91,6 +96,46 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
+        public void BindCounterMonitorTexts(Text monitorDayText, Text monitorTimerText, Text monitorBalanceText)
+        {
+            counterMonitorDayText = monitorDayText;
+            counterMonitorTimerText = monitorTimerText;
+            counterMonitorBalanceText = monitorBalanceText;
+        }
+
+        private void EnsureCounterMonitorBound()
+        {
+            if (counterMonitorTimerText != null && counterMonitorBalanceText != null)
+            {
+                return;
+            }
+
+            GameObject canvasObj = GameObject.Find("CounterMonitorScreenCanvas");
+            if (canvasObj == null)
+            {
+                return;
+            }
+
+            Transform root = canvasObj.transform;
+            if (counterMonitorDayText == null)
+            {
+                Transform dayTr = root.Find("MonitorScreenBg/MonitorHeaderBar/MonitorDayLabelText");
+                if (dayTr != null) counterMonitorDayText = dayTr.GetComponent<Text>();
+            }
+
+            if (counterMonitorTimerText == null)
+            {
+                Transform timerTr = root.Find("MonitorScreenBg/MonitorTimeCard/MonitorTimerText");
+                if (timerTr != null) counterMonitorTimerText = timerTr.GetComponent<Text>();
+            }
+
+            if (counterMonitorBalanceText == null)
+            {
+                Transform balTr = root.Find("MonitorScreenBg/MonitorRevenueCard/MonitorBalanceText");
+                if (balTr != null) counterMonitorBalanceText = balTr.GetComponent<Text>();
+            }
+        }
+
         public void UpdateTopBar(
             int dayNumber,
             float remainingSeconds,
@@ -99,29 +144,48 @@ namespace OpenSourceTeam6.UI.Unity
             float totalDaySeconds = 0f,
             float? explicitGameHour = null)
         {
+            EnsureCounterMonitorBound();
+
+            string dayLabel = $"{dayNumber}일차 영업 중";
+            string clockLabel = StoreDayTimeRules.FormatHudClockAndTimer(
+                remainingSeconds,
+                totalDaySeconds,
+                explicitGameHour);
+            string balanceLabel = targetBalanceWon > 0
+                ? $"현재 {displayedBalanceWon:N0}원  /  목표 {targetBalanceWon:N0}원"
+                : $"예상 잔액  {displayedBalanceWon:N0}원";
+
             if (dayLabelText != null)
             {
-                dayLabelText.text = $"{dayNumber}일차 영업 중";
+                dayLabelText.text = dayLabel;
             }
 
             if (timerText != null)
             {
-                timerText.text = StoreDayTimeRules.FormatHudClockAndTimer(
-                    remainingSeconds,
-                    totalDaySeconds,
-                    explicitGameHour);
+                timerText.text = clockLabel;
             }
 
             if (balanceText != null)
             {
-                if (targetBalanceWon > 0)
-                {
-                    balanceText.text = $"현재 {displayedBalanceWon:N0}원  /  목표 {targetBalanceWon:N0}원";
-                }
-                else
-                {
-                    balanceText.text = $"예상 잔액  {displayedBalanceWon:N0}원";
-                }
+                balanceText.text = balanceLabel;
+            }
+
+            if (counterMonitorDayText != null)
+            {
+                counterMonitorDayText.text = dayLabel;
+            }
+
+            if (counterMonitorTimerText != null)
+            {
+                counterMonitorTimerText.text = clockLabel;
+            }
+
+            if (counterMonitorBalanceText != null)
+            {
+                counterMonitorBalanceText.text = balanceLabel;
+                counterMonitorBalanceText.color = (targetBalanceWon > 0 && displayedBalanceWon >= targetBalanceWon)
+                    ? new Color(0.28f, 0.98f, 0.68f, 1f)
+                    : new Color(1f, 0.86f, 0.32f, 1f);
             }
         }
 

@@ -52,6 +52,12 @@ namespace OpenSourceTeam6.UI.Editor
         private const string CustomerCapsulePrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/CustomerCapsule.prefab";
         private const string PedestrianCapsulePrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/PedestrianCapsule.prefab";
         private const string CustomerProductPrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/ProductBox.prefab";
+        private const string CounterMonitorPrefabPath = "Assets/JustPlay/\u0421omputer devices/Prefabs/Monitor.prefab";
+        private const string CounterMonitorPrefabGuid = "eb070747f0511a24aad45f57de2b6f51";
+        private const string CounterSecondaryMonitorPrefabPath = "Assets/JustPlay/\u0421omputer devices/Prefabs/Monitor 2.prefab";
+        private const string CounterSecondaryMonitorPrefabGuid = "a7c8d5abfd365bc49914ef428ffdc098";
+        private const string CounterCashRegisterPrefabPath = "Assets/RetroStyleGames/GasStation/Prefabs/P_RSG_CashRegister.prefab";
+        private const string CounterCashRegisterPrefabGuid = "b0cfac3eebc9cc14aab6be8839e98798";
 
         private static readonly HashSet<string> ConvenienceStoreEnvironmentRoots = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -106,6 +112,8 @@ namespace OpenSourceTeam6.UI.Editor
                      (File.Exists(ConvenienceStoreMapScenePath) &&
                       (GameObject.Find("ConvenienceStore_Map") == null ||
                        GameObject.Find("Counter_ManualCube") == null ||
+                       GameObject.Find("Counter_PosMonitorRoot") == null ||
+                       GameObject.Find("CounterMonitorScreenCanvas") == null ||
                        GameObject.Find("LobbyOverviewCamera") == null ||
                        GameObject.Find("PosSettlementStage") == null ||
                        Object.FindAnyObjectByType<StoreInventoryManager>() == null ||
@@ -147,9 +155,8 @@ namespace OpenSourceTeam6.UI.Editor
                 return true;
             }
 
-            Transform topPostItContent = uiPrefab.transform.Find("InGameHud/TopStoreBar/PostItContent");
-            if (File.Exists(PostItSpritePath) &&
-                (topPostItContent == null || topPostItContent.localScale.x > 0.75f))
+            Transform topStoreBar = uiPrefab.transform.Find("InGameHud/TopStoreBar");
+            if (topStoreBar != null && topStoreBar.gameObject.activeSelf)
             {
                 return true;
             }
@@ -249,6 +256,8 @@ namespace OpenSourceTeam6.UI.Editor
                  (File.Exists(ConvenienceStoreMapScenePath) &&
                   (GameObject.Find("ConvenienceStore_Map") == null ||
                    GameObject.Find("Counter_ManualCube") == null ||
+                   GameObject.Find("Counter_PosMonitorRoot") == null ||
+                   GameObject.Find("CounterMonitorScreenCanvas") == null ||
                    GameObject.Find("LobbyOverviewCamera") == null ||
                    GameObject.Find("PosSettlementStage") == null ||
                    Object.FindAnyObjectByType<StoreInventoryManager>() == null ||
@@ -1576,8 +1585,8 @@ namespace OpenSourceTeam6.UI.Editor
             Color inkRule = new Color(0.24f, 0.21f, 0.17f, 0.34f);
             Color paperBtnBg = new Color(0.96f, 0.92f, 0.81f, 0.95f);
 
-            // 1. 좌측 상단 포스트잇 (2x 슈퍼샘플링으로 기울임/작은 창에서도 또렷하게 렌더)
-            CreatePostItNoteCard(
+            // 1. 좌측 상단 포스트잇 (계산대 3D 모니터로 시간·매출 표시를 이전하여 좌상단 2D HUD에서는 비활성화)
+            GameObject topBarCard = CreatePostItNoteCard(
                 "TopStoreBar",
                 hudObj.transform,
                 smoothRectSprite,
@@ -1593,6 +1602,7 @@ namespace OpenSourceTeam6.UI.Editor
                 bottomPad: 34f,
                 sidePad: 44f,
                 contentSupersample: 2f);
+            topBarCard.SetActive(false);
 
             GameObject dayBadge = CreateFlatRect("DayBadge", topContent, new Color(0.12f, 0.52f, 0.45f, 0.94f), smoothRectSprite);
             SetRect(dayBadge.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 0f), new Vector2(304f, 70f));
@@ -2636,6 +2646,7 @@ namespace OpenSourceTeam6.UI.Editor
                 camSensSo.ApplyModifiedPropertiesWithoutUndo();
 
                 BuildCounterManualInteractable(stageRoot.transform, uiController, cam, uiFont, paperFont, whiteSprite);
+                BuildCounterPosAndMonitor(storeMapRoot, stageRoot.transform, uiController, uiFont, whiteSprite);
                 BuildPosSettlementStage(storeMapRoot, uiController);
             }
 
@@ -2705,11 +2716,11 @@ namespace OpenSourceTeam6.UI.Editor
             Font paperFont,
             Sprite whiteSprite)
         {
-            // 1. 계산대 상판(y = 1.04) 위에 올려둔 작은 설명서 큐브
+            // 1. 계산대 상판(y = 1.04) 왼쪽에 올려둔 작은 설명서 큐브 (중앙 모니터·우측 포스기와 겹치지 않게 배치)
             GameObject manualCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             manualCube.name = "Counter_ManualCube";
             manualCube.transform.SetParent(stageRoot, false);
-            manualCube.transform.position = new Vector3(-3.36f, 1.11f, -2.42f);
+            manualCube.transform.position = new Vector3(-3.60f, 1.11f, -2.42f);
             manualCube.transform.localScale = new Vector3(0.28f, 0.14f, 0.22f);
             manualCube.transform.localEulerAngles = new Vector3(0f, -14f, 0f);
 
@@ -2844,6 +2855,239 @@ namespace OpenSourceTeam6.UI.Editor
             interSo.ApplyModifiedPropertiesWithoutUndo();
         }
 
+        private static GameObject LoadPrefabByPathOrGuid(string assetPath, string guid)
+        {
+            if (!string.IsNullOrEmpty(assetPath))
+            {
+                GameObject byPath = AssetDatabase.LoadAssetAtPath<GameObject>(assetPath);
+                if (byPath != null)
+                {
+                    return byPath;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(guid))
+            {
+                string resolvedPath = AssetDatabase.GUIDToAssetPath(guid);
+                if (!string.IsNullOrEmpty(resolvedPath))
+                {
+                    GameObject byGuid = AssetDatabase.LoadAssetAtPath<GameObject>(resolvedPath);
+                    if (byGuid != null)
+                    {
+                        return byGuid;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        private static void BuildCounterPosAndMonitor(
+            GameObject storeMapRoot,
+            Transform stageRoot,
+            StoreUiSessionController uiController,
+            Font uiFont,
+            Sprite whiteSprite)
+        {
+            // 1. 기존 맵의 임시 큐브 포스기(Register_Base, Register_Screen)를 숨긴다.
+            if (storeMapRoot != null)
+            {
+                Transform checkout2 = storeMapRoot.transform.Find("Checkout_2");
+                if (checkout2 != null)
+                {
+                    Transform regBase = checkout2.Find("Register_Base");
+                    if (regBase != null) regBase.gameObject.SetActive(false);
+                    Transform regScreen = checkout2.Find("Register_Screen");
+                    if (regScreen != null) regScreen.gameObject.SetActive(false);
+                }
+
+                Transform checkout1 = storeMapRoot.transform.Find("Checkout_1");
+                if (checkout1 != null)
+                {
+                    Transform regBase1 = checkout1.Find("Register_Base (1)");
+                    if (regBase1 != null) regBase1.gameObject.SetActive(false);
+                    Transform regScreen1 = checkout1.Find("Register_Screen (1)");
+                    if (regScreen1 != null) regScreen1.gameObject.SetActive(false);
+                }
+            }
+
+            GameObject monitorPrefab = LoadPrefabByPathOrGuid(CounterMonitorPrefabPath, CounterMonitorPrefabGuid);
+            GameObject monitor2Prefab = LoadPrefabByPathOrGuid(CounterSecondaryMonitorPrefabPath, CounterSecondaryMonitorPrefabGuid);
+            GameObject cashRegisterPrefab = LoadPrefabByPathOrGuid(CounterCashRegisterPrefabPath, CounterCashRegisterPrefabGuid);
+
+            GameObject posMonitorRoot = new GameObject("Counter_PosMonitorRoot");
+            posMonitorRoot.transform.SetParent(stageRoot, false);
+
+            // 2. 메인 계산대(Checkout_2, 상판 y = 1.04) 위에 모니터와 포스기 배치
+            GameObject mainMonitor;
+            if (monitorPrefab != null)
+            {
+                mainMonitor = (GameObject)PrefabUtility.InstantiatePrefab(monitorPrefab, posMonitorRoot.transform);
+            }
+            else
+            {
+                mainMonitor = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                mainMonitor.transform.SetParent(posMonitorRoot.transform, false);
+            }
+            mainMonitor.name = "Counter_Monitor";
+            mainMonitor.transform.position = new Vector3(-2.96f, 1.04f, -2.35f);
+            mainMonitor.transform.rotation = Quaternion.Euler(0f, 200f, 0f);
+            mainMonitor.transform.localScale = new Vector3(1.12f, 1.12f, 1.12f);
+            ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(mainMonitor);
+
+            if (cashRegisterPrefab != null)
+            {
+                GameObject mainCashReg = (GameObject)PrefabUtility.InstantiatePrefab(cashRegisterPrefab, posMonitorRoot.transform);
+                mainCashReg.name = "Counter_CashRegister";
+                mainCashReg.transform.position = new Vector3(-2.34f, 1.04f, -2.40f);
+                mainCashReg.transform.rotation = Quaternion.Euler(0f, 12f, 0f);
+                mainCashReg.transform.localScale = Vector3.one;
+                ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(mainCashReg);
+            }
+
+            // 3. 보조 계산대(Checkout_1, 상판 y = 1.04) 위에도 서브 모니터 + 포스기 배치
+            GameObject subMonitorAsset = monitor2Prefab != null ? monitor2Prefab : monitorPrefab;
+            if (subMonitorAsset != null)
+            {
+                GameObject subMonitor = (GameObject)PrefabUtility.InstantiatePrefab(subMonitorAsset, posMonitorRoot.transform);
+                subMonitor.name = "Secondary_Counter_Monitor";
+                subMonitor.transform.position = new Vector3(-5.96f, 1.04f, -2.36f);
+                subMonitor.transform.rotation = Quaternion.Euler(0f, 192f, 0f);
+                subMonitor.transform.localScale = Vector3.one;
+                ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(subMonitor);
+            }
+
+            if (cashRegisterPrefab != null)
+            {
+                GameObject subCashReg = (GameObject)PrefabUtility.InstantiatePrefab(cashRegisterPrefab, posMonitorRoot.transform);
+                subCashReg.name = "Secondary_Counter_CashRegister";
+                subCashReg.transform.position = new Vector3(-6.52f, 1.04f, -2.40f);
+                subCashReg.transform.rotation = Quaternion.Euler(0f, 8f, 0f);
+                subCashReg.transform.localScale = Vector3.one;
+                ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(subCashReg);
+            }
+
+            // 4. 메인 모니터 전면 스크린 베젤(0.536m x 0.299m)에 맞춘 World-Space Canvas 부착 (시간 · 매출 실시간 표시)
+            GameObject screenCanvasObj = new GameObject("CounterMonitorScreenCanvas", typeof(RectTransform));
+            screenCanvasObj.transform.SetParent(mainMonitor.transform, false);
+
+            Canvas screenCanvas = screenCanvasObj.AddComponent<Canvas>();
+            screenCanvas.renderMode = RenderMode.WorldSpace;
+            screenCanvas.sortingOrder = 10;
+
+            CanvasScaler screenScaler = screenCanvasObj.AddComponent<CanvasScaler>();
+            screenScaler.dynamicPixelsPerUnit = 2f;
+
+            RectTransform screenRt = screenCanvasObj.GetComponent<RectTransform>();
+            screenRt.anchorMin = new Vector2(0.5f, 0.5f);
+            screenRt.anchorMax = new Vector2(0.5f, 0.5f);
+            screenRt.pivot = new Vector2(0.5f, 0.5f);
+            screenRt.localPosition = new Vector3(0f, 0.2245f, 0.0082f);
+            screenRt.localRotation = Quaternion.Euler(2.07f, 180f, 0f);
+            screenRt.sizeDelta = new Vector2(1072f, 598f);
+            screenRt.localScale = new Vector3(0.0005f, 0.0005f, 0.0005f);
+
+            Sprite smoothSprite = _smoothRectSprite != null ? _smoothRectSprite : whiteSprite;
+
+            GameObject screenBg = CreateFlatRect("MonitorScreenBg", screenCanvasObj.transform, new Color(0.05f, 0.08f, 0.13f, 0.98f), whiteSprite);
+            StretchFull(screenBg.GetComponent<RectTransform>());
+
+            // 상단 헤더 바 (POS 영업 현황 + 일차 표시)
+            GameObject headerBar = CreateFlatRect("MonitorHeaderBar", screenBg.transform, new Color(0.08f, 0.22f, 0.28f, 1f), whiteSprite);
+            SetRect(headerBar.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), Vector2.zero, new Vector2(0f, 96f));
+
+            Text titleLabel = CreatePaperText(
+                "MonitorTitleLabel",
+                headerBar.transform,
+                uiFont,
+                "POS 영업 현황 모니터",
+                36,
+                FontStyle.Bold,
+                new Color(0.76f, 0.94f, 0.98f, 1f),
+                TextAnchor.MiddleLeft);
+            SetRect(titleLabel.rectTransform, new Vector2(0f, 0f), new Vector2(0.55f, 1f), new Vector2(0f, 0.5f), new Vector2(32f, 0f), Vector2.zero);
+
+            Text monitorDayText = CreatePaperText(
+                "MonitorDayLabelText",
+                headerBar.transform,
+                uiFont,
+                "1일차 영업 중",
+                42,
+                FontStyle.Bold,
+                new Color(0.24f, 0.98f, 0.84f, 1f),
+                TextAnchor.MiddleRight);
+            SetRect(monitorDayText.rectTransform, new Vector2(0.45f, 0f), new Vector2(1f, 1f), new Vector2(1f, 0.5f), new Vector2(-32f, 0f), Vector2.zero);
+
+            // 중앙 카드 1: 현재 시각 · 남은 영업 시간
+            GameObject timeCard = CreateFlatRect("MonitorTimeCard", screenBg.transform, new Color(0.09f, 0.15f, 0.23f, 0.96f), smoothSprite);
+            SetRect(timeCard.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -114f), new Vector2(1012f, 216f));
+
+            Text timeCaption = CreatePaperText(
+                "TimeCardCaption",
+                timeCard.transform,
+                uiFont,
+                "현재 시각  ·  남은 영업 시간",
+                32,
+                FontStyle.Normal,
+                new Color(0.64f, 0.80f, 0.94f, 1f),
+                TextAnchor.MiddleCenter);
+            SetRect(timeCaption.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -14f), new Vector2(-40f, 52f));
+
+            Text monitorTimerText = CreatePaperText(
+                "MonitorTimerText",
+                timeCard.transform,
+                uiFont,
+                "08:00 (낮)  ·  남은 02:00",
+                64,
+                FontStyle.Bold,
+                Color.white,
+                TextAnchor.MiddleCenter);
+            SetRect(monitorTimerText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -22f), new Vector2(-32f, -54f));
+
+            // 하단 카드 2: 실시간 매출 (현재 잔액 / 목표 매출)
+            GameObject revenueCard = CreateFlatRect("MonitorRevenueCard", screenBg.transform, new Color(0.09f, 0.15f, 0.23f, 0.96f), smoothSprite);
+            SetRect(revenueCard.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -348f), new Vector2(1012f, 224f));
+
+            Text revenueCaption = CreatePaperText(
+                "RevenueCardCaption",
+                revenueCard.transform,
+                uiFont,
+                "실시간 매출  (현재 잔액 / 목표 금액)",
+                32,
+                FontStyle.Normal,
+                new Color(0.64f, 0.80f, 0.94f, 1f),
+                TextAnchor.MiddleCenter);
+            SetRect(revenueCaption.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -14f), new Vector2(-40f, 52f));
+
+            Text monitorBalanceText = CreatePaperText(
+                "MonitorBalanceText",
+                revenueCard.transform,
+                uiFont,
+                "현재 50,000원  /  목표 80,000원",
+                56,
+                FontStyle.Bold,
+                new Color(1f, 0.86f, 0.32f, 1f),
+                TextAnchor.MiddleCenter);
+            SetRect(monitorBalanceText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -22f), new Vector2(-32f, -54f));
+
+            // 5. InGameHudPresenter에 3D 모니터 텍스트 직렬화 바인딩
+            InGameHudPresenter hudPresenter = uiController != null
+                ? uiController.GetComponentInChildren<InGameHudPresenter>(true)
+                : null;
+            if (hudPresenter != null)
+            {
+                hudPresenter.BindCounterMonitorTexts(monitorDayText, monitorTimerText, monitorBalanceText);
+                SerializedObject hudSo = new SerializedObject(hudPresenter);
+                SerializedProperty dayProp = hudSo.FindProperty("counterMonitorDayText");
+                SerializedProperty timerProp = hudSo.FindProperty("counterMonitorTimerText");
+                SerializedProperty balProp = hudSo.FindProperty("counterMonitorBalanceText");
+                if (dayProp != null) dayProp.objectReferenceValue = monitorDayText;
+                if (timerProp != null) timerProp.objectReferenceValue = monitorTimerText;
+                if (balProp != null) balProp.objectReferenceValue = monitorBalanceText;
+                hudSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+        }
+
         private static void BuildPosSettlementStage(GameObject storeMapRoot, StoreUiSessionController uiController)
         {
             // 매장 아래 검은 공간(y = -60)에 일차 정산 전용 3D 포스기 스튜디오 구성
@@ -2919,62 +3163,76 @@ namespace OpenSourceTeam6.UI.Editor
                 baseDesk.GetComponent<Renderer>().sharedMaterial = darkMat;
             }
 
-            // 포스기 본체 (맵의 Register_Base 복제)
-            GameObject regBase;
-            if (srcRegBase != null)
+            // 포스기 본체 (신규 3D 포스기 에셋 P_RSG_CashRegister 우선 사용, 없을 시 기본 큐브 폴백)
+            GameObject cashRegisterPrefab = LoadPrefabByPathOrGuid(CounterCashRegisterPrefabPath, CounterCashRegisterPrefabGuid);
+            if (cashRegisterPrefab != null)
             {
-                regBase = Object.Instantiate(srcRegBase.gameObject, posPivot.transform);
-                regBase.name = "Register_Base";
+                GameObject posModel = (GameObject)PrefabUtility.InstantiatePrefab(cashRegisterPrefab, posPivot.transform);
+                posModel.name = "Register_Model";
+                posModel.transform.localPosition = new Vector3(0f, 0.01f, 0f);
+                posModel.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
+                posModel.transform.localScale = Vector3.one;
+                ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(posModel);
             }
             else
             {
-                regBase = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                regBase.name = "Register_Base";
-                regBase.transform.SetParent(posPivot.transform, false);
-                if (darkMat != null) regBase.GetComponent<Renderer>().sharedMaterial = darkMat;
-            }
-            regBase.transform.localPosition = new Vector3(0f, 0.06f, 0f);
-            regBase.transform.localRotation = Quaternion.identity;
-            regBase.transform.localScale = new Vector3(0.42f, 0.11f, 0.36f);
+                GameObject regBase;
+                if (srcRegBase != null)
+                {
+                    regBase = Object.Instantiate(srcRegBase.gameObject, posPivot.transform);
+                    regBase.name = "Register_Base";
+                    regBase.SetActive(true);
+                }
+                else
+                {
+                    regBase = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    regBase.name = "Register_Base";
+                    regBase.transform.SetParent(posPivot.transform, false);
+                    if (darkMat != null) regBase.GetComponent<Renderer>().sharedMaterial = darkMat;
+                }
+                regBase.transform.localPosition = new Vector3(0f, 0.06f, 0f);
+                regBase.transform.localRotation = Quaternion.identity;
+                regBase.transform.localScale = new Vector3(0.42f, 0.11f, 0.36f);
 
-            // 포스기 모니터 (맵의 Register_Screen 복제)
-            GameObject regScreen;
-            if (srcRegScreen != null)
-            {
-                regScreen = Object.Instantiate(srcRegScreen.gameObject, posPivot.transform);
-                regScreen.name = "Register_Screen";
-            }
-            else
-            {
-                regScreen = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                regScreen.name = "Register_Screen";
-                regScreen.transform.SetParent(posPivot.transform, false);
-                if (screenMat != null) regScreen.GetComponent<Renderer>().sharedMaterial = screenMat;
-            }
-            regScreen.transform.localPosition = new Vector3(0f, 0.28f, -0.08f);
-            regScreen.transform.localRotation = Quaternion.Euler(-12f, 0f, 0f);
-            regScreen.transform.localScale = new Vector3(0.40f, 0.34f, 0.05f);
+                GameObject regScreen;
+                if (srcRegScreen != null)
+                {
+                    regScreen = Object.Instantiate(srcRegScreen.gameObject, posPivot.transform);
+                    regScreen.name = "Register_Screen";
+                    regScreen.SetActive(true);
+                }
+                else
+                {
+                    regScreen = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    regScreen.name = "Register_Screen";
+                    regScreen.transform.SetParent(posPivot.transform, false);
+                    if (screenMat != null) regScreen.GetComponent<Renderer>().sharedMaterial = screenMat;
+                }
+                regScreen.transform.localPosition = new Vector3(0f, 0.28f, -0.08f);
+                regScreen.transform.localRotation = Quaternion.Euler(-12f, 0f, 0f);
+                regScreen.transform.localScale = new Vector3(0.40f, 0.34f, 0.05f);
 
-            // 모니터 스탠드 기둥
-            GameObject stand = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            stand.name = "Register_Stand";
-            stand.transform.SetParent(posPivot.transform, false);
-            stand.transform.localPosition = new Vector3(0f, 0.14f, -0.07f);
-            stand.transform.localScale = new Vector3(0.08f, 0.12f, 0.07f);
-            if (blackMat != null) stand.GetComponent<Renderer>().sharedMaterial = blackMat;
+                GameObject stand = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                stand.name = "Register_Stand";
+                stand.transform.SetParent(posPivot.transform, false);
+                stand.transform.localPosition = new Vector3(0f, 0.14f, -0.07f);
+                stand.transform.localScale = new Vector3(0.08f, 0.12f, 0.07f);
+                if (blackMat != null) stand.GetComponent<Renderer>().sharedMaterial = blackMat;
 
-            // 영수증 출력 슬롯 (포스기 앞쪽)
-            GameObject printerSlot = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            printerSlot.name = "ReceiptPrinterSlot";
-            printerSlot.transform.SetParent(posPivot.transform, false);
-            printerSlot.transform.localPosition = new Vector3(0f, 0.118f, 0.10f);
-            printerSlot.transform.localScale = new Vector3(0.20f, 0.02f, 0.06f);
-            if (blackMat != null) printerSlot.GetComponent<Renderer>().sharedMaterial = blackMat;
+                GameObject printerSlot = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                printerSlot.name = "ReceiptPrinterSlot";
+                printerSlot.transform.SetParent(posPivot.transform, false);
+                printerSlot.transform.localPosition = new Vector3(0f, 0.118f, 0.10f);
+                printerSlot.transform.localScale = new Vector3(0.20f, 0.02f, 0.06f);
+                if (blackMat != null) printerSlot.GetComponent<Renderer>().sharedMaterial = blackMat;
+            }
 
             // 클릭 시 슬롯에서 위로 출력되는 3D 영수증 종이 스트립 (피벗을 아래쪽 끝에 맞춰 위로 자라게 구성)
             GameObject receiptPivot = new GameObject("PosReceiptPaperPivot");
             receiptPivot.transform.SetParent(posPivot.transform, false);
-            receiptPivot.transform.localPosition = new Vector3(0f, 0.12f, 0.105f);
+            receiptPivot.transform.localPosition = cashRegisterPrefab != null
+                ? new Vector3(-0.08f, 0.23f, 0.05f)
+                : new Vector3(0f, 0.12f, 0.105f);
             receiptPivot.transform.localRotation = Quaternion.Euler(22f, 0f, 0f);
             receiptPivot.transform.localScale = new Vector3(1f, 0.01f, 1f);
 
