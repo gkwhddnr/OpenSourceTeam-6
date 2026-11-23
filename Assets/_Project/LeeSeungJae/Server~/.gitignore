@@ -1,0 +1,21 @@
+# Unity's root ignore rule also matches these two hand-authored .NET projects.
+!Gateway/Gateway.csproj
+!Tests/*.csproj
+
+bin/
+obj/
+publish/
+TestResults/
+.work/
+.cli/
+.dotnet/
+.nuget/
+.artifacts/
+.tmp/
+.env
+.env.*
+appsettings.*.local.json
+appsettings.Development.json
+secrets.json
+*.pfx
+*.pem

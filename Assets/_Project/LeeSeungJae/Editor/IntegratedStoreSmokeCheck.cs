@@ -70,7 +70,7 @@ namespace EmployeeVoice.Editor
             {
                 commandSent = true;
                 voice.SendMessage("SubmitText", "라면 진열해줘");
-                Debug.Log("[IntegratedStoreCheck] OpenAI 명령 처리 요청");
+                Debug.Log("[IntegratedStoreCheck] 중계서버에 직원 명령 분류 요청");
             }
             if (elapsed >= 25)
             {
