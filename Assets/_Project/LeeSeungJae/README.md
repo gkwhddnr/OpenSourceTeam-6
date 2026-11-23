@@ -12,7 +12,9 @@
 
 ## 로컬 중계서버 실행
 
-프로젝트 루트에서 아래 PowerShell 명령을 실행한다. 숨김 입력한 키는 현재 터미널과 그 터미널에서 시작하는 서버에만 설정된다. 서버에는 .NET 10 SDK 또는 .NET 10 대상 팩과 ASP.NET Core 10 런타임을 갖춘 상위 SDK가 필요하다.
+Windows에서 `OPENAI_API_KEY` 환경 변수를 설정했다면 파일 탐색기에서 [StartServer.bat](Server~/StartServer.bat)를 더블클릭한다. 게임을 테스트하는 동안 실행 창을 열어 두고, 마치면 그 창에서 `Ctrl+C`를 누른다.
+
+PowerShell에서 직접 시작하려면 프로젝트 루트에서 아래 명령을 실행한다. 숨김 입력한 키는 현재 터미널과 그 터미널에서 시작하는 서버에만 설정된다. 서버에는 .NET 10 SDK 또는 .NET 10 대상 팩과 ASP.NET Core 10 런타임을 갖춘 상위 SDK가 필요하다.
 
 ```powershell
 Set-Location 'Assets/_Project/LeeSeungJae/Server~'

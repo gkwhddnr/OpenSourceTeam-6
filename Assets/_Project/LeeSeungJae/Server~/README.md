@@ -5,7 +5,7 @@
 이 문서의 명령은 `Assets/_Project/LeeSeungJae/Server~` 디렉터리를 기준으로 한다. 준비된 환경은 Unity 6000.6.4f1, Windows, .NET SDK 11.0.100, ASP.NET Core 10.0.15다. 서버는 `net10.0`을 대상으로 하며 별도 NuGet 패키지 없이 설치된 대상 팩으로 빌드한다. 설치 상태는 `dotnet --list-sdks`와 `dotnet --list-runtimes`로 확인한다. [Microsoft .NET 지원 정책](https://dotnet.microsoft.com/en-us/platform/support/policy)
 
 1. 개발 PC의 별도 PowerShell에 `OPENAI_API_KEY` 환경 변수를 설정한다. 현재 터미널에만 키를 숨김 입력하는 방법은 [Unity README](../README.md)에 있다. Windows 사용자 환경 변수를 사용하는 경우에는 변경 후 새 터미널에서 서버를 재시작한다. 서버는 프로세스 환경에서 키를 읽는다.
-2. `dotnet run --project Gateway/Gateway.csproj`로 시작한다. 다른 터미널에서 `Invoke-RestMethod http://127.0.0.1:5127/health`를 실행하면 `status`가 `ok`로 나온다. 이는 서버 프로세스 확인용이며 키가 없어도 성공한다.
+2. Windows 환경 변수에 키를 등록했다면 파일 탐색기에서 [StartServer.bat](StartServer.bat)를 더블클릭한다. 현재 PowerShell에만 키를 입력했다면 같은 창에서 `.\StartServer.bat`를 실행한다. 직접 실행하는 명령은 `dotnet run --project Gateway/Gateway.csproj`다. 다른 터미널에서 `Invoke-RestMethod http://127.0.0.1:5127/health`를 실행하면 `status`가 `ok`로 나온다. 이는 서버 프로세스 확인용이며 키가 없어도 성공한다.
 3. 포트가 이미 사용 중이면 `dotnet run --project Gateway/Gateway.csproj -- --Relay:Port=5128`처럼 빈 포트를 지정한다. Unity 통합 씬의 **Voice Integration → Voice Movement Integration → Gateway Base Url**도 `http://127.0.0.1:5128`로 맞춘 뒤 Play 또는 빌드를 시작한다. 기본 바인딩은 IPv4 루프백이고, 클라이언트는 로컬 HTTP와 외부 HTTPS 주소를 지원한다. Windows Editor와 Standalone은 관리형 `HttpClient`를 사용한다.
 4. 종료는 서버 터미널에서 `Ctrl+C`다. 키나 모델 권한이 없으면 아래 자동 검증까지 진행할 수 있다. 실제 게임의 분류와 대사는 OpenAI API 사용료가 발생할 수 있다.
 
