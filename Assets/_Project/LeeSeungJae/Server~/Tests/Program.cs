@@ -9,7 +9,7 @@ using Microsoft.Extensions.Logging;
 
 namespace GatewayChecks;
 
-internal sealed class TestSuite
+internal sealed partial class TestSuite
 {
     internal const string KeyMarker = "offline-only-gateway-key-marker";
     private const string UtteranceMarker = "PRIVATE_UTTERANCE_FOR_TEST";
@@ -53,6 +53,9 @@ internal sealed class TestSuite
             "--OpenAI:DialogueModel=test-dialogue",
             "--OpenAI:ClassificationMaxOutputTokens=150",
             "--OpenAI:DialogueMaxOutputTokens=90",
+            "--OpenAI:PersonaModel=test-persona",
+            "--OpenAI:PersonaMaxOutputTokens=220",
+            "--OpenAI:PersonaTimeoutSeconds=2",
             "--OpenAI:ClassificationTimeoutSeconds=15",
             "--OpenAI:DialogueTimeoutSeconds=1"
         ];
@@ -90,6 +93,10 @@ internal sealed class TestSuite
         ExpectError(response, 503, "SERVER_CONFIG", (string?)request["requestId"]);
         Require(upstream.Calls == 0, "Missing key contacted OpenAI.");
         Pass("missing server key");
+        var persona = Resume();
+        ExpectError(await PostAsync(client, EvaluatePersona, persona.ToJsonString()), 503, "SERVER_CONFIG", (string?)persona["requestId"]);
+        Require(upstream.Calls == 0, "Missing key in persona evaluation contacted OpenAI.");
+        Pass("persona missing server key");
     }
 
     private async Task CheckGatewayAsync(HttpClient client)
@@ -101,6 +108,8 @@ internal sealed class TestSuite
             ("라면 채워", "RESTOCK", "RAMEN", "NEUTRAL", "REFUSE_EMOTION"),
             ("병신아 라면 채워", "RESTOCK", "RAMEN", "INSULT", "ACCEPT_COMPLAIN"),
             ("병신아", "TALK", "NONE", "INSULT", "NONE"),
+            ("쉬지 않고 일하면 힘들지?", "TALK", "NONE", "NEUTRAL", "NONE"),
+            ("휴식이 끝나면 기분이 어때?", "TALK", "NONE", "NEUTRAL", "NONE"),
             ("고생했어", "TALK", "NONE", "PRAISE", "NONE"),
             ("아까는 미안해", "TALK", "NONE", "APOLOGY", "NONE"),
             ("빨리 계산해", "CASHIER", "DEFAULT", "URGENT", "SLACK_OFF"),
@@ -138,6 +147,8 @@ internal sealed class TestSuite
         await CheckDialogueAsync(client);
         await CheckUpstreamErrorsAsync(client);
         await CheckClientDisconnectAsync(client);
+        await CheckRestCommandsAsync(client);
+        await CheckPersonaAsync(client);
     }
 
     private async Task CheckInvalidInputsAsync(HttpClient client)
@@ -312,6 +323,10 @@ internal sealed class TestSuite
         Require(lines.Any(line => line.Contains(cancelledId!) && line.Contains("code=CANCELLED")),
             "Missing cancellation log or trace id.");
         Pass("server logs contain timings and exclude private data");
+        Require(lines.Any(line => line.Contains(personaId!) && line.Contains("operation=evaluate-persona") &&
+            line.Contains("code=OK") && line.Contains("total_ms=")), "Missing persona trace.");
+        Require(lines.Any(line => line.Contains(personaCancelledId!) && line.Contains("code=CANCELLED")), "Missing cancelled persona trace.");
+        Pass("persona timings, correlation, cancellation and privacy");
     }
 
     private static JsonObject Request(string utterance = "라면 채워") => new()
@@ -354,7 +369,41 @@ internal sealed class TestSuite
 
     private static bool ContainsPrivateData(string value) =>
         value.Contains(KeyMarker) || value.Contains(UtteranceMarker) || value.Contains(UpstreamMarker) ||
-        value.Contains(ExampleDialogue);
+        value.Contains(ExampleDialogue) || value.Contains(ResumeNameMarker) || value.Contains(ResumeTraitsMarker);
+
+    private async Task CheckRestCommandsAsync(HttpClient client)
+    {
+        (string intent, string[] utterances)[] groups = [
+            ("CANCEL", ["휴식해", "좀 쉬어", "잠깐 쉬어!", "그만하고 쉬어", "저기 가서 쉬어", "저기 가서 휴식"]),
+            ("CLARIFY", ["쉬지 마.", "휴식하지 마.", "쉬는 건 취소하지 마.", "라면 채우고 쉬어.", "쉬지 말고 계산해.", "청소한 다음에 쉬어."])
+        ];
+        foreach (var (intent, utterances) in groups)
+        foreach (string utterance in utterances)
+        {
+            var request = Request(utterance);
+            // Supply a valid but wrong model decision so the test exercises the server's rule.
+            var wrong = intent == "CANCEL" ? Decision("MOVE", "CLICKED", "URGENT", "NONE") :
+                Decision("CANCEL", "NONE", "URGENT", "NONE");
+            upstream.Output(wrong.ToJsonString());
+            var response = await PostAsync(client, Classify, request.ToJsonString());
+            var expected = Decision(intent, "NONE", "URGENT", "NONE");
+            expected["requestId"] = request["requestId"]!.DeepClone();
+            Require(response.Status == 200 && JsonNode.DeepEquals(response.Body, expected), "Rest command policy failed.");
+            Pass($"rest command {utterance} => {intent}");
+        }
+        foreach (var (utterance, line) in new[] { ("그만해", "네, 멈출게요."), ("저기 가서 쉬어", "네, 잠깐 쉴게요.") })
+        {
+            var request = Request(utterance);
+            request["decision"] = Decision("CANCEL", "NONE", "NEUTRAL", "NONE");
+            upstream.Output(line);
+            var response = await PostAsync(client, Dialogue, request.ToJsonString());
+            string instructions = (string)upstream.LastBody!["instructions"]!;
+            Require(response.Status == 200 && (string?)response.Body["dialogue"] == line &&
+                instructions.Contains("잠깐 쉴게요") && instructions.Contains("멈출게요") &&
+                instructions.Contains("현재 위치"), "Cancel dialogue lost rest/stop context.");
+            Pass("confirmed cancel dialogue: " + utterance);
+        }
+    }
 
     private static void Require(bool condition, string message)
     {

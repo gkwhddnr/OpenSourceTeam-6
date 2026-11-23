@@ -8,6 +8,7 @@ namespace EmployeeGateway;
 internal interface IEmployeeModel
 {
     Task<string> GenerateAsync(EmployeeRequest request, bool dialogue, Stopwatch networkTime, CancellationToken cancellation);
+    Task<string> EvaluateAsync(string traits, Stopwatch networkTime, CancellationToken cancellation);
 }
 
 internal sealed class OpenAiModel(IHttpClientFactory clients, IConfiguration config) : IEmployeeModel
@@ -15,9 +16,21 @@ internal sealed class OpenAiModel(IHttpClientFactory clients, IConfiguration con
     private const string Endpoint = "https://api.openai.com/v1/responses";
     private const int MaxResponseBytes = 64 * 1024;
 
-    public async Task<string> GenerateAsync(EmployeeRequest request, bool dialogue, Stopwatch networkTime, CancellationToken cancellation)
+    public Task<string> EvaluateAsync(string traits, Stopwatch networkTime, CancellationToken cancellation) =>
+        SendAsync("Persona", PersonaPrompt.Instructions, new { traits }, PersonaPrompt.Format, networkTime, cancellation);
+
+    public Task<string> GenerateAsync(EmployeeRequest request, bool dialogue, Stopwatch networkTime, CancellationToken cancellation)
     {
-        string operation = dialogue ? "Dialogue" : "Classification";
+        object gameState = dialogue ? new { request.Utterance, request.Employee, request.Decision }
+                                    : new { request.Utterance, request.Employee };
+        return SendAsync(dialogue ? "Dialogue" : "Classification",
+            dialogue ? EmployeePrompts.Dialogue : EmployeePrompts.Classify, gameState,
+            dialogue ? null : EmployeePrompts.DecisionFormat, networkTime, cancellation);
+    }
+
+    private async Task<string> SendAsync(string operation, string instructions, object input, object? format,
+        Stopwatch networkTime, CancellationToken cancellation)
+    {
         string? model = config["OpenAI:" + operation + "Model"];
         if (!Contract.HasText(model, 128) ||
             !int.TryParse(config["OpenAI:" + operation + "MaxOutputTokens"], out int limit) || limit is < 16 or > 2048 ||
@@ -32,18 +45,16 @@ internal sealed class OpenAiModel(IHttpClientFactory clients, IConfiguration con
 
         // Keep server instructions and schema outside the user-provided JSON input.
         // The trace ID is only needed between the game and this relay.
-        object gameState = dialogue ? new { request.Utterance, request.Employee, request.Decision }
-                                    : new { request.Utterance, request.Employee };
         var body = new Dictionary<string, object?>
         {
             ["model"] = model,
-            ["instructions"] = dialogue ? EmployeePrompts.Dialogue : EmployeePrompts.Classify,
-            ["input"] = JsonSerializer.Serialize(gameState, Contract.Json),
+            ["instructions"] = instructions,
+            ["input"] = JsonSerializer.Serialize(input, Contract.Json),
             ["store"] = false,
             ["max_output_tokens"] = limit
         };
         if (model == "gpt-6-luna") body["reasoning"] = new { effort = "none" };
-        if (!dialogue) body["text"] = EmployeePrompts.DecisionFormat;
+        if (format != null) body["text"] = format;
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
         deadline.CancelAfter(TimeSpan.FromSeconds(seconds));

@@ -6,6 +6,7 @@ import socket
 import subprocess
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -20,7 +21,14 @@ class FakeRelay(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        data = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        length = int(self.headers["Content-Length"])
+        raw = self.rfile.read(length)
+        if not raw or len(raw) != length:
+            return  # The client can cancel while the request is still being sent.
+        data = json.loads(raw)
+        if self.path == "/api/v1/employee/evaluate-persona":
+            self.persona(data)
+            return
         common = {"requestId", "utterance", "employee"}
         employee = {"personality", "stress", "fatigue", "loyalty", "currentWork", "isMoving"}
         dialogue = self.path == "/api/v1/employee/dialogue"
@@ -52,6 +60,31 @@ class FakeRelay(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def persona(self, data):
+        valid = set(data) == {"requestId", "employeeName", "traits"} and "Authorization" not in self.headers
+        answer = {"requestId": data["requestId"], "schemaVersion": "1", "hourlyWageWon": 16000,
+                  "diligence": 85, "laziness": 35, "loyalty": 60, "workStressMultiplier": 1.25,
+                  "workFatigueMultiplier": 1.15, "wageSensitivityMultiplier": 1.10,
+                  "summaryReason": "업무 스트레스가 빨리 쌓이며 시급은 16,000원입니다."}
+        traits = data.get("traits", "")
+        if traits == "버전 오류": answer["schemaVersion"] = "2"
+        if traits == "시급 오류": answer["hourlyWageWon"] = 30001
+        if traits == "배율 오류": answer["workFatigueMultiplier"] = 1.234
+        if traits == "누락 오류": del answer["loyalty"]
+        if traits == "요청 오류": answer["requestId"] = "00000000-0000-4000-b000-000000000001"
+        if traits == "심사지연": time.sleep(0.6)
+        if not valid:
+            answer = {"requestId": data.get("requestId", ""), "error": {"code": "INVALID_INPUT", "message": "PRIVATE"}}
+        body = json.dumps(answer, ensure_ascii=False).encode("utf-8")
+        self.send_response(200 if valid else 400)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
 
 def main():
     version_text = (ROOT / "ProjectSettings/ProjectVersion.txt").read_text()
@@ -79,6 +112,8 @@ def main():
             label = "WindowsPlayer" if player else "Editor"
             output = work / (label + ".exe")
             flags = [line for line in lines if not line.startswith(("-target:", "-out:", "-refout:"))]
+            if not any("PersonaEvaluationClient.cs" in line for line in flags):
+                flags.append('"Assets/_Project/LeeSeungJae/Scripts/PersonaEvaluationClient.cs"')
             if player:
                 flags = [line for line in flags if not line.startswith("-define:UNITY_EDITOR")
                          and not (line.startswith('-r:"') and

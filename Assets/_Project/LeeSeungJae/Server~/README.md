@@ -21,12 +21,13 @@ Unity가 한 발화에 대한 스트레스를 반영하고 기존 성격·스트
 
 ## HTTP 계약과 제한
 
-`GET /health` 이외의 두 경로는 `Content-Type: application/json`으로 POST한다. 정상 응답에 요청 ID를 돌려준다. 잘못된 JSON 등에서 클라이언트 ID를 읽을 수 없으면 서버가 새 추적 ID를 만든다.
+`GET /health` 이외의 세 경로는 `Content-Type: application/json`으로 POST한다. 정상 응답에 요청 ID를 돌려준다. 잘못된 JSON 등에서 클라이언트 ID를 읽을 수 없으면 서버가 새 추적 ID를 만든다.
 
 | 경로 | 요청 | 성공 응답 |
 |---|---|---|
 | `/api/v1/employee/classify` | `requestId`, `utterance`, `employee` | `requestId`, `intent`, `target`, `tone`, `reaction` |
 | `/api/v1/employee/dialogue` | 같은 필드와 `decision` | `requestId`, `dialogue` |
+| `/api/v1/employee/evaluate-persona` | `requestId`, `employeeName`, `traits` | 아래 이력서 심사 v1 결과 |
 
 분류 요청 예시는 다음과 같다.
 
@@ -63,6 +64,75 @@ Unity가 한 발화에 대한 스트레스를 반영하고 기존 성격·스트
 모델은 서버의 `OpenAI:ClassificationModel`과 `OpenAI:DialogueModel`로 각각 정한다. 환경 변수로는 `OpenAI__ClassificationModel`과 `OpenAI__DialogueModel`이다. 기본값 `gpt-6-luna`와 `reasoning.effort=none`은 이전 코드와 같다. 공식 문서에서 Responses와 구조화된 출력 지원을 확인했다. 계정별 접근 권한은 실제 요청으로 확인한다. [OpenAI 모델 문서](https://developers.openai.com/api/docs/models/gpt-6-luna)
 
 오류 응답은 `{"requestId":"…","error":{"code":"…","message":"…"}}` 형식이다. `INVALID_INPUT`은 요청 값, `SERVER_CONFIG`와 `OPENAI_AUTH`는 서버 설정과 인증, `MODEL_CONFIG`는 모델·권한을 확인한다. `RATE_LIMITED`는 사용량·한도, `UPSTREAM_TIMEOUT`은 시간 초과, `UPSTREAM_UNAVAILABLE`은 일시적 장애다. `INVALID_RESPONSE`면 업무를 실행하지 않고 재입력을 안내한다. 연결 자체가 실패하면 Unity가 서버 실행 상태와 주소 확인을 안내한다. Unity는 외부 오류 본문을 화면이나 Console에 복사하지 않는다.
+
+## 이력서 심사 v1
+
+0일차 이력서 한 건을 심사한다. `POST /api/v1/employee/evaluate-persona` 요청 예시와 가짜 모델을 사용한 통합 테스트의 응답 예시는 다음과 같다.
+
+```json
+{
+  "requestId": "f62a3acc-6cb8-4465-bf11-bc79d50e3858",
+  "employeeName": "김민수",
+  "traits": "성실하지만 반복 재촉에 예민하다"
+}
+```
+
+```json
+{
+  "requestId": "f62a3acc-6cb8-4465-bf11-bc79d50e3858",
+  "schemaVersion": "1",
+  "hourlyWageWon": 16000,
+  "diligence": 85,
+  "laziness": 35,
+  "loyalty": 60,
+  "workStressMultiplier": 1.25,
+  "workFatigueMultiplier": 1.00,
+  "wageSensitivityMultiplier": 1.10,
+  "summaryReason": "성실도가 높고 업무 스트레스가 빨리 쌓이며 시급은 16,000원입니다."
+}
+```
+
+| 필드 | v1 검증 규칙 |
+|---|---|
+| `requestId` | 매 심사마다 빈 GUID를 제외한 하이픈 포함 36자 GUID. 유효한 입력 ID는 성공·오류·서버 로그에서 동일 |
+| `employeeName`, `traits` | 각각 1~12자, 1~50자. C# `string.Length` 기준으로 공백도 길이에 포함한다. 공백뿐인 값과 제어문자를 거부한다. |
+| `hourlyWageWon` | 게임 내 시급 10,030~30,000원, JSON 정수 |
+| `diligence`, `laziness`, `loyalty` | 각각 정수 0~100. `loyalty`는 채용 시점의 값 |
+| `workStressMultiplier`, `workFatigueMultiplier`, `wageSensitivityMultiplier` | 각각 유한한 JSON 수치 0.5~2.0. 최종 소수점 이하 최대 두 자리 |
+| `summaryReason` | 최대 80자(공백 포함). 서버가 최종 수치로 작성하는 한국어 한 줄 |
+
+본문 한도는 16 KiB다. 서버는 누락·중복·추가 필드를 거부하며, 이름은 요청 검증에만 쓴다. 외부 OpenAI에는 성격 텍스트만 입력 데이터로 보낸다. 모델·출력 규격과 프롬프트는 `PersonaPrompt.cs`와 `appsettings.json`에서 관리한다. `OpenAI:PersonaModel`, `PersonaMaxOutputTokens`, `PersonaTimeoutSeconds`(모두 `OpenAI` 섹션)의 기본값은 `gpt-6-luna`, 256토큰, 15초다. 요청별 시간과 오류 코드는 서버 로그의 `operation=evaluate-persona`에서 확인한다.
+
+### 임시 밸런스 산식
+
+1. 모델은 성격을 일반·장점 편중·비현실·모순 중 하나로 분류하고, 성실도·게으름·충성도와 세 배율을 평가한다. 근거가 없는 축의 기준은 50점 또는 1배다. 잘못된 유형·범위·JSON, 문자열 숫자, 필수 필드 누락은 `502 INVALID_RESPONSE`로 처리한다.
+2. 모순이면 각 수치를 기준값과의 중간으로 당긴다. 정수 중간값의 소수부는 버린다. 비현실이면 성실도·충성도 상한은 90, 게으름 하한은 10이다. 배율은 소수 둘째 자리로 반올림한다(정중앙은 0에서 먼 방향).
+3. 보정한 성실도 ≥80, 게으름 ≤20, 충성도 ≥80, 또는 세 배율 중 하나 ≤0.75이면 강한 장점으로 본다. 강한 장점이나 장점 편중이면 시급 하한은 16,000원, 시급 민감도 하한은 1.10이다. 비현실이면 두 하한을 20,000원과 1.25로 높인다. 일반 유형도 수치가 강한 구간이면 같은 규칙을 적용한다.
+4. 최종 성실도·충성도에서 50을 넘는 점수, 게으름에서 50보다 낮은 점수, 각 최종 배율에서 1.00보다 낮은 0.01 단위를 더한다. 이 합계의 1점당 50원을 기준 시급 10,030원에 더하고, 위 하한과 30,000원 상한을 적용한다. 불리한 특성이 다른 장점의 시급을 깎지는 않는다.
+5. 설명에는 최종값에 해당하는 장점, 1보다 큰 배율 중 가장 큰 부담이 있으면 그 부담, 최종 시급을 담는다. 밸런스 산정과 설명은 `Gateway/PersonaBalance.cs`에서 함께 조정한다.
+
+예시 분석의 성실도 85·게으름 35·충성도 60은 장점 60점이다. 산식상 13,030원에 강한 장점 하한을 적용해 16,000원이 된다. 비현실 유형에 성실도 100·게으름 0·충성도 100·세 배율 0.5를 넣은 테스트에서는 90·10·90, 배율 0.5·0.5·1.25와 시급 21,030원이 나왔다. 이 금액은 게임 개발용 임시값이다.
+
+### Unity 채용 연동과 중복 요청
+
+- 이름·성격 최대 길이는 0일차 `EmployeePersonaPresets`의 12자·50자와 일치한다. 현재 Unity는 빈값을 프리셋으로 대체하고 긴 입력을 잘라내며 성격의 줄바꿈을 정리한다. 자유 입력의 오류를 표시하려면 이 처리 전에 원문을 검증한다. 기존 별도 함수 `TryApplyEmployeePersonality`에는 한글 이름 2~4자 제약도 있다.
+- 심사 버튼은 요청 중 비활성화하고 입력이 바뀌거나 화면을 닫으면 기존 요청을 취소한다. 성공 시 현재 요청 ID, `schemaVersion == "1"` 및 위 범위를 확인한 후 시급·프로필을 한 번에 채용 상태에 반영한다. 오류는 실패 상태로 표시하고 사용자가 명시적으로 재시도하도록 한다.
+- 서버는 요청당 외부 호출 한 번을 시도한다. `requestId`는 추적용이고 서버에 결과 캐시나 중복 제거 저장소가 없으므로 같은 ID를 재전송해도 새 호출로 과금될 수 있다. 연결 취소는 이미 시작된 외부 비용을 되돌리지 않는다.
+- 현재 `EmployeePersonalityProfile`에 `WorkStressMultiplier`와 `WageSensitivityMultiplier`가 있지만 `WorkFatigueMultiplier`는 없다. 전용 필드 및 업무 중 피로 누적 연결이 필요하다. `RestRecoveryMultiplier`는 휴식 회복용이다. `summaryReason`은 심사 UI용이며, 응답에 없는 원형·초기 스트레스·회복 배율 등의 선택은 Unity 팀의 기존 프로필 정책에서 처리한다.
+- 오프라인 테스트는 같은 구조화 분석에 대해 같은 수치가 나오는지, 비현실적인 장점과 지시문을 담은 입력에서도 서버 한도가 작동하는지 확인한다. 다른 표현이 같은 모델 분석을 유도하는지 여부는 실제 모델에 달려 있다. 반어·모순·완곡한 과장을 모델이 놓치면 서로 다른 시급이 나올 수 있다.
+
+## 휴식 명령과 Unity 인계 사례
+
+기존 분류 응답의 `intent | target | tone | reaction` 형식을 사용한다. 서버는 모델 응답 조합을 검증한 후 명확한 휴식·부정·혼합 패턴의 의도와 대상을 교정하고 모델이 판정한 말투를 보존한다.
+
+| 발화 | 서버 결과 | Unity 동작 |
+|---|---|---|
+| 휴식해 / 좀 쉬어 / 잠깐 쉬어 / 그만하고 쉬어 | `CANCEL / NONE / 해당 말투 / NONE` | 현재 업무 중지 후 제자리 대기 |
+| 저기 가서 쉬어 / 저기 가서 휴식 | 같은 `CANCEL` | 제자리 대기. 목적지 이동·도착 안내 없음 |
+| 쉬지 마 / 휴식하지 마 / 쉬는 건 취소하지 마 | `CLARIFY / NONE / 해당 말투 / NONE` | 기존 업무를 유지하고 요청 확인 |
+| 라면 채우고 쉬어 / 쉬지 말고 계산해 / 청소한 다음에 쉬어 | 같은 `CLARIFY` | 지시를 나눠 달라고 요청 |
+
+`그만하고 쉬어`는 현재 Unity의 `IsMixedCommand`에 걸리고 `IsCancelCommand`의 즉시 취소 목록에 없다. Unity 작업에서는 이 명확한 휴식 문구를 좁게 예외 처리하고 위 부정·혼합 예문으로 함께 검증한다. 확정된 `CANCEL`의 대사 요청에는 원문을 유지한다. 대사 프롬프트는 “그만해”에는 중지, “잠깐 쉬어”에는 휴식을 표현하고, 장소를 언급해도 이동 완료를 말하지 않도록 한다. 자연어 대사 품질은 실제 모델 검증 대상이다.
 
 ## 단계별 시간과 비교 기준
 

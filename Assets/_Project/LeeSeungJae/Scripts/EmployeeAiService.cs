@@ -106,7 +106,7 @@ namespace EmployeeVoice
 
         public async Task<EmployeeDecision> ClassifyAsync(EmployeeAiRequest request, CancellationToken cancellation)
         {
-            JsonElement body = await SendAsync("classify", request, 20, cancellation).ConfigureAwait(false);
+            JsonElement body = await SendAsync("classify", request.RequestId, request.Body, 20, cancellation).ConfigureAwait(false);
             if (body.EnumerateObject().Count() != 5) throw new InvalidOperationException(InvalidResponse);
             var decision = new EmployeeDecision(ReadString(body, "intent"), ReadString(body, "target"),
                 ReadString(body, "tone"), ReadString(body, "reaction"));
@@ -117,13 +117,20 @@ namespace EmployeeVoice
 
         public async Task<string> DialogueAsync(EmployeeAiRequest request, CancellationToken cancellation)
         {
-            JsonElement body = await SendAsync("dialogue", request, 10, cancellation).ConfigureAwait(false);
+            JsonElement body = await SendAsync("dialogue", request.RequestId, request.Body, 10, cancellation).ConfigureAwait(false);
             if (body.EnumerateObject().Count() != 2 || !VoiceMovementIntegration.TryNormalizeDialogue(ReadString(body, "dialogue"), out string line))
                 throw new InvalidOperationException(InvalidResponse);
             return line;
         }
 
-        private async Task<JsonElement> SendAsync(string operation, EmployeeAiRequest data, int seconds, CancellationToken cancellation)
+        internal async Task<PersonaEvaluationResult> EvaluatePersonaAsync(string employeeName, string traits, CancellationToken cancellation)
+        {
+            var data = new PersonaEvaluationRequest(employeeName, traits);
+            JsonElement body = await SendAsync("evaluate-persona", data.RequestId, data.Body, 20, cancellation).ConfigureAwait(false);
+            return PersonaEvaluationResult.FromResponse(body, data);
+        }
+
+        private async Task<JsonElement> SendAsync(string operation, string requestId, byte[] requestBody, int seconds, CancellationToken cancellation)
         {
             cancellation.ThrowIfCancellationRequested();
             if (baseUri == null)
@@ -133,7 +140,7 @@ namespace EmployeeVoice
             using (var request = new HttpRequestMessage(HttpMethod.Post, new Uri(baseUri, "api/v1/employee/" + operation)))
             {
                 deadline.CancelAfter(TimeSpan.FromSeconds(seconds));
-                request.Content = new ByteArrayContent(data.Body);
+                request.Content = new ByteArrayContent(requestBody);
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
                 try
                 {
@@ -149,7 +156,7 @@ namespace EmployeeVoice
                         {
                             JsonElement body = document.RootElement;
                             if (body.ValueKind != JsonValueKind.Object ||
-                                !string.Equals(ReadString(body, "requestId"), data.RequestId, StringComparison.Ordinal))
+                                !string.Equals(ReadString(body, "requestId"), requestId, StringComparison.Ordinal))
                                 throw new InvalidOperationException(InvalidResponse);
                             if (!response.IsSuccessStatusCode)
                             {

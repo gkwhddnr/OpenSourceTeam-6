@@ -34,6 +34,8 @@ internal sealed class FakeOpenAi : HttpMessageHandler
         }));
     }
 
+    public void Disconnect() => pending = _ => throw new HttpRequestException("Simulated connection loss");
+
     // A signal from the fake proves both request start and token propagation.
     public (Task Started, Task Cancelled) WaitForCancellation()
     {

@@ -77,7 +77,7 @@ internal static class Contract
         catch (JsonException) { throw GatewayError.InvalidInput(); }
     }
 
-    public static object ReadAnswer(string text, string requestId, bool dialogue)
+    public static object ReadAnswer(string text, string requestId, bool dialogue, string utterance)
     {
         if (dialogue)
         {
@@ -91,6 +91,7 @@ internal static class Contract
         {
             var decision = JsonSerializer.Deserialize<Decision>(text, Json);
             if (decision?.IsValid() != true) throw GatewayError.InvalidResponse();
+            decision = RestCommand.Apply(utterance, decision);
             return new { requestId, decision.Intent, decision.Target, decision.Tone, decision.Reaction };
         }
         catch (JsonException) { throw GatewayError.InvalidResponse(); }

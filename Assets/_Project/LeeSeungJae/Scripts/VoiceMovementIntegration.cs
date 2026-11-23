@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -97,15 +98,57 @@ namespace EmployeeVoice
         private EmployeePersonalityProfile currentProfile = EmployeePersonalityProfile.CreatePreset1Diligent();
         private float stressFloat = 20f;
         private float fatigueFloat = 10f;
+        private float workFatigueMultiplier = 1f;
+        private PersonaEvaluationResult stagedPersonaEvaluation;
+        private string appliedPersonaRequestId;
+        private PersonaEvaluationClient personaEvaluationClient;
+
+        // Integration point for the hiring UI. The owner must call on the Unity
+        // thread and verify its current inputs again before confirming the hire.
+        public Task<PersonaEvaluationResult> EvaluatePersonaAsync(string employeeName, string traits,
+            CancellationToken cancellation = default)
+        {
+            if (personaEvaluationClient == null) personaEvaluationClient = new PersonaEvaluationClient(gatewayBaseUrl);
+            stagedPersonaEvaluation = null;
+            return personaEvaluationClient.EvaluateAsync(employeeName, traits, cancellation);
+        }
+
+        public bool IsPersonaEvaluationPending => personaEvaluationClient != null && personaEvaluationClient.IsPending;
+
+        public void CancelPersonaEvaluation()
+        {
+            personaEvaluationClient?.Cancel();
+            stagedPersonaEvaluation = null;
+        }
+
+        // The hiring UI must call this before raising PersonaConfirmed, then pass
+        // the returned data into its normal confirmation and settlement flow.
+        public bool TryPrepareEvaluatedPersona(EmployeePersonaSetupData baseline, PersonaEvaluationResult evaluation,
+            out EmployeePersonaSetupData prepared, out string reason)
+        {
+            prepared = baseline;
+            if (evaluation == null || !evaluation.Matches(baseline.EmployeeName, baseline.PersonalityTraits))
+            { reason = "이력서가 변경되어 다시 심사해야 합니다."; return false; }
+            if (evaluation.RequestId == appliedPersonaRequestId)
+            { reason = "이미 적용한 이력서 심사 결과입니다."; return false; }
+            if (recording || processing || transcriptionInFlight || inferenceInFlight || activeMove != 0)
+            { reason = "진행 중인 명령이나 이동이 끝난 뒤 직원을 변경해 주세요."; return false; }
+            prepared = evaluation.BuildPersona(baseline);
+            stagedPersonaEvaluation = evaluation;
+            reason = "";
+            return true;
+        }
+
+        public void ClearPendingPersonaEvaluation() => stagedPersonaEvaluation = null;
 
         // The hiring UI can provide a snapshot before starting a day; no UI ownership is assumed here.
         public bool TryApplyEmployeePersonality(EmployeePersonality selected, out string reason)
         {
             if (selected == null || string.IsNullOrWhiteSpace(selected.employeeName) ||
-                !Regex.IsMatch(selected.employeeName.Trim(), @"^[가-힣]{2,4}$"))
-            { reason = "직원 이름은 한글 2~4자로 입력해 주세요."; return false; }
-            if (selected.traits != null && selected.traits.Length > 50)
-            { reason = "직원 성격은 50자 이내로 입력해 주세요."; return false; }
+                selected.employeeName.Length > 12 || selected.employeeName.Any(char.IsControl))
+            { reason = "직원 이름은 1~12자로 입력해 주세요."; return false; }
+            if (string.IsNullOrWhiteSpace(selected.traits) || selected.traits.Length > 50 || selected.traits.Any(char.IsControl))
+            { reason = "직원 성격은 1~50자로 입력해 주세요."; return false; }
             if (recording || processing || transcriptionInFlight || inferenceInFlight || activeMove != 0)
             { reason = "진행 중인 명령이나 이동이 끝난 뒤 직원을 변경해 주세요."; return false; }
 
@@ -123,6 +166,8 @@ namespace EmployeeVoice
             stressFloat = personality.stress;
             fatigueFloat = personality.fatigue;
             currentProfile = EmployeePersonaPresets.InferProfileFromTraits(personality.traits);
+            workFatigueMultiplier = 1f;
+            stagedPersonaEvaluation = null;
             reason = "";
             UpdateHud();
             return true;
@@ -130,6 +175,21 @@ namespace EmployeeVoice
 
         private void OnPersonaConfirmed(EmployeePersonaSetupData setupData)
         {
+            PersonaEvaluationResult evaluation = stagedPersonaEvaluation;
+            stagedPersonaEvaluation = null;
+            if (evaluation != null && evaluation.RequestId != appliedPersonaRequestId &&
+                evaluation.Matches(setupData.EmployeeName, setupData.PersonalityTraits) &&
+                evaluation.HourlyWageWon == setupData.HourlyWageWon)
+            {
+                setupData = evaluation.BuildPersona(setupData);
+                workFatigueMultiplier = evaluation.WorkFatigueMultiplier;
+                appliedPersonaRequestId = evaluation.RequestId;
+            }
+            else
+            {
+                workFatigueMultiplier = 1f;
+                if (evaluation != null) Debug.LogWarning("[VoiceIntegration] 이력서가 변경되어 심사 결과를 적용하지 않았습니다.");
+            }
             currentProfile = setupData.Profile;
             EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
             stressFloat = currentProfile.InitialStress;
@@ -398,9 +458,7 @@ namespace EmployeeVoice
                 currentProfile,
                 rates,
                 deltaTime);
-            float fatigueDelta = isResting
-                ? -rates.RestFatigueRecoveryPerSecond * currentProfile.RestRecoveryMultiplier * deltaTime
-                : rates.WorkFatiguePerSecond * deltaTime;
+            float fatigueDelta = EvaluateFatigueDelta(isResting, rates, currentProfile, workFatigueMultiplier, deltaTime);
 
             int prevStress = personality.stress;
             int prevFatigue = personality.fatigue;
@@ -421,6 +479,14 @@ namespace EmployeeVoice
             {
                 TriggerStressOverflowEnding();
             }
+        }
+
+        internal static float EvaluateFatigueDelta(bool isResting, EmotionStatRates rates,
+            EmployeePersonalityProfile profile, float multiplier, float deltaTime)
+        {
+            return isResting
+                ? -rates.RestFatigueRecoveryPerSecond * profile.RestRecoveryMultiplier * deltaTime
+                : rates.WorkFatiguePerSecond * multiplier * deltaTime;
         }
 
         private bool ApplyCommandStressAndCheckOverflow(UtteranceTone tone, StoreCommandIntent commandIntent, StaffWorkRole targetRole)
@@ -613,13 +679,15 @@ namespace EmployeeVoice
                 Debug.Log("[VoiceIntegration] timing requestId=" + requestId + " action=" + actionName +
                     " decision_total_ms=" + decisionTimer.ElapsedMilliseconds + " input_to_decision_ms=" + inputTimer.ElapsedMilliseconds);
             }
-            bool cancelledImmediately = IsCancelCommand(text, personality.employeeName);
+            bool isRestRequest = IsRestCommand(text, personality.employeeName);
+            bool cancelledImmediately = isRestRequest || IsCancelCommand(text, personality.employeeName);
             if (cancelledImmediately)
             {
                 bool hadWork = activeMove != 0 || activeWorkRole != StaffWorkRole.Idle || inferenceInFlight;
                 CancelWork();
                 LogDecision("CANCEL");
-                Feedback(CommandFeedbackKind.Info, hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
+                Feedback(CommandFeedbackKind.Info, isRestRequest ? "직원이 현재 위치에서 휴식합니다." :
+                    hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
             }
             if (processing || inferenceInFlight) { Feedback(CommandFeedbackKind.Info, "이전 명령을 처리 중입니다."); return; }
             if (aiService == null) aiService = new GatewayEmployeeAiService(gatewayBaseUrl);
@@ -661,7 +729,7 @@ namespace EmployeeVoice
                         Feedback(CommandFeedbackKind.Info, hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
                     }
                     if (ApplyConversationToneAndCheckOverflow(tone)) return;
-                    StartConversationDialogue(text, intent, toneName, "네, 멈출게요.", request, requestId);
+                    StartConversationDialogue(text, intent, toneName, isRestRequest ? "네, 여기서 잠깐 쉴게요." : "네, 멈출게요.", request, requestId);
                     return;
                 }
                 if ((IsVagueCommand(text, personality.employeeName) || IsUnspecifiedRestockCommand(text, personality.employeeName)) && intent != "UNSUPPORTED")
@@ -939,8 +1007,17 @@ namespace EmployeeVoice
 
         public static bool IsMixedCommand(string text)
         {
+            if (IsRestCommand(text, "민수")) return false;
             string value = NormalizeCommand(text);
             return Regex.IsMatch(value, @"(말고|그만하고|멈추고|취소하고|중지하고|한뒤|하고나서|그리고|그다음|끝나면|가고)");
+        }
+
+        public static bool IsRestCommand(string text, string employeeName = "민수")
+        {
+            string value = NormalizeCommand(text, employeeName);
+            // The scene has one employee: unfamiliar vocatives still address them.
+            value = Regex.Replace(value, @"^[가-힣]{2,4}(?:야|아|님|씨)(?=(?:이제)?(?:그만하고|저기|거기|여기|저쪽|쉬|휴식|잠깐|좀))", "");
+            return Regex.IsMatch(value, @"^(?:이제)?(?:(?:그만하고)|(?:(?:저기|거기|여기|저쪽|이쪽|그쪽)(?:로|으로)?가서))?(?:잠깐만?|조금|좀)?(?:쉬어(?:요|줘|줘요|주세요)?|쉬세요|휴식(?:해(?:요|줘|줘요|주세요)?|하세요)?)$");
         }
 
         public static bool HasNegation(string text)
@@ -1337,15 +1414,16 @@ namespace EmployeeVoice
             previousDecision?.Cancel();
             CancelDialogue();
             if (activeMove != 0 && !movement.Cancel(activeMove)) activeMove = 0;
-            if (activeMove == 0)
-            {
-                activeWork = null;
-                activeMoveIsRestock = false;
-                activeRestockTarget = null;
-                activeWorkRole = StaffWorkRole.Idle;
-            }
+            // Cancel may deliver its completion on a later frame. Stop exposing
+            // Checkout/Arrived immediately while keeping the id for that callback.
+            activeWork = null;
+            activeMoveIsRestock = false;
+            activeRestockTarget = null;
+            activeWorkRole = StaffWorkRole.Idle;
+            currentAction = "IDLE";
+            badge = activeMove == 0 ? StaffMoveBadge.Idle : StaffMoveBadge.Cancelled;
             ui.PushVoiceStage(VoiceProcessStage.Idle, "");
-            if (activeMove == 0) { badge = StaffMoveBadge.Idle; currentAction = "IDLE"; UpdateHud(); }
+            UpdateHud();
         }
 
         private void SupersedePendingDecision()
@@ -1364,7 +1442,7 @@ namespace EmployeeVoice
             if (ui == null) return;
             StaffWorkRole displayedRole = activeWorkRole != StaffWorkRole.Idle
                 ? activeWorkRole
-                : (activeMove == 0 ? StaffWorkRole.Idle : (activeMoveIsRestock ? StaffWorkRole.Restock : StaffWorkRole.Other));
+                : (activeMove == 0 || badge == StaffMoveBadge.Cancelled ? StaffWorkRole.Idle : (activeMoveIsRestock ? StaffWorkRole.Restock : StaffWorkRole.Other));
             ui.UpdateEmployeeHud(new EmployeeHudSnapshot(personality.employeeName, personality.traits,
                 displayedRole, currentAction, badge,
                 personality.stress, personality.fatigue, personality.loyalty));
@@ -1388,6 +1466,9 @@ namespace EmployeeVoice
         private void OnDisable()
         {
             generation++;
+            personaEvaluationClient?.Dispose();
+            personaEvaluationClient = null;
+            stagedPersonaEvaluation = null;
             diagnosticAudio = null;
             selectedDestination = null;
             recordedDestination = null;

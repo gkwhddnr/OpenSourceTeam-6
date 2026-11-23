@@ -43,15 +43,15 @@ namespace EmployeeGateway
             });
             var app = builder.Build();
             app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-            app.MapPost("/api/v1/employee/classify", (HttpContext ctx) => HandleAsync(ctx, dialogue: false));
-            app.MapPost("/api/v1/employee/dialogue", (HttpContext ctx) => HandleAsync(ctx, dialogue: true));
+            app.MapPost("/api/v1/employee/classify", (HttpContext ctx) => HandleAsync(ctx, "classify"));
+            app.MapPost("/api/v1/employee/dialogue", (HttpContext ctx) => HandleAsync(ctx, "dialogue"));
+            app.MapPost("/api/v1/employee/evaluate-persona", (HttpContext ctx) => HandleAsync(ctx, "evaluate-persona"));
             return app;
         }
 
-        private static async Task HandleAsync(HttpContext ctx, bool dialogue)
+        private static async Task HandleAsync(HttpContext ctx, string operation)
         {
             string requestId = Guid.NewGuid().ToString("D");
-            string operation = dialogue ? "dialogue" : "classify";
             var total = Stopwatch.StartNew();
             var validation = Stopwatch.StartNew();
             var upstream = new Stopwatch();
@@ -73,14 +73,25 @@ namespace EmployeeGateway
                     if (ctx.Request.ContentLength > Contract.BodyLimit) throw GatewayError.InvalidInput(413);
                     using var document = await JsonDocument.ParseAsync(ctx.Request.Body, Contract.Document, cancellation);
                     requestId = Contract.FindRequestId(document.RootElement) ?? requestId;
-                    EmployeeRequest request = Contract.ReadRequest(document.RootElement, dialogue);
-                    validation.Stop();
-
                     IEmployeeModel model = ctx.RequestServices.GetRequiredService<IEmployeeModel>();
                     cancellation.ThrowIfCancellationRequested();
-                    string output = await model.GenerateAsync(request, dialogue, upstream, cancellation);
-                    cancellation.ThrowIfCancellationRequested();
-                    payload = Contract.ReadAnswer(output, requestId, dialogue);
+                    if (operation == "evaluate-persona")
+                    {
+                        PersonaRequest request = PersonaRequest.Read(document.RootElement);
+                        validation.Stop();
+                        string analysis = await model.EvaluateAsync(request.Traits, upstream, cancellation);
+                        cancellation.ThrowIfCancellationRequested();
+                        payload = PersonaBalance.Evaluate(analysis, requestId);
+                    }
+                    else
+                    {
+                        bool dialogue = operation == "dialogue";
+                        EmployeeRequest request = Contract.ReadRequest(document.RootElement, dialogue);
+                        validation.Stop();
+                        string output = await model.GenerateAsync(request, dialogue, upstream, cancellation);
+                        cancellation.ThrowIfCancellationRequested();
+                        payload = Contract.ReadAnswer(output, requestId, dialogue, request.Utterance);
+                    }
                 }
                 catch (Exception ex)
                 {
