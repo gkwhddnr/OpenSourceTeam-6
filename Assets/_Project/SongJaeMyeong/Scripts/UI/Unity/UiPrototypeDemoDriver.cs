@@ -1,4 +1,6 @@
+using System;
 using System.Collections;
+using System.Reflection;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
 using UnityEngine.AI;
@@ -6,6 +8,7 @@ using UnityEngine.InputSystem;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Random = UnityEngine.Random;
     using Time = UnityEngine.Time;
     /// <summary>
     /// 개인 검증 씬(SJM_UI_Work.unity)에서 외부 음성·이동 시스템 없이
@@ -54,10 +57,16 @@ namespace OpenSourceTeam6.UI.Unity
         private bool isRecordingVoice;
         private int sampleUtteranceIndex;
         private Coroutine voiceSimCoroutine;
+        private bool externalVoiceActive;
+        private MonoBehaviour externalVoiceComponent;
+        private SettingsPanelPresenter boundSettingsPanel;
 
         private void OnEnable()
         {
-            if (uiController == null) return;
+            RefreshExternalVoiceIntegration();
+            BindSettingsMicrophoneRelay();
+
+            if (uiController == null || externalVoiceActive) return;
             uiController.PersonaConfirmed += HandlePersonaConfirmed;
             uiController.DayStarted += HandleDayStarted;
             uiController.TextCommandSubmitted += HandleTextCommandSubmitted;
@@ -67,15 +76,67 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void OnDisable()
         {
-            if (uiController == null) return;
-            uiController.PersonaConfirmed -= HandlePersonaConfirmed;
-            uiController.DayStarted -= HandleDayStarted;
-            uiController.TextCommandSubmitted -= HandleTextCommandSubmitted;
-            uiController.CancelWorkRequested -= HandleCancelWorkRequested;
-            uiController.VoiceRecordToggleRequested -= HandleVoiceRecordToggleRequested;
+            UnbindSettingsMicrophoneRelay();
+
+            if (uiController != null)
+            {
+                uiController.PersonaConfirmed -= HandlePersonaConfirmed;
+                uiController.DayStarted -= HandleDayStarted;
+                uiController.TextCommandSubmitted -= HandleTextCommandSubmitted;
+                uiController.CancelWorkRequested -= HandleCancelWorkRequested;
+                uiController.VoiceRecordToggleRequested -= HandleVoiceRecordToggleRequested;
+            }
 
             StopActiveVoiceCoroutine();
             isRecordingVoice = false;
+        }
+
+        private void RefreshExternalVoiceIntegration()
+        {
+            externalVoiceComponent = null;
+            externalVoiceActive = false;
+
+            Type voiceType = Type.GetType("EmployeeVoice.VoiceMovementIntegration, Assembly-CSharp");
+            if (voiceType == null) return;
+
+            UnityEngine.Object found = FindAnyObjectByType(voiceType);
+            if (found is MonoBehaviour mb && mb.isActiveAndEnabled)
+            {
+                externalVoiceComponent = mb;
+                externalVoiceActive = true;
+            }
+        }
+
+        private void BindSettingsMicrophoneRelay()
+        {
+            if (!externalVoiceActive || uiController == null) return;
+            boundSettingsPanel = uiController.GetComponentInChildren<SettingsPanelPresenter>(true);
+            if (boundSettingsPanel != null)
+            {
+                boundSettingsPanel.MicrophoneDeviceChanged -= HandleSettingsMicrophoneChanged;
+                boundSettingsPanel.MicrophoneDeviceChanged += HandleSettingsMicrophoneChanged;
+            }
+        }
+
+        private void UnbindSettingsMicrophoneRelay()
+        {
+            if (boundSettingsPanel != null)
+            {
+                boundSettingsPanel.MicrophoneDeviceChanged -= HandleSettingsMicrophoneChanged;
+                boundSettingsPanel = null;
+            }
+        }
+
+        private void HandleSettingsMicrophoneChanged(string deviceName)
+        {
+            if (externalVoiceComponent == null) return;
+            FieldInfo micField = externalVoiceComponent.GetType().GetField(
+                "microphoneDeviceName",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (micField != null && micField.FieldType == typeof(string))
+            {
+                micField.SetValue(externalVoiceComponent, deviceName ?? string.Empty);
+            }
         }
 
         private void Update()
@@ -88,8 +149,52 @@ namespace OpenSourceTeam6.UI.Unity
                 return;
             }
 
+            if (externalVoiceActive)
+            {
+                HandleExternalVoiceUtilityHotkeys();
+                return;
+            }
+
             SimulateContinuousWorkAndStats(Time.deltaTime);
             HandleSimulationHotkeys();
+        }
+
+        private void HandleExternalVoiceUtilityHotkeys()
+        {
+            if (uiController.IsCommandOverlayOpen) return;
+            Keyboard kb = Keyboard.current;
+            if (kb == null) return;
+
+            if (kb.f6Key.wasPressedThisFrame)
+            {
+                uiController.CompleteDayAndShowSettlement(uiController.CurrentEmployeeStress);
+            }
+            else if (kb.f7Key.wasPressedThisFrame)
+            {
+                float skipSeconds = uiController.TotalDaySeconds > 0f
+                    ? uiController.TotalDaySeconds / 6f
+                    : 20f;
+                uiController.AdvanceRemainingDaySeconds(skipSeconds);
+                string clock = StoreDayTimeRules.FormatGameClock(uiController.CurrentGameHour);
+                string phase = StoreDayTimeRules.GetPhaseLabel(uiController.CurrentTimeOfDayPhase);
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.Info,
+                    string.Empty,
+                    $"TIME_SKIP ({clock} · {phase})",
+                    $"게임 시간을 4시간 빠르게 진행했습니다. 현재 시각: {clock} ({phase})"));
+            }
+            else if (kb.f8Key.wasPressedThisFrame)
+            {
+                bool nextRain = !uiController.IsRainWeather;
+                uiController.SetRainWeather(nextRain);
+                uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.Info,
+                    string.Empty,
+                    nextRain ? "WEATHER: RAIN_ON" : "WEATHER: RAIN_OFF",
+                    nextRain
+                        ? "비 날씨 이벤트를 켰습니다. 구름이 먼저 차오른 뒤 빗줄기가 내립니다. (2·3일차 날씨 프리뷰)"
+                        : "비 날씨 이벤트를 껐습니다. 빗줄기가 먼저 그친 뒤 구름이 걷힙니다."));
+            }
         }
 
         private void HandlePersonaConfirmed(EmployeePersonaSetupData persona)

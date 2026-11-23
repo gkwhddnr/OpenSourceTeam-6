@@ -516,6 +516,44 @@ namespace OpenSourceTeam6.UI.Core
             return $"{hours:00}:{minutes:00}";
         }
 
+        public static string FormatGameClockStepped(float gameHour, int minuteStep = 10)
+        {
+            float wrapped = WrapHour24(gameHour);
+            int totalMinutes = (int)Math.Floor(wrapped * 60f + 0.0001f);
+            if (totalMinutes < 0) totalMinutes = 0;
+            int safeStep = Math.Max(1, minuteStep);
+            int steppedMinutes = (totalMinutes / safeStep) * safeStep;
+            int hours = (steppedMinutes / 60) % 24;
+            int minutes = steppedMinutes % 60;
+            return $"{hours:00}:{minutes:00}";
+        }
+
+        public static string FormatMonitorClock(
+            float remainingSeconds,
+            float totalSeconds,
+            float? explicitGameHour = null,
+            int minuteStep = 10,
+            float openingHour = DefaultOpeningHour,
+            float closingHour = DefaultClosingHour)
+        {
+            float safeRemaining = float.IsNaN(remainingSeconds) || float.IsInfinity(remainingSeconds)
+                ? 0f
+                : Math.Max(0f, remainingSeconds);
+            bool hasExplicitHour = explicitGameHour.HasValue &&
+                                   !float.IsNaN(explicitGameHour.Value) &&
+                                   !float.IsInfinity(explicitGameHour.Value);
+            bool hasValidTotal = !float.IsNaN(totalSeconds) && !float.IsInfinity(totalSeconds) && totalSeconds > 0f;
+
+            float gameHour = hasExplicitHour
+                ? WrapHour24(explicitGameHour.Value)
+                : (hasValidTotal
+                    ? ComputeGameHour(ComputeDayProgress(safeRemaining, totalSeconds), openingHour, closingHour)
+                    : WrapHour24(openingHour));
+
+            string clockText = FormatGameClockStepped(gameHour, minuteStep);
+            return $"현재 시간 : {clockText}";
+        }
+
         public static string FormatHudClockAndTimer(
             float remainingSeconds,
             float totalSeconds,

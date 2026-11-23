@@ -43,7 +43,12 @@ namespace OpenSourceTeam6.UI.Editor
         private const string PrefabPath = "Assets/_Project/SongJaeMyeong/Prefabs/PF_StoreUIRoot.prefab";
         private const string WorldUiPrefabPath = "Assets/_Project/SongJaeMyeong/Prefabs/PF_EmployeeWorldStatusUI.prefab";
         private const string WorkScenePath = "Assets/_Project/SongJaeMyeong/Scenes/SJM_UI_Work.unity";
-        private const string ConvenienceStoreMapScenePath = "Assets/_Project/LeeSeungJae/Scenes/KoreanConvenienceStore.unity";
+        private const string ConvenienceStoreMapScenePath = "Assets/_Project/LeeSeungJae/Scenes/IntegratedConvenienceStore.unity";
+        private const string LegacyConvenienceStoreMapScenePath = "Assets/_Project/LeeSeungJae/Scenes/KoreanConvenienceStore.unity";
+        private const string EmployeeMovementProfilePath = "Assets/_Project/HaJongUk/Assets/Settings/DefaultMovement.asset";
+        private const string WhisperModelAssetPath = "Assets/_Project/LeeSeungJae/Assets/ggml-small-q5_1.bin";
+        private const string WhisperGpuPrefabPath = "Assets/_Project/LeeSeungJae/Prefabs/WhisperGpuManager.prefab";
+        private const string VoiceIntegrationRootName = "OpenAI Voice Integration";
         private const string EmployeeUniformMatPath = "Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Green.mat";
         private const string PlayerRigPrefabPath = "Assets/_Project/HaJongUk/Prefabs/PlayerRig.prefab";
         private const string PlayerVisualMatPath = "Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Orange.mat";
@@ -109,13 +114,15 @@ namespace OpenSourceTeam6.UI.Editor
                     activeScene.IsValid() &&
                     activeScene.path == WorkScenePath &&
                     (Object.FindAnyObjectByType<TimeEnvironmentController>() == null ||
-                     (File.Exists(ConvenienceStoreMapScenePath) &&
+                     (HasConvenienceStoreMapScene() &&
                       (GameObject.Find("ConvenienceStore_Map") == null ||
                        GameObject.Find("Counter_ManualCube") == null ||
                        GameObject.Find("Counter_PosMonitorRoot") == null ||
                        GameObject.Find("CounterMonitorScreenCanvas") == null ||
                        GameObject.Find("LobbyOverviewCamera") == null ||
                        GameObject.Find("PosSettlementStage") == null ||
+                       GameObject.Find(VoiceIntegrationRootName) == null ||
+                       Object.FindAnyObjectByType<EmployeeMovementController>() == null ||
                        Object.FindAnyObjectByType<StoreInventoryManager>() == null ||
                        (ConvenienceStoreProductPopulator.HasSellableAssetsImported() &&
                         ConvenienceStoreProductPopulator.NeedsProductShelfRefresh(GameObject.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName))) ||
@@ -253,13 +260,15 @@ namespace OpenSourceTeam6.UI.Editor
                 scene.IsValid() &&
                 scene.path == WorkScenePath &&
                 (Object.FindAnyObjectByType<TimeEnvironmentController>() == null ||
-                 (File.Exists(ConvenienceStoreMapScenePath) &&
+                 (HasConvenienceStoreMapScene() &&
                   (GameObject.Find("ConvenienceStore_Map") == null ||
                    GameObject.Find("Counter_ManualCube") == null ||
                    GameObject.Find("Counter_PosMonitorRoot") == null ||
                    GameObject.Find("CounterMonitorScreenCanvas") == null ||
                    GameObject.Find("LobbyOverviewCamera") == null ||
                    GameObject.Find("PosSettlementStage") == null ||
+                   GameObject.Find(VoiceIntegrationRootName) == null ||
+                   Object.FindAnyObjectByType<EmployeeMovementController>() == null ||
                    Object.FindAnyObjectByType<StoreInventoryManager>() == null ||
                    (ConvenienceStoreProductPopulator.HasSellableAssetsImported() &&
                     ConvenienceStoreProductPopulator.NeedsProductShelfRefresh(GameObject.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName))) ||
@@ -2469,7 +2478,7 @@ namespace OpenSourceTeam6.UI.Editor
                 camObj.AddComponent<AudioListener>();
             }
 
-            // 2. 알바 직원 캡슐 (초록 유니폼, NavMeshAgent 탑재 — 손님(빨강)/행인(파랑)/플레이어(주황)와 시각적으로 구분)
+            // 2. 알바 직원 캡슐 (초록 유니폼, NavMeshAgent + EmployeeMovementController 탑재 — 음성·LLM 명령 이동 연동)
             GameObject npcRoot = new GameObject("Demo_Employee_NPC");
             npcRoot.transform.SetParent(stageRoot.transform);
             npcRoot.transform.position = restTarget.position;
@@ -2481,6 +2490,19 @@ namespace OpenSourceTeam6.UI.Editor
             employeeAgent.acceleration = 14f;
             employeeAgent.angularSpeed = 480f;
             employeeAgent.stoppingDistance = 0.12f;
+
+            EmployeeMovementController employeeMovement = npcRoot.AddComponent<EmployeeMovementController>();
+            MovementProfile moveProfile = AssetDatabase.LoadAssetAtPath<MovementProfile>(EmployeeMovementProfilePath);
+            if (moveProfile != null)
+            {
+                SerializedObject moveSo = new SerializedObject(employeeMovement);
+                SerializedProperty profileProp = moveSo.FindProperty("profile");
+                if (profileProp != null)
+                {
+                    profileProp.objectReferenceValue = moveProfile;
+                    moveSo.ApplyModifiedPropertiesWithoutUndo();
+                }
+            }
 
             GameObject npcVisual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             npcVisual.name = "EmployeeVisualCapsule";
@@ -2508,7 +2530,7 @@ namespace OpenSourceTeam6.UI.Editor
 
             // 3. 손님(빨강) · 보행자(파랑) 캡슐 NPC 시스템 + 런타임 NavMesh 생성
             NpcPopulationController npcPopulation = hasStoreMap
-                ? BuildConvenienceStoreCustomerNpcSystem(stageRoot.transform)
+                ? BuildConvenienceStoreCustomerNpcSystem(stageRoot.transform, storeMapRoot)
                 : null;
 
             GameObject navObj = new GameObject("Environment_Navigation");
@@ -2648,9 +2670,10 @@ namespace OpenSourceTeam6.UI.Editor
                 BuildCounterManualInteractable(stageRoot.transform, uiController, cam, uiFont, paperFont, whiteSprite);
                 BuildCounterPosAndMonitor(storeMapRoot, stageRoot.transform, uiController, uiFont, whiteSprite);
                 BuildPosSettlementStage(storeMapRoot, uiController);
+                BuildVoiceAndLlmIntegration(storeMapRoot, uiController, timeController, employeeMovement, npcPopulation);
             }
 
-            // Demo driver + non-intrusive bottom-right shortcut guide (UI-06, kept outside PF_StoreUIRoot prefab!)
+            // Demo driver (실제 VoiceMovementIntegration이 활성일 때는 F6~F8 유틸 단축키 + 마이크 설정 동기화만 수행)
             GameObject demoObj = new GameObject("UI_PrototypeDemo");
             UiPrototypeDemoDriver driver = demoObj.AddComponent<UiPrototypeDemoDriver>();
             SerializedObject driverSo = new SerializedObject(driver);
@@ -2691,11 +2714,11 @@ namespace OpenSourceTeam6.UI.Editor
                 "ShortcutText",
                 hintContent,
                 paperFont,
-                "[조작 가이드 · 시연 단축키]\n" +
+                "[조작 가이드 · 음성/LLM 연동]\n" +
                 "• WASD : 이동 · E : 계산대 설명서\n" +
-                "• R(홀드)/V : 음성 지시 · Tab : 텍스트창\n" +
-                "• P / Esc : 일시정지 · F1 : 음성 명령 시뮬\n" +
-                "• F2~F4 : 오인식/분노/이동오류 · F5 : 스트레스\n" +
+                "• R(홀드)/V : 실제 음성 지시 (Whisper)\n" +
+                "• Tab : 텍스트 명령창 (LLM 중계)\n" +
+                "• 좌클릭 : 이동 위치 지정 · P/Esc : 정지\n" +
                 "• F6 : 정산 · F7 : +4시간 · F8 : 비 날씨",
                 32,
                 FontStyle.Normal,
@@ -2889,25 +2912,19 @@ namespace OpenSourceTeam6.UI.Editor
             Font uiFont,
             Sprite whiteSprite)
         {
-            // 1. 기존 맵의 임시 큐브 포스기(Register_Base, Register_Screen)를 숨긴다.
+            // 1. 기존 맵의 임시 큐브 포스기(Register_Base*, Register_Screen*)를 하위 계층 전체에서 찾아 숨긴다.
             if (storeMapRoot != null)
             {
-                Transform checkout2 = storeMapRoot.transform.Find("Checkout_2");
-                if (checkout2 != null)
+                Transform[] descendants = storeMapRoot.GetComponentsInChildren<Transform>(true);
+                for (int i = 0; i < descendants.Length; i++)
                 {
-                    Transform regBase = checkout2.Find("Register_Base");
-                    if (regBase != null) regBase.gameObject.SetActive(false);
-                    Transform regScreen = checkout2.Find("Register_Screen");
-                    if (regScreen != null) regScreen.gameObject.SetActive(false);
-                }
-
-                Transform checkout1 = storeMapRoot.transform.Find("Checkout_1");
-                if (checkout1 != null)
-                {
-                    Transform regBase1 = checkout1.Find("Register_Base (1)");
-                    if (regBase1 != null) regBase1.gameObject.SetActive(false);
-                    Transform regScreen1 = checkout1.Find("Register_Screen (1)");
-                    if (regScreen1 != null) regScreen1.gameObject.SetActive(false);
+                    Transform tr = descendants[i];
+                    if (tr == null) continue;
+                    if (tr.name.StartsWith("Register_Base", StringComparison.Ordinal) ||
+                        tr.name.StartsWith("Register_Screen", StringComparison.Ordinal))
+                    {
+                        tr.gameObject.SetActive(false);
+                    }
                 }
             }
 
@@ -3026,7 +3043,7 @@ namespace OpenSourceTeam6.UI.Editor
                 "TimeCardCaption",
                 timeCard.transform,
                 uiFont,
-                "현재 시각  ·  남은 영업 시간",
+                "매장 영업 시각",
                 32,
                 FontStyle.Normal,
                 new Color(0.64f, 0.80f, 0.94f, 1f),
@@ -3037,7 +3054,7 @@ namespace OpenSourceTeam6.UI.Editor
                 "MonitorTimerText",
                 timeCard.transform,
                 uiFont,
-                "08:00 (낮)  ·  남은 02:00",
+                "현재 시간 : 08:00",
                 64,
                 FontStyle.Bold,
                 Color.white,
@@ -3282,6 +3299,113 @@ namespace OpenSourceTeam6.UI.Editor
             stageVisualRoot.SetActive(false);
         }
 
+        private static bool HasConvenienceStoreMapScene()
+        {
+            return File.Exists(ConvenienceStoreMapScenePath) || File.Exists(LegacyConvenienceStoreMapScenePath);
+        }
+
+        private static string ResolveConvenienceStoreMapScenePath()
+        {
+            if (File.Exists(ConvenienceStoreMapScenePath)) return ConvenienceStoreMapScenePath;
+            if (File.Exists(LegacyConvenienceStoreMapScenePath)) return LegacyConvenienceStoreMapScenePath;
+            return null;
+        }
+
+        private static void BuildVoiceAndLlmIntegration(
+            GameObject storeMapRoot,
+            StoreUiSessionController uiController,
+            BusinessTimeController timeController,
+            EmployeeMovementController employeeMovement,
+            NpcPopulationController npcPopulation)
+        {
+            Type voiceType = Type.GetType("EmployeeVoice.VoiceMovementIntegration, Assembly-CSharp");
+            if (voiceType == null || uiController == null || employeeMovement == null)
+            {
+                Debug.LogWarning("[OpenSourceTeam6.UI] EmployeeVoice.VoiceMovementIntegration 타입을 찾지 못해 음성/LLM 연동을 건너뜁니다.");
+                return;
+            }
+
+            bool isExpandedMap = storeMapRoot != null && storeMapRoot.transform.Find("Layout_Rebuilt_2026") != null;
+
+            GameObject voiceRoot = new GameObject(VoiceIntegrationRootName);
+            GameObject destRoot = new GameObject("VoiceDestinations");
+            destRoot.transform.SetParent(voiceRoot.transform, false);
+
+            // 확장 맵(IntegratedConvenienceStore) 또는 기본 맵 좌표에 맞춘 10개 직원 이동 목적지
+            Transform snackDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Restock_Snack",
+                isExpandedMap ? new Vector3(-3.25f, 0f, 2.60f) : new Vector3(-2.90f, 0f, 0.65f));
+            Transform ramenDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Restock_Ramen",
+                isExpandedMap ? new Vector3(-0.75f, 0f, 2.60f) : new Vector3(-0.90f, 0f, 0.65f));
+            Transform dailyDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Restock_DailyGoods",
+                isExpandedMap ? new Vector3(1.75f, 0f, 2.60f) : new Vector3(1.15f, 0f, 0.65f));
+            Transform iceCreamDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Restock_IceCream",
+                isExpandedMap ? new Vector3(4.20f, 0f, 2.60f) : new Vector3(2.90f, 0f, 0.65f));
+            Transform walkInDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Restock_WalkIn",
+                isExpandedMap ? new Vector3(-5.55f, 0f, 2.60f) : new Vector3(-5.45f, 0f, 1.50f));
+            Transform hotFoodDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Restock_HotFood",
+                isExpandedMap ? new Vector3(2.00f, 0f, -1.65f) : new Vector3(1.35f, 0f, -1.55f));
+            Transform cleanDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Clean",
+                isExpandedMap ? new Vector3(6.35f, 0f, 0.50f) : new Vector3(4.20f, 0f, 0.50f));
+            Transform cashierDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Cashier",
+                isExpandedMap ? new Vector3(-6.00f, 0f, -1.40f) : new Vector3(-3.80f, 0f, -1.55f));
+
+            Component voiceComp = voiceRoot.AddComponent(voiceType);
+            SerializedObject voiceSo = new SerializedObject(voiceComp);
+            SetObjProp(voiceSo, "existingUi", uiController);
+            SetObjProp(voiceSo, "businessTime", timeController);
+            SetObjProp(voiceSo, "employee", employeeMovement);
+            SetObjProp(voiceSo, "restockDestination", snackDest);
+            SetObjProp(voiceSo, "restockSnackDestination", snackDest);
+            SetObjProp(voiceSo, "restockRamenDestination", ramenDest);
+            SetObjProp(voiceSo, "restockDailyGoodsDestination", dailyDest);
+            SetObjProp(voiceSo, "restockIceCreamDestination", iceCreamDest);
+            SetObjProp(voiceSo, "restockWalkInDestination", walkInDest);
+            SetObjProp(voiceSo, "restockHotFoodDestination", hotFoodDest);
+            SetObjProp(voiceSo, "cleanDestination", cleanDest);
+            SetObjProp(voiceSo, "paymentDestination", cashierDest);
+            SetObjProp(voiceSo, "cashierDestination", cashierDest);
+
+            SerializedProperty gatewayProp = voiceSo.FindProperty("gatewayBaseUrl");
+            if (gatewayProp != null && string.IsNullOrWhiteSpace(gatewayProp.stringValue))
+            {
+                gatewayProp.stringValue = "http://127.0.0.1:5127";
+            }
+
+            SerializedProperty whisperPathProp = voiceSo.FindProperty("whisperModelPath");
+            if (whisperPathProp != null)
+            {
+                whisperPathProp.stringValue = WhisperModelAssetPath;
+            }
+
+            GameObject whisperGpuPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(WhisperGpuPrefabPath);
+            if (whisperGpuPrefab != null)
+            {
+                SetObjProp(voiceSo, "whisperGpuPrefab", whisperGpuPrefab);
+            }
+
+            voiceSo.ApplyModifiedPropertiesWithoutUndo();
+
+            // 같은 GameObject에 IntegratedNpcSession 부착 (진열 도착 시 StoreInventoryManager 재고 +3 보충 연동)
+            Type npcSessionType = Type.GetType("EmployeeVoice.IntegratedNpcSession, Assembly-CSharp");
+            if (npcSessionType != null)
+            {
+                Component npcSession = voiceRoot.AddComponent(npcSessionType);
+                SerializedObject sessSo = new SerializedObject(npcSession);
+                SetObjProp(sessSo, "ui", uiController);
+                SetObjProp(sessSo, "population", npcPopulation);
+                sessSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+        }
+
+        private static void SetObjProp(SerializedObject so, string propName, Object value)
+        {
+            SerializedProperty prop = so.FindProperty(propName);
+            if (prop != null)
+            {
+                prop.objectReferenceValue = value;
+            }
+        }
+
         private static bool TryImportConvenienceStoreMap(
             Scene targetScene,
             out GameObject importedMapRoot,
@@ -3289,12 +3413,13 @@ namespace OpenSourceTeam6.UI.Editor
         {
             importedMapRoot = null;
             spawnedItemCounts = null;
-            if (!File.Exists(ConvenienceStoreMapScenePath))
+            string mapScenePath = ResolveConvenienceStoreMapScenePath();
+            if (string.IsNullOrEmpty(mapScenePath))
             {
                 return false;
             }
 
-            Scene mapScene = EditorSceneManager.OpenScene(ConvenienceStoreMapScenePath, OpenSceneMode.Additive);
+            Scene mapScene = EditorSceneManager.OpenScene(mapScenePath, OpenSceneMode.Additive);
             if (!mapScene.IsValid())
             {
                 return false;
@@ -3303,11 +3428,32 @@ namespace OpenSourceTeam6.UI.Editor
             try
             {
                 EditorSceneManager.SetActiveScene(targetScene);
+                GameObject[] roots = mapScene.GetRootGameObjects();
+
+                // IntegratedConvenienceStore.unity는 루트에 ConvenienceStore_Map을 보유한다.
+                for (int i = 0; i < roots.Length; i++)
+                {
+                    GameObject src = roots[i];
+                    if (src != null && src.name == "ConvenienceStore_Map")
+                    {
+                        GameObject clonedMap = Object.Instantiate(src);
+                        clonedMap.name = "ConvenienceStore_Map";
+                        SceneManager.MoveGameObjectToScene(clonedMap, targetScene);
+
+                        bool hasRebuiltItems = clonedMap.transform.Find("Layout_Rebuilt_2026") != null &&
+                                               clonedMap.transform.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName) != null;
+                        spawnedItemCounts = hasRebuiltItems
+                            ? ConvenienceStoreProductPopulator.CollectExistingStockCounts(clonedMap)
+                            : ConvenienceStoreProductPopulator.PopulateMap(clonedMap);
+                        importedMapRoot = clonedMap;
+                        return true;
+                    }
+                }
+
                 GameObject mapRoot = new GameObject("ConvenienceStore_Map");
                 SceneManager.MoveGameObjectToScene(mapRoot, targetScene);
 
                 int importedCount = 0;
-                GameObject[] roots = mapScene.GetRootGameObjects();
                 for (int i = 0; i < roots.Length; i++)
                 {
                     GameObject src = roots[i];
@@ -3338,7 +3484,7 @@ namespace OpenSourceTeam6.UI.Editor
             }
         }
 
-        private static NpcPopulationController BuildConvenienceStoreCustomerNpcSystem(Transform parent)
+        private static NpcPopulationController BuildConvenienceStoreCustomerNpcSystem(Transform parent, GameObject storeMapRoot)
         {
             GameObject customerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CustomerCapsulePrefabPath);
             GameObject pedestrianPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PedestrianCapsulePrefabPath);
@@ -3351,12 +3497,36 @@ namespace OpenSourceTeam6.UI.Editor
             GameObject npcSysObj = new GameObject("Store_CustomerNpcSystem");
             npcSysObj.transform.SetParent(parent, false);
 
-            Transform leftSidewalk = CreateEmptyWaypoint(npcSysObj.transform, "Sidewalk_Left", new Vector3(-5.20f, 0f, 4.65f));
-            Transform rightSidewalk = CreateEmptyWaypoint(npcSysObj.transform, "Sidewalk_Right", new Vector3(5.20f, 0f, 4.65f));
-            Transform entrance = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Entrance", new Vector3(4.25f, 0f, 3.05f));
-            Transform shelf = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Shelf", new Vector3(-0.90f, 0f, 0.65f));
+            bool isExpandedMap = storeMapRoot != null && storeMapRoot.transform.Find("Layout_Rebuilt_2026") != null;
+            Vector3 leftSidewalkPos = new Vector3(-5.20f, 0f, 4.65f);
+            Vector3 rightSidewalkPos = new Vector3(5.20f, 0f, 4.65f);
+            Vector3 entrancePos = new Vector3(4.25f, 0f, 3.05f);
+            Vector3 shelfPos = new Vector3(-0.90f, 0f, 0.65f);
+            Vector3 exitPos = new Vector3(4.25f, 0f, 4.35f);
+
+            if (isExpandedMap)
+            {
+                Transform arch = storeMapRoot.transform.Find("Architecture");
+                Transform floorTr = arch != null ? arch.Find("Floor") : null;
+                Renderer floorRend = floorTr != null ? floorTr.GetComponent<Renderer>() : null;
+                if (floorRend != null)
+                {
+                    Bounds fb = floorRend.bounds;
+                    const float doorX = 5.45f;
+                    leftSidewalkPos = new Vector3(fb.min.x + 1.8f, 0f, fb.max.z + 0.95f);
+                    rightSidewalkPos = new Vector3(fb.max.x - 1.8f, 0f, fb.max.z + 0.95f);
+                    entrancePos = new Vector3(doorX, 0f, fb.max.z - 0.65f);
+                    exitPos = new Vector3(doorX, 0f, fb.max.z + 0.65f);
+                    shelfPos = new Vector3(-0.75f, 0f, 2.60f);
+                }
+            }
+
+            Transform leftSidewalk = CreateEmptyWaypoint(npcSysObj.transform, "Sidewalk_Left", leftSidewalkPos);
+            Transform rightSidewalk = CreateEmptyWaypoint(npcSysObj.transform, "Sidewalk_Right", rightSidewalkPos);
+            Transform entrance = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Entrance", entrancePos);
+            Transform shelf = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Shelf", shelfPos);
             Transform checkout = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Checkout", new Vector3(-3.80f, 0f, -1.55f));
-            Transform exit = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Exit", new Vector3(4.25f, 0f, 4.35f));
+            Transform exit = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Exit", exitPos);
 
             Transform[] queueSlots =
             {

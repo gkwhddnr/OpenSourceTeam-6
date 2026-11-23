@@ -1,4 +1,6 @@
+using System;
 using OpenSourceTeam6.Customers.Unity;
+using OpenSourceTeam6.UI.Core;
 using Unity.AI.Navigation;
 using UnityEngine;
 using UnityEngine.AI;
@@ -19,9 +21,12 @@ namespace OpenSourceTeam6.UI.Unity
 
         private bool lastPauseState;
         private int lastDay = -1;
+        private bool deferredToIntegratedNpcSession;
 
         private void Awake()
         {
+            HideLegacyPrimitiveRegisters();
+
             NavMeshSurface surface = GetComponent<NavMeshSurface>();
             if (surface == null || !surface.enabled || !surface.gameObject.activeInHierarchy)
             {
@@ -35,8 +40,33 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
+        private static void HideLegacyPrimitiveRegisters()
+        {
+            GameObject mapRoot = GameObject.Find("ConvenienceStore_Map");
+            if (mapRoot == null) return;
+
+            Transform[] descendants = mapRoot.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < descendants.Length; i++)
+            {
+                Transform tr = descendants[i];
+                if (tr == null || !tr.gameObject.activeSelf) continue;
+                if (tr.name.StartsWith("Register_Base", StringComparison.Ordinal) ||
+                    tr.name.StartsWith("Register_Screen", StringComparison.Ordinal))
+                {
+                    tr.gameObject.SetActive(false);
+                }
+            }
+        }
+
         private void Start()
         {
+            Type integratedNpcType = Type.GetType("EmployeeVoice.IntegratedNpcSession, Assembly-CSharp");
+            if (integratedNpcType != null)
+            {
+                UnityEngine.Object found = FindAnyObjectByType(integratedNpcType);
+                deferredToIntegratedNpcSession = found is MonoBehaviour mb && mb.isActiveAndEnabled;
+            }
+
             if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && !demoEmployeeAgent.isOnNavMesh)
             {
                 NavMeshQueryFilter filter = new NavMeshQueryFilter
@@ -61,12 +91,15 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void SyncNpcState(bool force)
         {
-            if (npcPopulation == null || uiController == null)
+            if (deferredToIntegratedNpcSession || npcPopulation == null || uiController == null)
             {
                 return;
             }
 
-            bool shouldPause = uiController.IsPauseMenuOpen;
+            bool shouldPause = uiController.CurrentMode != UiScreenMode.InGame ||
+                               uiController.IsPauseMenuOpen ||
+                               uiController.IsSettingsOpen ||
+                               uiController.IsTransitionFading;
             if (force || shouldPause != lastPauseState)
             {
                 lastPauseState = shouldPause;

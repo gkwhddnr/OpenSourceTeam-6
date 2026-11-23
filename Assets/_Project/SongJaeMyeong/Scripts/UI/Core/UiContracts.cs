@@ -491,8 +491,8 @@ namespace OpenSourceTeam6.UI.Core
                 InitialLoyalty = 70f,
                 WorkStressPerSecond = 1.2f,
                 WorkFatiguePerSecond = 0.8f,
-                RestStressRecoveryPerSecond = 1.8f,
-                RestFatigueRecoveryPerSecond = 1.0f,
+                RestStressRecoveryPerSecond = 0.25f,
+                RestFatigueRecoveryPerSecond = 0.35f,
                 TaskSwitchStressPenalty = 12f,
                 RefusalLoyaltyPenalty = 5f
             };

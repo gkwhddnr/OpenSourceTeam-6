@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
@@ -23,6 +24,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void OnEnable()
         {
+            if (commandInputField != null) commandInputField.onSubmit.AddListener(HandleInputFieldSubmitted);
             if (submitButton != null) submitButton.onClick.AddListener(HandleSubmitClicked);
             if (quickCheckoutButton != null) quickCheckoutButton.onClick.AddListener(HandleQuickCheckout);
             if (quickRestockButton != null) quickRestockButton.onClick.AddListener(HandleQuickRestock);
@@ -32,6 +34,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void OnDisable()
         {
+            if (commandInputField != null) commandInputField.onSubmit.RemoveListener(HandleInputFieldSubmitted);
             if (submitButton != null) submitButton.onClick.RemoveListener(HandleSubmitClicked);
             if (quickCheckoutButton != null) quickCheckoutButton.onClick.RemoveListener(HandleQuickCheckout);
             if (quickRestockButton != null) quickRestockButton.onClick.RemoveListener(HandleQuickRestock);
@@ -42,6 +45,10 @@ namespace OpenSourceTeam6.UI.Unity
         private void Update()
         {
             if (!IsOpen) return;
+
+            // InputField가 포커스 중일 때는 한글 IME 조합이 완료된 뒤 onSubmit으로 제출되도록
+            // Update에서 Enter를 가로채지 않는다 (가로채면 마지막 한글 1글자가 누락됨).
+            if (commandInputField != null && commandInputField.isFocused) return;
 
             Keyboard kb = Keyboard.current;
             if (kb == null) return;
@@ -68,25 +75,53 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
+        private void HandleInputFieldSubmitted(string submittedText)
+        {
+            if (!IsOpen) return;
+            SubmitResolvedText(submittedText);
+        }
+
         private void HandleSubmitClicked()
         {
             if (commandInputField == null) return;
-            string text = commandInputField.text;
-            if (string.IsNullOrWhiteSpace(text)) return;
+            SubmitResolvedText(commandInputField.text);
+        }
 
-            string trimmed = text.Trim();
-            commandInputField.text = string.Empty;
+        private void SubmitResolvedText(string rawText)
+        {
+            string combined = rawText ?? string.Empty;
+            string composing = GetCurrentImeCompositionString();
+            if (!string.IsNullOrEmpty(composing) && !combined.EndsWith(composing, StringComparison.Ordinal))
+            {
+                combined += composing;
+            }
+
+            if (string.IsNullOrWhiteSpace(combined)) return;
+
+            string trimmed = combined.Trim();
+            if (commandInputField != null)
+            {
+                commandInputField.text = string.Empty;
+            }
             CommandSubmitted?.Invoke(trimmed);
+        }
+
+        private static string GetCurrentImeCompositionString()
+        {
+            EventSystem es = EventSystem.current;
+            BaseInputModule module = es != null ? es.currentInputModule : null;
+            BaseInput input = module != null ? module.input : null;
+            return input != null ? input.compositionString : string.Empty;
         }
 
         private void HandleQuickCheckout()
         {
-            CommandSubmitted?.Invoke("계산대 업무 봐줘");
+            CommandSubmitted?.Invoke("계산대 봐줘");
         }
 
         private void HandleQuickRestock()
         {
-            CommandSubmitted?.Invoke("진열대에 물건 채워줘");
+            CommandSubmitted?.Invoke("라면 진열해줘");
         }
 
         private void HandleCancelWork()

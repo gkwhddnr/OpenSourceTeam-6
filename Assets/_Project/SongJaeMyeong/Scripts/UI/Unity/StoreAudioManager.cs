@@ -113,6 +113,16 @@ namespace OpenSourceTeam6.UI.Unity
             }
 
             AudioClip clip = ResolveBgmClip(track);
+            StoreBgmTrack previousTrack = CurrentBgm;
+            bool wasPlaying = _bgmSource.isPlaying;
+
+            if (!forceRestart && clip != null && _bgmSource.isPlaying && _bgmSource.clip == clip)
+            {
+                CurrentBgm = track;
+                ApplyVolumeToSources();
+                return;
+            }
+
             CurrentBgm = track;
 
             if (clip == null)
@@ -121,6 +131,7 @@ namespace OpenSourceTeam6.UI.Unity
                 return;
             }
 
+            Debug.Log($"[StoreAudio] BGM 전환: {previousTrack} -> {track} (wasPlaying={wasPlaying}, clip={clip.name})");
             _bgmSource.clip = clip;
             _bgmSource.loop = true;
             ApplyVolumeToSources();

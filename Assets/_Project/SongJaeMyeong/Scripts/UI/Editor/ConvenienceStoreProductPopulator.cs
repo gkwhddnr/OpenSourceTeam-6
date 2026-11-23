@@ -196,6 +196,13 @@ namespace OpenSourceTeam6.UI.Editor
         {
             if (populatedMarker == null) return true;
 
+            // 확장 레이아웃(Layout_Rebuilt_2026)으로 통합된 맵은 기존 진열 배치를 보존한다.
+            if (populatedMarker.transform.parent != null &&
+                populatedMarker.transform.parent.Find("Layout_Rebuilt_2026") != null)
+            {
+                return false;
+            }
+
             Transform ramenGroup = populatedMarker.transform.Find("Ramen_Items");
             if (ramenGroup != null)
             {
@@ -213,6 +220,39 @@ namespace OpenSourceTeam6.UI.Editor
             }
 
             return false;
+        }
+
+        public static Dictionary<string, int> CollectExistingStockCounts(GameObject mapRoot)
+        {
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (mapRoot == null) return counts;
+
+            Transform marker = mapRoot.transform.Find(PopulatedMarkerName);
+            if (marker == null) return counts;
+
+            Dictionary<Material, Material> urpMatCache = new Dictionary<Material, Material>();
+            EnsureUrpMaterialsOnRenderers(marker.gameObject, urpMatCache);
+
+            for (int g = 0; g < marker.childCount; g++)
+            {
+                Transform group = marker.GetChild(g);
+                for (int i = 0; i < group.childCount; i++)
+                {
+                    string childName = group.GetChild(i).name;
+                    if (string.IsNullOrEmpty(childName) || !childName.StartsWith("Item_", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    string itemId = childName.Substring("Item_".Length);
+                    if (string.IsNullOrWhiteSpace(itemId)) continue;
+
+                    counts.TryGetValue(itemId, out int current);
+                    counts[itemId] = current + 1;
+                }
+            }
+
+            return counts;
         }
 
         public static Dictionary<string, int> PopulateMap(GameObject mapRoot)

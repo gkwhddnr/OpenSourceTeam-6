@@ -23,6 +23,8 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Text counterMonitorBalanceText;
 
         [Header("Employee Status Card")]
+        [SerializeField] private GameObject employeeStatusCardRoot;
+        [SerializeField] private Sprite foldedNoteSprite;
         [SerializeField] private Text employeeHeaderText;
         [SerializeField] private Text currentRoleText;
         [SerializeField] private Image moveBadgeBackground;
@@ -41,10 +43,19 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Image feedbackBannerBg;
         [SerializeField] private Text feedbackBannerText;
 
+        private const string FoldedNoteResourcePath = "UI/Spr_FoldedNote";
+
         private VoiceProcessStage currentVoiceStage = VoiceProcessStage.Idle;
         private float processingAnimTimer;
+        private bool isEmployeeCardCollapsed;
+        private GameObject expandedCollapseHintRoot;
+        private GameObject collapsedNoteRoot;
+        private Sprite runtimeCreatedFoldedSprite;
+
+        public bool IsEmployeeCardCollapsed => isEmployeeCardCollapsed;
 
         public event Action OpenCommandOverlayClicked;
+        public event Action EmployeeCardFoldToggleClicked;
 
         private static readonly Color StressStableColor = new Color(0.20f, 0.78f, 0.52f, 1f);
         private static readonly Color StressComplainColor = new Color(0.95f, 0.72f, 0.18f, 1f);
@@ -94,6 +105,33 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 target.SetActive(visible);
             }
+
+            if (visible)
+            {
+                EnsureCollapsibleNoteWidgets();
+                ApplyEmployeeCardFoldState();
+            }
+        }
+
+        public void SetEmployeeCardCollapsed(bool collapsed)
+        {
+            isEmployeeCardCollapsed = collapsed;
+            EnsureCollapsibleNoteWidgets();
+            ApplyEmployeeCardFoldState();
+        }
+
+        public void ToggleEmployeeCardCollapsed()
+        {
+            SetEmployeeCardCollapsed(!isEmployeeCardCollapsed);
+        }
+
+        private void OnDestroy()
+        {
+            if (runtimeCreatedFoldedSprite != null)
+            {
+                Destroy(runtimeCreatedFoldedSprite);
+                runtimeCreatedFoldedSprite = null;
+            }
         }
 
         public void BindCounterMonitorTexts(Text monitorDayText, Text monitorTimerText, Text monitorBalanceText)
@@ -103,10 +141,56 @@ namespace OpenSourceTeam6.UI.Unity
             counterMonitorBalanceText = monitorBalanceText;
         }
 
+        private void EnsureEmployeeCardBound()
+        {
+            if (stressFillImage != null && stressValueText != null &&
+                fatigueFillImage != null && fatigueValueText != null &&
+                loyaltyFillImage != null && loyaltyValueText != null)
+            {
+                return;
+            }
+
+            Transform root = hudRoot != null ? hudRoot.transform : transform;
+            Transform cardContent = root.Find("EmployeeStatusCard/PostItContent");
+            if (cardContent == null) return;
+
+            if (stressFillImage == null)
+            {
+                Transform tr = cardContent.Find("스트레스_Track/스트레스_Fill");
+                if (tr != null) stressFillImage = tr.GetComponent<Image>();
+            }
+            if (stressValueText == null)
+            {
+                Transform tr = cardContent.Find("스트레스_Value");
+                if (tr != null) stressValueText = tr.GetComponent<Text>();
+            }
+            if (fatigueFillImage == null)
+            {
+                Transform tr = cardContent.Find("피로도_Track/피로도_Fill");
+                if (tr != null) fatigueFillImage = tr.GetComponent<Image>();
+            }
+            if (fatigueValueText == null)
+            {
+                Transform tr = cardContent.Find("피로도_Value");
+                if (tr != null) fatigueValueText = tr.GetComponent<Text>();
+            }
+            if (loyaltyFillImage == null)
+            {
+                Transform tr = cardContent.Find("충성도_Track/충성도_Fill");
+                if (tr != null) loyaltyFillImage = tr.GetComponent<Image>();
+            }
+            if (loyaltyValueText == null)
+            {
+                Transform tr = cardContent.Find("충성도_Value");
+                if (tr != null) loyaltyValueText = tr.GetComponent<Text>();
+            }
+        }
+
         private void EnsureCounterMonitorBound()
         {
             if (counterMonitorTimerText != null && counterMonitorBalanceText != null)
             {
+                SyncCounterMonitorTimeCaption();
                 return;
             }
 
@@ -134,6 +218,24 @@ namespace OpenSourceTeam6.UI.Unity
                 Transform balTr = root.Find("MonitorScreenBg/MonitorRevenueCard/MonitorBalanceText");
                 if (balTr != null) counterMonitorBalanceText = balTr.GetComponent<Text>();
             }
+
+            SyncCounterMonitorTimeCaption();
+        }
+
+        private void SyncCounterMonitorTimeCaption()
+        {
+            if (counterMonitorTimerText == null) return;
+            Transform parent = counterMonitorTimerText.transform.parent;
+            if (parent == null) return;
+            Transform captionTr = parent.Find("TimeCardCaption");
+            if (captionTr != null)
+            {
+                Text captionText = captionTr.GetComponent<Text>();
+                if (captionText != null && captionText.text != "매장 영업 시각")
+                {
+                    captionText.text = "매장 영업 시각";
+                }
+            }
         }
 
         public void UpdateTopBar(
@@ -147,10 +249,11 @@ namespace OpenSourceTeam6.UI.Unity
             EnsureCounterMonitorBound();
 
             string dayLabel = $"{dayNumber}일차 영업 중";
-            string clockLabel = StoreDayTimeRules.FormatHudClockAndTimer(
+            string clockLabel = StoreDayTimeRules.FormatMonitorClock(
                 remainingSeconds,
                 totalDaySeconds,
-                explicitGameHour);
+                explicitGameHour,
+                minuteStep: 10);
             string balanceLabel = targetBalanceWon > 0
                 ? $"현재 {displayedBalanceWon:N0}원  /  목표 {targetBalanceWon:N0}원"
                 : $"예상 잔액  {displayedBalanceWon:N0}원";
@@ -191,6 +294,8 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void RenderEmployee(EmployeeHudSnapshot snapshot)
         {
+            EnsureEmployeeCardBound();
+
             if (employeeHeaderText != null)
             {
                 employeeHeaderText.text = $"{snapshot.EmployeeName}  ·  성격: {snapshot.PersonalityLabel}";
@@ -320,7 +425,14 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (!string.IsNullOrWhiteSpace(feedback.EmployeeDialogue))
             {
-                feedbackBannerText.text = $"{prefix}{actionPart}  알바: \"{feedback.EmployeeDialogue.Trim()}\"  —  {feedback.DetailMessage}";
+                string trimmedDialogue = feedback.EmployeeDialogue.Trim();
+                bool detailAlreadyHasDialogue =
+                    !string.IsNullOrWhiteSpace(feedback.DetailMessage) &&
+                    feedback.DetailMessage.IndexOf(trimmedDialogue, StringComparison.Ordinal) >= 0;
+
+                feedbackBannerText.text = detailAlreadyHasDialogue
+                    ? $"{prefix}{actionPart}  {feedback.DetailMessage}"
+                    : $"{prefix}{actionPart}  알바: \"{trimmedDialogue}\"  —  {feedback.DetailMessage}";
             }
             else
             {
@@ -375,6 +487,230 @@ namespace OpenSourceTeam6.UI.Unity
         private void HandleOpenOverlayClicked()
         {
             OpenCommandOverlayClicked?.Invoke();
+        }
+
+        private void HandleFoldToggleButtonClicked()
+        {
+            if (EmployeeCardFoldToggleClicked != null)
+            {
+                EmployeeCardFoldToggleClicked.Invoke();
+            }
+            else
+            {
+                ToggleEmployeeCardCollapsed();
+            }
+        }
+
+        private void EnsureCollapsibleNoteWidgets()
+        {
+            Transform root = hudRoot != null ? hudRoot.transform : transform;
+            if (employeeStatusCardRoot == null)
+            {
+                Transform cardTr = root.Find("EmployeeStatusCard");
+                if (cardTr != null)
+                {
+                    employeeStatusCardRoot = cardTr.gameObject;
+                }
+            }
+
+            if (employeeStatusCardRoot == null)
+            {
+                return;
+            }
+
+            Font uiFont = ResolveUiFont();
+            Transform postItContent = employeeStatusCardRoot.transform.Find("PostItContent");
+
+            // 1. 펼친 상태(포스트잇 최하단 · 충성도 숫자 바로 아래) '접기(G)' 텍스트
+            if (expandedCollapseHintRoot == null)
+            {
+                Transform hintParent = postItContent != null ? postItContent : employeeStatusCardRoot.transform;
+                Transform existingHint = hintParent.Find("EmployeeCardCollapseHint");
+                if (existingHint != null)
+                {
+                    expandedCollapseHintRoot = existingHint.gameObject;
+                }
+                else
+                {
+                    expandedCollapseHintRoot = new GameObject("EmployeeCardCollapseHint", typeof(RectTransform), typeof(Text), typeof(Button));
+                    expandedCollapseHintRoot.transform.SetParent(hintParent, false);
+
+                    RectTransform hintRt = expandedCollapseHintRoot.GetComponent<RectTransform>();
+                    hintRt.anchorMin = new Vector2(1f, 0f);
+                    hintRt.anchorMax = new Vector2(1f, 0f);
+                    hintRt.pivot = new Vector2(1f, 0f);
+                    hintRt.anchoredPosition = postItContent != null ? new Vector2(0f, 12f) : new Vector2(-24f, 14f);
+                    hintRt.sizeDelta = postItContent != null ? new Vector2(240f, 54f) : new Vector2(120f, 28f);
+
+                    Text hintText = expandedCollapseHintRoot.GetComponent<Text>();
+                    hintText.font = uiFont;
+                    hintText.fontSize = postItContent != null ? 34 : 17;
+                    hintText.fontStyle = FontStyle.Bold;
+                    hintText.color = new Color(0.24f, 0.20f, 0.16f, 0.88f);
+                    hintText.alignment = TextAnchor.MiddleRight;
+                    hintText.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    hintText.verticalOverflow = VerticalWrapMode.Overflow;
+                    hintText.raycastTarget = true;
+                    hintText.text = "접기(G)";
+
+                    Button hintBtn = expandedCollapseHintRoot.GetComponent<Button>();
+                    hintBtn.targetGraphic = hintText;
+                    hintBtn.onClick.AddListener(HandleFoldToggleButtonClicked);
+                }
+            }
+
+            // 2. 접은 상태(우상단 쪽지 아이콘 + 박스 없는 흰색 글씨·검은 테두리 '펼치기(G)')
+            if (collapsedNoteRoot == null)
+            {
+                Transform existingCollapsed = root.Find("CollapsedEmployeeNoteWidget");
+                if (existingCollapsed != null)
+                {
+                    collapsedNoteRoot = existingCollapsed.gameObject;
+                }
+                else
+                {
+                    collapsedNoteRoot = new GameObject("CollapsedEmployeeNoteWidget", typeof(RectTransform));
+                    collapsedNoteRoot.transform.SetParent(root, false);
+
+                    RectTransform containerRt = collapsedNoteRoot.GetComponent<RectTransform>();
+                    containerRt.anchorMin = new Vector2(1f, 1f);
+                    containerRt.anchorMax = new Vector2(1f, 1f);
+                    containerRt.pivot = new Vector2(1f, 1f);
+                    containerRt.anchoredPosition = new Vector2(-28f, -18f);
+                    containerRt.sizeDelta = new Vector2(124f, 142f);
+
+                    // 접힌 쪽지 이미지 버튼
+                    GameObject iconObj = new GameObject("FoldedNoteIcon", typeof(RectTransform), typeof(Image), typeof(Button), typeof(Shadow));
+                    iconObj.transform.SetParent(collapsedNoteRoot.transform, false);
+                    RectTransform iconRt = iconObj.GetComponent<RectTransform>();
+                    iconRt.anchorMin = new Vector2(0.5f, 1f);
+                    iconRt.anchorMax = new Vector2(0.5f, 1f);
+                    iconRt.pivot = new Vector2(0.5f, 1f);
+                    iconRt.anchoredPosition = new Vector2(0f, 0f);
+                    iconRt.sizeDelta = new Vector2(106f, 106f);
+
+                    Image iconImg = iconObj.GetComponent<Image>();
+                    iconImg.sprite = ResolveFoldedNoteSprite();
+                    iconImg.preserveAspect = true;
+                    iconImg.color = Color.white;
+                    iconImg.raycastTarget = true;
+
+                    Shadow iconShadow = iconObj.GetComponent<Shadow>();
+                    iconShadow.effectColor = new Color(0f, 0f, 0f, 0.35f);
+                    iconShadow.effectDistance = new Vector2(3f, -4f);
+
+                    Button iconBtn = iconObj.GetComponent<Button>();
+                    iconBtn.targetGraphic = iconImg;
+                    iconBtn.onClick.AddListener(HandleFoldToggleButtonClicked);
+
+                    // 쪽지 아래 '펼치기(G)' (배경 박스 없이 2x 슈퍼샘플링 흰색 글씨 + 검은색 테두리)
+                    GameObject expandObj = new GameObject("ExpandHintLabel", typeof(RectTransform), typeof(Text), typeof(Outline), typeof(Shadow), typeof(Button));
+                    expandObj.transform.SetParent(collapsedNoteRoot.transform, false);
+
+                    RectTransform expandRt = expandObj.GetComponent<RectTransform>();
+                    expandRt.anchorMin = new Vector2(0.5f, 0f);
+                    expandRt.anchorMax = new Vector2(0.5f, 0f);
+                    expandRt.pivot = new Vector2(0.5f, 0f);
+                    expandRt.anchoredPosition = new Vector2(0f, 2f);
+                    expandRt.sizeDelta = new Vector2(260f, 56f);
+                    expandRt.localScale = new Vector3(0.5f, 0.5f, 1f);
+
+                    Text expandText = expandObj.GetComponent<Text>();
+                    expandText.font = uiFont;
+                    expandText.fontSize = 36;
+                    expandText.fontStyle = FontStyle.Bold;
+                    expandText.color = Color.white;
+                    expandText.alignment = TextAnchor.MiddleCenter;
+                    expandText.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    expandText.verticalOverflow = VerticalWrapMode.Overflow;
+                    expandText.raycastTarget = true;
+                    expandText.text = "펼치기(G)";
+
+                    Outline expandOutline = expandObj.GetComponent<Outline>();
+                    expandOutline.effectColor = new Color(0f, 0f, 0f, 0.98f);
+                    expandOutline.effectDistance = new Vector2(2.6f, -2.6f);
+
+                    Shadow expandShadow = expandObj.GetComponent<Shadow>();
+                    expandShadow.effectColor = new Color(0f, 0f, 0f, 0.85f);
+                    expandShadow.effectDistance = new Vector2(0f, -3f);
+
+                    Button expandBtn = expandObj.GetComponent<Button>();
+                    expandBtn.targetGraphic = expandText;
+                    expandBtn.onClick.AddListener(HandleFoldToggleButtonClicked);
+                }
+            }
+        }
+
+        private void ApplyEmployeeCardFoldState()
+        {
+            if (employeeStatusCardRoot != null && employeeStatusCardRoot.activeSelf == isEmployeeCardCollapsed)
+            {
+                employeeStatusCardRoot.SetActive(!isEmployeeCardCollapsed);
+            }
+
+            if (expandedCollapseHintRoot != null && expandedCollapseHintRoot.activeSelf == isEmployeeCardCollapsed)
+            {
+                expandedCollapseHintRoot.SetActive(!isEmployeeCardCollapsed);
+            }
+
+            if (collapsedNoteRoot != null && collapsedNoteRoot.activeSelf != isEmployeeCardCollapsed)
+            {
+                collapsedNoteRoot.SetActive(isEmployeeCardCollapsed);
+            }
+        }
+
+        private Sprite ResolveFoldedNoteSprite()
+        {
+            if (foldedNoteSprite != null)
+            {
+                return foldedNoteSprite;
+            }
+
+            Sprite loadedSprite = Resources.Load<Sprite>(FoldedNoteResourcePath);
+            if (loadedSprite != null)
+            {
+                foldedNoteSprite = loadedSprite;
+                return foldedNoteSprite;
+            }
+
+            if (runtimeCreatedFoldedSprite != null)
+            {
+                return runtimeCreatedFoldedSprite;
+            }
+
+            Texture2D tex = Resources.Load<Texture2D>(FoldedNoteResourcePath);
+            if (tex != null)
+            {
+                runtimeCreatedFoldedSprite = Sprite.Create(
+                    tex,
+                    new Rect(0f, 0f, tex.width, tex.height),
+                    new Vector2(0.5f, 0.5f),
+                    100f);
+                return runtimeCreatedFoldedSprite;
+            }
+
+            return null;
+        }
+
+        private Font ResolveUiFont()
+        {
+            if (employeeHeaderText != null && employeeHeaderText.font != null)
+            {
+                return employeeHeaderText.font;
+            }
+
+            if (feedbackBannerText != null && feedbackBannerText.font != null)
+            {
+                return feedbackBannerText.font;
+            }
+
+            Text anyText = GetComponentInChildren<Text>(true);
+            if (anyText != null && anyText.font != null)
+            {
+                return anyText.font;
+            }
+
+            return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         }
     }
 }

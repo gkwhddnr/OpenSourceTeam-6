@@ -71,6 +71,7 @@ namespace OpenSourceTeam6.UI.Unity
         private Text transitionDayTitleText;
         private Coroutine activeFadeCoroutine;
         private bool isTransitionFading;
+        private FirstLaunchOnboardingController onboardingController;
 
         private float remainingDaySeconds;
         private float totalDaySeconds;
@@ -79,6 +80,7 @@ namespace OpenSourceTeam6.UI.Unity
         private EmployeeHudSnapshot lastEmployeeSnapshot;
         private DaySettlementResult lastSettlementResult;
         private VoiceProcessStage lastVoiceStage = VoiceProcessStage.Idle;
+        private bool isCrisisBgmLatched;
 
         public UiScreenMode CurrentMode { get; private set; } = UiScreenMode.Lobby;
         public EmployeePersonaSetupData CurrentPersona { get; private set; } = EmployeePersonaPresets.CreatePreset1();
@@ -90,7 +92,9 @@ namespace OpenSourceTeam6.UI.Unity
         public bool IsSettlementVisible => settlementPanel != null && settlementPanel.IsVisible;
         public bool IsEndingVisible => endingPanel != null && endingPanel.IsVisible;
         public bool IsTransitionFading => isTransitionFading;
+        public bool IsOnboardingBlocking => onboardingController != null && onboardingController.IsBlockingInput;
         public bool IsExternalModalOpen => externalModalCount > 0;
+        public float CurrentEmployeeStress => lastEmployeeSnapshot.Stress;
         public float CurrentMouseSensitivityMultiplier => settingsPanel != null
             ? settingsPanel.MouseSensitivityMultiplier
             : Mathf.Clamp(
@@ -161,6 +165,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud != null)
             {
                 inGameHud.OpenCommandOverlayClicked += ToggleCommandOverlay;
+                inGameHud.EmployeeCardFoldToggleClicked += ToggleEmployeeStatusCardFold;
             }
 
             if (commandOverlay != null)
@@ -199,6 +204,9 @@ namespace OpenSourceTeam6.UI.Unity
                 endingPanel.ReturnLobbyClicked += ShowLobby;
             }
 
+            EnsureOnboardingController().TryPlayFirstLaunchBootIntro(
+                ResolveTransitionTitleFont(),
+                SyncBgmForCurrentState);
             ShowLobby();
         }
 
@@ -224,6 +232,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud != null)
             {
                 inGameHud.OpenCommandOverlayClicked -= ToggleCommandOverlay;
+                inGameHud.EmployeeCardFoldToggleClicked -= ToggleEmployeeStatusCardFold;
             }
 
             if (commandOverlay != null)
@@ -282,7 +291,7 @@ namespace OpenSourceTeam6.UI.Unity
         private void Update()
         {
             FlushPendingScreenLock();
-            if (isTransitionFading) return;
+            if (isTransitionFading || IsOnboardingBlocking) return;
 
             bool externalModalBlocking = IsExternalModalOpen || externalModalClosedFrame == Time.frameCount;
             if (!externalModalBlocking)
@@ -512,6 +521,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud != null) inGameHud.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
             if (endingPanel != null) endingPanel.SetVisible(false);
+            onboardingController?.HideResumeGuideWithoutSaving();
 
             SyncBgmForCurrentState();
             AcquireScreenLock("LobbyScreen");
@@ -537,6 +547,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (settlementPanel != null) settlementPanel.SetVisible(false);
             if (endingPanel != null) endingPanel.SetVisible(false);
             personaSetupPanel.SetVisible(true);
+            EnsureOnboardingController().TryShowFirstPlayResumeGuide(ResolveTransitionTitleFont(), activeAudioPlayer);
 
             SyncBgmForCurrentState();
             AcquireScreenLock("PersonaSetupScreen");
@@ -583,6 +594,7 @@ namespace OpenSourceTeam6.UI.Unity
 
             CurrentMode = UiScreenMode.InGame;
             lastVoiceStage = VoiceProcessStage.Idle;
+            isCrisisBgmLatched = false;
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
@@ -590,6 +602,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud != null)
             {
                 inGameHud.SetVisible(true);
+                inGameHud.SetEmployeeCardCollapsed(false);
                 inGameHud.RenderEmployee(lastEmployeeSnapshot);
                 inGameHud.RenderVoiceStage(VoiceProcessStage.Idle, string.Empty);
                 inGameHud.RenderFeedback(new VoiceCommandFeedback(
@@ -618,7 +631,13 @@ namespace OpenSourceTeam6.UI.Unity
         public void UpdateEmployeeHud(EmployeeHudSnapshot snapshot)
         {
             StaffMoveBadge previousBadge = lastEmployeeSnapshot.MoveBadge;
+            float previousStress = lastEmployeeSnapshot.Stress;
             lastEmployeeSnapshot = snapshot;
+            if (Mathf.Abs(snapshot.Stress - previousStress) >= 1f)
+            {
+                Debug.Log($"[StoreUI] 직원 상태 갱신: 스트레스 {previousStress:F0} -> {snapshot.Stress:F0}, 피로 {snapshot.Fatigue:F0}, 역할={snapshot.CurrentRole}, 행동={snapshot.ActionCodeLabel}");
+            }
+
             if (inGameHud != null)
             {
                 inGameHud.RenderEmployee(snapshot);
@@ -933,6 +952,17 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 VoiceRecordToggleRequested?.Invoke();
             }
+            else if (kb.gKey.wasPressedThisFrame && !IsCommandOverlayOpen)
+            {
+                ToggleEmployeeStatusCardFold();
+            }
+        }
+
+        public void ToggleEmployeeStatusCardFold()
+        {
+            if (inGameHud == null || CurrentMode != UiScreenMode.InGame) return;
+            inGameHud.ToggleEmployeeCardCollapsed();
+            activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
         }
 
         private void RefreshTopBar()
@@ -1083,7 +1113,34 @@ namespace OpenSourceTeam6.UI.Unity
         private void SyncBgmForCurrentState()
         {
             if (activeAudioPlayer == null) return;
-            StoreBgmTrack targetTrack = StoreAudioRules.ResolveBgmForState(CurrentMode, lastEmployeeSnapshot.Stress);
+
+            if (onboardingController != null && onboardingController.IsBootIntroActive)
+            {
+                activeAudioPlayer.PlayBgm(StoreBgmTrack.None);
+                return;
+            }
+
+            StoreBgmTrack targetTrack;
+            if (CurrentMode == UiScreenMode.InGame)
+            {
+                float stress = lastEmployeeSnapshot.Stress;
+                if (!isCrisisBgmLatched && stress >= StressRules.AngerThreshold)
+                {
+                    isCrisisBgmLatched = true;
+                }
+                else if (isCrisisBgmLatched && stress < StressRules.AngerThreshold - 12f)
+                {
+                    isCrisisBgmLatched = false;
+                }
+
+                targetTrack = isCrisisBgmLatched ? StoreBgmTrack.DayCrisis : StoreBgmTrack.DayNormal;
+            }
+            else
+            {
+                isCrisisBgmLatched = false;
+                targetTrack = StoreAudioRules.ResolveBgmForState(CurrentMode, lastEmployeeSnapshot.Stress);
+            }
+
             activeAudioPlayer.PlayBgm(targetTrack);
         }
 
@@ -1216,12 +1273,13 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleLobbyStartClicked()
         {
+            if (isTransitionFading || IsOnboardingBlocking) return;
             ShowPersonaSetup();
         }
 
         private void HandlePersonaConfirmStartClicked(EmployeePersonaSetupData persona)
         {
-            if (isTransitionFading) return;
+            if (isTransitionFading || IsOnboardingBlocking) return;
 
             StartFadeTransition(() =>
             {
@@ -1454,6 +1512,20 @@ namespace OpenSourceTeam6.UI.Unity
             transitionFadeOverlay.blocksRaycasts = false;
             overlayObj.SetActive(false);
             return transitionFadeOverlay;
+        }
+
+        private FirstLaunchOnboardingController EnsureOnboardingController()
+        {
+            if (onboardingController == null)
+            {
+                onboardingController = GetComponent<FirstLaunchOnboardingController>();
+                if (onboardingController == null)
+                {
+                    onboardingController = gameObject.AddComponent<FirstLaunchOnboardingController>();
+                }
+            }
+
+            return onboardingController;
         }
 
         private Font ResolveTransitionTitleFont()
