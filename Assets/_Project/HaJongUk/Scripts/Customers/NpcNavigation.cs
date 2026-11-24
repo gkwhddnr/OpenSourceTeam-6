@@ -17,6 +17,7 @@ namespace OpenSourceTeam6.Customers.Unity
         private Vector3? target;
         private Vector3 targetPosition;
         private float travelSeconds;
+        private float travelDeadline = TravelLimit;
 
         public static NavMeshQueryFilter FilterFor(NavMeshAgent agent) =>
             new NavMeshQueryFilter { agentTypeID = agent.agentTypeID, areaMask = agent.areaMask };
@@ -79,6 +80,11 @@ namespace OpenSourceTeam6.Customers.Unity
                 {
                     return NpcStepResult.Failure;
                 }
+                float distance = 0f;
+                for (int i = 1; i < path.corners.Length; i++)
+                    distance += Vector3.Distance(path.corners[i - 1], path.corners[i]);
+                // The test controls can reduce speed while this route is in progress.
+                travelDeadline = Mathf.Max(TravelLimit, distance / 0.5f * 3f + 15f);
             }
 
             if (IsAtTarget(agent))
@@ -89,7 +95,7 @@ namespace OpenSourceTeam6.Customers.Unity
             }
 
             travelSeconds += elapsed;
-            return travelSeconds >= TravelLimit || agent.pathStatus == NavMeshPathStatus.PathInvalid
+            return travelSeconds >= travelDeadline || agent.pathStatus == NavMeshPathStatus.PathInvalid
                 ? NpcStepResult.Failure : NpcStepResult.Running;
         }
 
