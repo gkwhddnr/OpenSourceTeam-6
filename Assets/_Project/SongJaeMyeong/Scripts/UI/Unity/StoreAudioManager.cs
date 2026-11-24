@@ -42,6 +42,9 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private AudioClip _workTaskCompleteClip;
         [SerializeField] private AudioClip _paperFlipClip;
         [SerializeField] private AudioClip _pencilWriteClip;
+        [SerializeField] private AudioClip _dayTitleTransitionClip;
+        [SerializeField] private AudioClip _checkoutClickClip;
+        [SerializeField] private AudioClip _checkoutCoinClip;
 
         [Header("SND-03: 음성 명령 및 직원 감정 반응 알림음")]
         [SerializeField] private AudioClip _micRecordStartClip;
@@ -323,6 +326,15 @@ namespace OpenSourceTeam6.UI.Unity
                 case StoreSfxId.PencilWrite:
                     assigned = _pencilWriteClip;
                     break;
+                case StoreSfxId.DayTitleTransition:
+                    assigned = _dayTitleTransitionClip;
+                    break;
+                case StoreSfxId.CheckoutClick:
+                    assigned = _checkoutClickClip;
+                    break;
+                case StoreSfxId.CheckoutCoin:
+                    assigned = _checkoutCoinClip;
+                    break;
                 case StoreSfxId.MicRecordStart:
                     assigned = _micRecordStartClip;
                     break;
@@ -384,6 +396,18 @@ namespace OpenSourceTeam6.UI.Unity
                 case StoreSfxId.PencilWrite:
                     // 이력서 확인 연필 체크/서명음 (짧은 사각임)
                     return CreateTwoToneClip("Fallback_PencilWrite", 360f, 520f, 0.06f, 0.09f, 0.18f);
+
+                case StoreSfxId.DayTitleTransition:
+                    // 일차 전환 암전 타이틀 심장박동 효과음 (저음 두근-두근 75Hz -> 55Hz)
+                    return CreateTwoToneClip("Fallback_DayTitleTransition", 75f, 55f, 0.14f, 0.24f, 0.28f);
+
+                case StoreSfxId.CheckoutClick:
+                    // 포스기 결제 확정 클릭음 (짧고 선명한 클릭 1200Hz -> 900Hz)
+                    return CreateTwoToneClip("Fallback_CheckoutClick", 1200f, 900f, 0.03f, 0.04f, 0.22f);
+
+                case StoreSfxId.CheckoutCoin:
+                    // 포스기 결제 코인 드롭 효과음 (맑은 고음 짤랑임 1568Hz -> 2093Hz)
+                    return CreateTwoToneClip("Fallback_CheckoutCoin", 1567.98f, 2093.00f, 0.07f, 0.18f, 0.26f);
 
                 case StoreSfxId.MicRecordStart:
                     // 마이크 녹음 시작 ("띠리링": 상승 A5 -> E6)

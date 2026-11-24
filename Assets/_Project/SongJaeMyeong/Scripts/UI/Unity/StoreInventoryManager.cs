@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using OpenSourceTeam6.Customers.Unity;
@@ -61,6 +62,9 @@ namespace OpenSourceTeam6.UI.Unity
         private Transform manualCubeTransform;
         private GameObject posPromptBadgeObj;
         private Text posPromptBadgeText;
+        private int displayedTodayRevenueWon;
+        private int displayedTodayUnitsSold;
+        private Coroutine checkoutSoundAndRollCoroutine;
 
         public StoreInventoryLedger Ledger
         {
@@ -72,8 +76,24 @@ namespace OpenSourceTeam6.UI.Unity
         }
 
         public int TodayRevenueWon => Ledger.TodayRevenueWon;
+        public int DisplayedTodayRevenueWon
+        {
+            get
+            {
+                EnsureInitialized();
+                return displayedTodayRevenueWon;
+            }
+        }
         public int CumulativeRevenueWon => Ledger.CumulativeRevenueWon;
         public int TodayUnitsSold => Ledger.TodayUnitsSold;
+        public int DisplayedTodayUnitsSold
+        {
+            get
+            {
+                EnsureInitialized();
+                return displayedTodayUnitsSold;
+            }
+        }
         public int TotalRemainingStock => Ledger.TotalCurrentStock;
         public string SalesLogFilePath => Path.Combine(Application.persistentDataPath, DefaultSalesLogFileName);
 
@@ -343,6 +363,8 @@ namespace OpenSourceTeam6.UI.Unity
                 : "08:00";
             string actorCode = isPlayerAction ? "PLAYER" : "STAFF";
 
+            int startDisplayedRevenueWon = displayedTodayRevenueWon;
+
             if (!ledger.CommitPickedItemCheckout(
                     targetItemId,
                     dayNum,
@@ -359,17 +381,105 @@ namespace OpenSourceTeam6.UI.Unity
             SaveSalesLogToDisk();
 
             ItemSold?.Invoke(soldItem, revenueWon);
-            uiController?.AudioPlayer?.PlaySfx(StoreSfxId.BarcodeCheckout);
-            uiController?.NotifyInventoryRevenueChanged();
+            TriggerCheckoutAudioAndRevenueRoll(
+                startDisplayedRevenueWon,
+                ledger.TodayRevenueWon,
+                ledger.TodayUnitsSold);
 
             string actorLabel = isPlayerAction ? "점장 직접 계산[E]" : "알바 계산 완료";
-            uiController?.PushCommandFeedback(new VoiceCommandFeedback(
-                CommandFeedbackKind.Accepted,
-                string.Empty,
-                $"POS_CHECKOUT (+{revenueWon:N0}원)",
-                $"[{actorLabel}] 손님#{approvedCustomerId} · [{soldItem.ProductTag}] {soldItem.DisplayName} +{revenueWon:N0}원 결제 완료! (당일 매출 {ledger.TodayRevenueWon:N0}원)"));
+            uiController?.PushCommandFeedback(
+                new VoiceCommandFeedback(
+                    CommandFeedbackKind.Accepted,
+                    string.Empty,
+                    $"POS_CHECKOUT (+{revenueWon:N0}원)",
+                    $"[{actorLabel}] 손님#{approvedCustomerId} · [{soldItem.ProductTag}] {soldItem.DisplayName} +{revenueWon:N0}원 결제 완료! (당일 매출 {ledger.TodayRevenueWon:N0}원)"),
+                playFeedbackSfx: false);
 
             return true;
+        }
+
+        private void TriggerCheckoutAudioAndRevenueRoll(
+            int startRevenueWon,
+            int targetRevenueWon,
+            int targetUnitsSold)
+        {
+            // 1단계: 바코드 스캔 '삑!' 효과음 즉시 재생
+            uiController?.AudioPlayer?.PlaySfx(StoreSfxId.BarcodeCheckout);
+
+            if (!isActiveAndEnabled)
+            {
+                displayedTodayRevenueWon = targetRevenueWon;
+                displayedTodayUnitsSold = targetUnitsSold;
+                uiController?.NotifyInventoryRevenueChanged();
+                return;
+            }
+
+            if (checkoutSoundAndRollCoroutine != null)
+            {
+                StopCoroutine(checkoutSoundAndRollCoroutine);
+                checkoutSoundAndRollCoroutine = null;
+            }
+
+            checkoutSoundAndRollCoroutine = StartCoroutine(
+                RunCheckoutSoundAndRevenueRollCoroutine(startRevenueWon, targetRevenueWon, targetUnitsSold));
+        }
+
+        private IEnumerator RunCheckoutSoundAndRevenueRollCoroutine(
+            int startRevenueWon,
+            int targetRevenueWon,
+            int targetUnitsSold)
+        {
+            // 1단계('삑!' 소리) 직후 대기 -> 2단계('클릭' 소리) 재생
+            const float delayBeforeClick = 0.28f;
+            float elapsed = 0f;
+            while (elapsed < delayBeforeClick)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            uiController?.AudioPlayer?.PlaySfx(StoreSfxId.CheckoutClick);
+
+            // 2단계('클릭' 소리) 직후 대기 -> 3단계('코인' 소리) 재생 + 매출 숫자 카운팅 시작
+            const float delayBeforeCoin = 0.22f;
+            elapsed = 0f;
+            while (elapsed < delayBeforeCoin)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            uiController?.AudioPlayer?.PlaySfx(StoreSfxId.CheckoutCoin);
+            displayedTodayUnitsSold = targetUnitsSold;
+
+            // 코인 소리가 울리는 동안(약 0.68초) 매출 숫자가 부드럽게 카운팅 상승
+            const float coinRollDuration = 0.68f;
+            elapsed = 0f;
+            int lastNotifiedRevenue = displayedTodayRevenueWon;
+            uiController?.NotifyInventoryRevenueChanged();
+
+            while (elapsed < coinRollDuration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / coinRollDuration);
+                float eased = 1f - Mathf.Pow(1f - t, 2.4f);
+                int interpolated = Mathf.RoundToInt(Mathf.Lerp(startRevenueWon, targetRevenueWon, eased) / 10f) * 10;
+                interpolated = Mathf.Clamp(interpolated, Mathf.Min(startRevenueWon, targetRevenueWon), Mathf.Max(startRevenueWon, targetRevenueWon));
+
+                if (interpolated != lastNotifiedRevenue)
+                {
+                    displayedTodayRevenueWon = interpolated;
+                    lastNotifiedRevenue = interpolated;
+                    uiController?.NotifyInventoryRevenueChanged();
+                }
+
+                yield return null;
+            }
+
+            displayedTodayRevenueWon = ledger != null ? ledger.TodayRevenueWon : targetRevenueWon;
+            displayedTodayUnitsSold = ledger != null ? ledger.TodayUnitsSold : targetUnitsSold;
+            uiController?.NotifyInventoryRevenueChanged();
+            checkoutSoundAndRollCoroutine = null;
         }
 
         private void ResolveCounterObjects()
@@ -645,16 +755,25 @@ namespace OpenSourceTeam6.UI.Unity
             if (ledger != null) return;
             ledger = new StoreInventoryLedger(StoreInventoryCatalog.CreateDefaultKoreanStoreItems());
             ApplyInitialStockSeeds();
+            displayedTodayRevenueWon = ledger.TodayRevenueWon;
+            displayedTodayUnitsSold = ledger.TodayUnitsSold;
             SyncInspectorMirror();
         }
 
         public void ResetForNewGame()
         {
+            if (checkoutSoundAndRollCoroutine != null)
+            {
+                StopCoroutine(checkoutSoundAndRollCoroutine);
+                checkoutSoundAndRollCoroutine = null;
+            }
             pendingCustomerPickedItemIds.Clear();
             staffCheckoutTimer = 0f;
             lastWaitingCustomerId = -1;
             ledger = new StoreInventoryLedger(StoreInventoryCatalog.CreateDefaultKoreanStoreItems());
             ApplyInitialStockSeeds();
+            displayedTodayRevenueWon = 0;
+            displayedTodayUnitsSold = 0;
             SyncInspectorMirror();
             SaveSalesLogToDisk();
         }
@@ -662,10 +781,17 @@ namespace OpenSourceTeam6.UI.Unity
         public void BeginNextDay()
         {
             EnsureInitialized();
+            if (checkoutSoundAndRollCoroutine != null)
+            {
+                StopCoroutine(checkoutSoundAndRollCoroutine);
+                checkoutSoundAndRollCoroutine = null;
+            }
             pendingCustomerPickedItemIds.Clear();
             staffCheckoutTimer = 0f;
             lastWaitingCustomerId = -1;
             ledger.BeginNewDay();
+            displayedTodayRevenueWon = 0;
+            displayedTodayUnitsSold = 0;
             SyncInspectorMirror();
             SaveSalesLogToDisk();
         }
@@ -673,6 +799,7 @@ namespace OpenSourceTeam6.UI.Unity
         public bool RecordSale(string itemId, int quantity = 1)
         {
             EnsureInitialized();
+            int startRevenue = displayedTodayRevenueWon;
             if (!ledger.TrySellItem(itemId, quantity, out int revenueWon))
             {
                 return false;
@@ -684,7 +811,7 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 ItemSold?.Invoke(rec, revenueWon);
             }
-            uiController?.NotifyInventoryRevenueChanged();
+            TriggerCheckoutAudioAndRevenueRoll(startRevenue, ledger.TodayRevenueWon, ledger.TodayUnitsSold);
             return true;
         }
 

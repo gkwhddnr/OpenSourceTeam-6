@@ -8685,6 +8685,9 @@ MonoBehaviour:
   _workTaskCompleteClip: {fileID: 8300000, guid: 910e8b265263b054f9b826e4a3a0d90a, type: 3}
   _paperFlipClip: {fileID: 8300000, guid: 19fecf1fe63ea484b88a290003da0022, type: 3}
   _pencilWriteClip: {fileID: 8300000, guid: 1b409545d7d220d47b74a05b462ae32b, type: 3}
+  _dayTitleTransitionClip: {fileID: 8300000, guid: a8d17d5737c237043940cc6271344009, type: 3}
+  _checkoutClickClip: {fileID: 8300000, guid: d482a0819bc73e344a698c1e8eec5e18, type: 3}
+  _checkoutCoinClip: {fileID: 8300000, guid: 8a13618787afb1746a32ecd5dd443eb0, type: 3}
   _micRecordStartClip: {fileID: 8300000, guid: de6d5d3841c665e40bdbc72021228d54, type: 3}
   _micRecordStopClip: {fileID: 8300000, guid: 3d7092d8ff632ea4eba7377d205e9fd9, type: 3}
   _reactionAcceptClip: {fileID: 8300000, guid: 53c07b09abb8a0f48a42715083d30bf2, type: 3}

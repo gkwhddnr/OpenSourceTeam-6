@@ -28,6 +28,9 @@ namespace OpenSourceTeam6.UI.Core
         WorkTaskComplete = 4,
         PaperFlip = 5,
         PencilWrite = 6,
+        DayTitleTransition = 7,
+        CheckoutClick = 8,
+        CheckoutCoin = 9,
 
         // SND-03: 음성 인식 및 직원 감정 반응 알림음
         MicRecordStart = 10,

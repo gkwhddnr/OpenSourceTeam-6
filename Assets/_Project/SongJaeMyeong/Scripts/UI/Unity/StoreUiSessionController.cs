@@ -698,10 +698,7 @@ namespace OpenSourceTeam6.UI.Unity
                     snapshot.MoveBadge == StaffMoveBadge.Arrived &&
                     snapshot.CurrentRole != StaffWorkRole.Idle)
                 {
-                    activeAudioPlayer?.PlaySfx(
-                        snapshot.CurrentRole == StaffWorkRole.Checkout
-                            ? StoreSfxId.BarcodeCheckout
-                            : StoreSfxId.WorkTaskComplete);
+                    activeAudioPlayer?.PlaySfx(StoreSfxId.WorkTaskComplete);
                 }
 
                 SyncBgmForCurrentState();
@@ -725,7 +722,12 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void PushCommandFeedback(VoiceCommandFeedback feedback)
         {
-            if (StoreAudioRules.TryResolveFeedbackSfx(feedback.Kind, out StoreSfxId sfxId))
+            PushCommandFeedback(feedback, playFeedbackSfx: true);
+        }
+
+        public void PushCommandFeedback(VoiceCommandFeedback feedback, bool playFeedbackSfx)
+        {
+            if (playFeedbackSfx && StoreAudioRules.TryResolveFeedbackSfx(feedback.Kind, out StoreSfxId sfxId))
             {
                 activeAudioPlayer?.PlaySfx(sfxId);
             }
@@ -1028,8 +1030,8 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 inventoryManager = FindAnyObjectByType<StoreInventoryManager>();
             }
-            int itemSalesWon = inventoryManager != null ? inventoryManager.TodayRevenueWon : 0;
-            int itemUnitsSold = inventoryManager != null ? inventoryManager.TodayUnitsSold : 0;
+            int itemSalesWon = inventoryManager != null ? inventoryManager.DisplayedTodayRevenueWon : 0;
+            int itemUnitsSold = inventoryManager != null ? inventoryManager.DisplayedTodayUnitsSold : 0;
             int liveEstimatedBalance = settlementSession.StartingBalanceWon +
                                        settlementSession.EstimateLiveGrossSalesWon() +
                                        itemSalesWon;
@@ -1435,12 +1437,14 @@ namespace OpenSourceTeam6.UI.Unity
             onMidpoint?.Invoke();
             SyncTimeSystemPauseState();
 
-            // 3. 검은 화면 위 'N일차' 텍스트 페이드 인 → 유지 → 페이드 아웃
+            // 3. 검은 화면 위 'N일차' 텍스트 페이드 인 → 유지 → 페이드 아웃 (심장박동 효과음 단독 재생)
             if (!string.IsNullOrWhiteSpace(dayBannerText) && transitionDayTitleGroup != null && transitionDayTitleText != null)
             {
+                activeAudioPlayer?.StopBgm();
                 transitionDayTitleText.text = dayBannerText;
                 transitionDayTitleGroup.alpha = 0f;
                 transitionDayTitleGroup.gameObject.SetActive(true);
+                activeAudioPlayer?.PlaySfx(StoreSfxId.DayTitleTransition, 1.0f);
 
                 float titleIn = Mathf.Max(0f, dayTitleFadeInSeconds);
                 if (titleIn > 0.001f)
@@ -1482,6 +1486,7 @@ namespace OpenSourceTeam6.UI.Unity
 
                 transitionDayTitleGroup.alpha = 0f;
                 transitionDayTitleGroup.gameObject.SetActive(false);
+                SyncBgmForCurrentState();
             }
 
             float holdDuration = Mathf.Max(0f, transitionFadeHoldSeconds);

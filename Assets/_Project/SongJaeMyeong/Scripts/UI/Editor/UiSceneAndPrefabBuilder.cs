@@ -304,7 +304,17 @@ namespace OpenSourceTeam6.UI.Editor
 
         private static void SyncAudioClipsOnPrefabAndActiveScene(GameObject prefabAsset)
         {
-            string[] audioFiles = { "BGM_Lobby.mp3", "BGM_Normal.mp3", "BGM_Crisis.mp3", "BGM_Settlement.mp3", "SFX_PencilWrite.mp3" };
+            string[] audioFiles =
+            {
+                "BGM_Lobby.mp3",
+                "BGM_Normal.mp3",
+                "BGM_Crisis.mp3",
+                "BGM_Settlement.mp3",
+                "SFX_PencilWrite.mp3",
+                "SFX_DayTitleTransition.mp3",
+                "SFX_CheckoutClick.mp3",
+                "SFX_CheckoutCoin.mp3"
+            };
             for (int i = 0; i < audioFiles.Length; i++)
             {
                 string fullPath = $"{AudioAssetDir}/{audioFiles[i]}";
@@ -323,9 +333,12 @@ namespace OpenSourceTeam6.UI.Editor
                 AudioClip crisisClip = checkSo.FindProperty("_dayCrisisBgmClip")?.objectReferenceValue as AudioClip;
                 AudioClip settleClip = checkSo.FindProperty("_settlementBgmClip")?.objectReferenceValue as AudioClip;
                 AudioClip pencilClip = checkSo.FindProperty("_pencilWriteClip")?.objectReferenceValue as AudioClip;
+                AudioClip dayTitleClip = checkSo.FindProperty("_dayTitleTransitionClip")?.objectReferenceValue as AudioClip;
+                AudioClip checkoutClickClip = checkSo.FindProperty("_checkoutClickClip")?.objectReferenceValue as AudioClip;
+                AudioClip checkoutCoinClip = checkSo.FindProperty("_checkoutCoinClip")?.objectReferenceValue as AudioClip;
 
                 bool needsUpdate = lobbyClip == null || normalClip == null || crisisClip == null || settleClip == null ||
-                                   pencilClip == null ||
+                                   pencilClip == null || dayTitleClip == null || checkoutClickClip == null || checkoutCoinClip == null ||
                                    lobbyClip == normalClip || crisisClip == normalClip || settleClip == normalClip;
 
                 if (needsUpdate)
@@ -1036,6 +1049,9 @@ namespace OpenSourceTeam6.UI.Editor
             TryBindClip(audioSo, "_workTaskCompleteClip", "SFX_WorkTaskComplete");
             TryBindClip(audioSo, "_paperFlipClip", "SFX_PaperFlip");
             TryBindClip(audioSo, "_pencilWriteClip", "SFX_PencilWrite");
+            TryBindClip(audioSo, "_dayTitleTransitionClip", "SFX_DayTitleTransition");
+            TryBindClip(audioSo, "_checkoutClickClip", "SFX_CheckoutClick");
+            TryBindClip(audioSo, "_checkoutCoinClip", "SFX_CheckoutCoin");
 
             TryBindClip(audioSo, "_micRecordStartClip", "SFX_MicRecordStart");
             TryBindClip(audioSo, "_micRecordStopClip", "SFX_MicRecordStop");
