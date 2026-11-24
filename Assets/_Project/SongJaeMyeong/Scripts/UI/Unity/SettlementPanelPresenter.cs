@@ -41,6 +41,7 @@ namespace OpenSourceTeam6.UI.Unity
         private Vector2 promptArrowBasePos;
         private bool hasCapturedArrowPos;
         private IStoreAudioPlayer audioPlayer;
+        private ScrollRect extraInfoScrollRect;
 
         public bool IsVisible => (panelRoot != null ? panelRoot : gameObject).activeSelf;
 
@@ -132,30 +133,32 @@ namespace OpenSourceTeam6.UI.Unity
             proceedsToEnding = isFinalDayOrForcedEnding;
             receiptAnimElapsed = 0f;
 
+            EnsureScrollableExtraInfoDetailArea();
+
             if (screenTitleText != null)
             {
-                screenTitleText.text = $"[ {result.DayNumber}일차 결과 및 정산 ]";
+                screenTitleText.text = $"[ {result.DayNumber}일차 결과 및 매출 정산 ]";
             }
 
             if (goalValueText != null)
             {
-                goalValueText.text = $"목표 :  {result.TargetBalanceWon:N0}원";
+                goalValueText.text = $"목표 자산 :  {result.TargetBalanceWon:N0}원   (당일 매출 +{result.FinalSalesRevenueWon:N0}원)";
             }
 
             if (currentValueText != null)
             {
                 string sign = result.NetProfitWon >= 0 ? "+" : "";
-                currentValueText.text = $"현재 :  {result.FinalBalanceWon:N0}원   (순이익 {sign}{result.NetProfitWon:N0}원)";
+                currentValueText.text = $"보유 자산 :  {result.FinalBalanceWon:N0}원   (당일 순익 {sign}{result.NetProfitWon:N0}원)";
             }
 
             if (extraInfoSummaryText != null)
             {
                 string gradeLabel = result.OutcomeGrade == DayOutcomeGrade.StableSuccess
                     ? "목표 달성 (안정)"
-                    : (result.OutcomeGrade == DayOutcomeGrade.UnstableAngerSuccess ? "목표 달성 (불안정)" : "목표 미달");
+                    : (result.OutcomeGrade == DayOutcomeGrade.UnstableAngerSuccess ? "목표 달성 (불안정)" : "목표 미달 (사출 위험)");
                 extraInfoSummaryText.text =
                     $"추가정보 :  {gradeLabel} · 당일 매출 +{result.FinalSalesRevenueWon:N0}원 (판매 {todayUnitsSold}개)\n" +
-                    "↳  클릭 시 품목별 판매·재고 정산내역 출력  ▾";
+                    "↳  클릭 시 태그(Item_*)별 · 품목별 판매 로그 전체 스크롤 출력  ▾";
             }
 
             if (extraInfoDetailBodyText != null)
@@ -165,13 +168,21 @@ namespace OpenSourceTeam6.UI.Unity
                 string invBlock = string.IsNullOrWhiteSpace(inventoryDetailReport)
                     ? $"[ 당일 판매 {todayUnitsSold}개 · 물품 매출 {itemSalesRevenueWon:N0}원 · 누적 매출 {cumulativeRevenueWon:N0}원 ]"
                     : inventoryDetailReport;
+                string profitSign = result.NetProfitWon >= 0 ? "+" : "";
 
                 extraInfoDetailBodyText.text =
-                    $"기초 자금 {result.StartingBalanceWon:N0}원  |  업무 매출 +{(result.CheckoutRevenueWon + result.RestockRevenueWon):N0}원  |  물품 판매 +{itemSalesRevenueWon:N0}원\n" +
-                    $"진열 패널티: {penaltyLine}  |  운영 비용(원가+고정비): -{totalCosts:N0}원\n" +
-                    $"알바 종료 스트레스: {Mathf.RoundToInt(result.EndingStress)} / 100  ·  분노 거부: {result.AngerRefusalCount}회\n" +
+                    $"[ 자산 정산 공식 :  당일 매출 - 영업원가 - 알바급여 = 당일 순수익 ]\n" +
+                    $"• 당일 총매출 +{result.FinalSalesRevenueWon:N0}원 (업무 +{(result.CheckoutRevenueWon + result.RestockRevenueWon):N0}원 / 물품 +{itemSalesRevenueWon:N0}원)\n" +
+                    $"• 차감 비용 -{totalCosts:N0}원 (영업원가 -{result.CostOfGoodsWon:N0}원 / 알바 일일급여 -{result.FixedOperatingCostWon:N0}원 / 진열패널티 {penaltyLine})\n" +
+                    $"• 기초 자산 {result.StartingBalanceWon:N0}원  +  순수익 {profitSign}{result.NetProfitWon:N0}원  =  최종 보유 자산 {result.FinalBalanceWon:N0}원\n" +
+                    $"• 알바 종료 스트레스: {Mathf.RoundToInt(result.EndingStress)} / 100  ·  분노 거부: {result.AngerRefusalCount}회\n" +
                     "─────────────────────────────────────────\n" +
                     invBlock;
+
+                if (extraInfoScrollRect != null)
+                {
+                    extraInfoScrollRect.verticalNormalizedPosition = 1f;
+                }
             }
 
             if (extraInfoDetailBox != null)
@@ -182,8 +193,10 @@ namespace OpenSourceTeam6.UI.Unity
             if (nextDayButtonLabel != null)
             {
                 nextDayButtonLabel.text = proceedsToEnding
-                    ? "다음 (엔딩 보기)  →"
-                    : $"다음 ({result.DayNumber + 1}일차 영업)  →";
+                    ? (result.OutcomeGrade == DayOutcomeGrade.FailedTargetShortfall
+                        ? "다음 (사출 엔딩 보기)  →"
+                        : "다음 (엔딩 보기)  →")
+                    : "다음 (알바 시급 정산)  →";
             }
 
             // 1단계: 포스기 클릭 대기 상태로 초기화
@@ -230,6 +243,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (extraInfoDetailBox != null)
             {
                 extraInfoDetailBox.SetActive(isExtraInfoExpanded);
+                if (isExtraInfoExpanded && extraInfoScrollRect != null)
+                {
+                    Canvas.ForceUpdateCanvases();
+                    extraInfoScrollRect.verticalNormalizedPosition = 1f;
+                }
             }
 
             if (extraInfoSummaryText != null)
@@ -238,6 +256,46 @@ namespace OpenSourceTeam6.UI.Unity
                     ? extraInfoSummaryText.text.Replace("▾", "▴").Replace("출력", "접기")
                     : extraInfoSummaryText.text.Replace("▴", "▾").Replace("접기", "출력");
             }
+        }
+
+        private void EnsureScrollableExtraInfoDetailArea()
+        {
+            if (extraInfoDetailBox == null || extraInfoDetailBodyText == null) return;
+            if (extraInfoScrollRect != null) return;
+
+            extraInfoScrollRect = extraInfoDetailBox.GetComponent<ScrollRect>();
+            if (extraInfoScrollRect != null) return;
+
+            if (extraInfoDetailBox.GetComponent<RectMask2D>() == null)
+            {
+                extraInfoDetailBox.AddComponent<RectMask2D>();
+            }
+
+            RectTransform textRt = extraInfoDetailBodyText.rectTransform;
+            textRt.anchorMin = new Vector2(0f, 1f);
+            textRt.anchorMax = new Vector2(1f, 1f);
+            textRt.pivot = new Vector2(0.5f, 1f);
+            textRt.anchoredPosition = new Vector2(0f, -12f);
+            textRt.sizeDelta = new Vector2(-32f, 0f);
+
+            extraInfoDetailBodyText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            extraInfoDetailBodyText.verticalOverflow = VerticalWrapMode.Overflow;
+
+            ContentSizeFitter fitter = extraInfoDetailBodyText.GetComponent<ContentSizeFitter>();
+            if (fitter == null)
+            {
+                fitter = extraInfoDetailBodyText.gameObject.AddComponent<ContentSizeFitter>();
+            }
+            fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            extraInfoScrollRect = extraInfoDetailBox.AddComponent<ScrollRect>();
+            extraInfoScrollRect.horizontal = false;
+            extraInfoScrollRect.vertical = true;
+            extraInfoScrollRect.movementType = ScrollRect.MovementType.Clamped;
+            extraInfoScrollRect.scrollSensitivity = 28f;
+            extraInfoScrollRect.viewport = extraInfoDetailBox.GetComponent<RectTransform>();
+            extraInfoScrollRect.content = textRt;
         }
 
         private void HandleNextDayClicked()

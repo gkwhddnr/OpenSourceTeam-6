@@ -121,8 +121,9 @@ namespace EmployeeVoice
             var profile = new EmployeePersonalityProfile(Diligence, Laziness, Loyalty,
                 p.Archetype, p.InitialStress, WorkStressMultiplier, p.RestRecoveryMultiplier,
                 p.TaskSwitchMultiplier, p.HarshToneMultiplier, p.PraiseRecoveryMultiplier,
-                p.AmbiguousCommandPenalty, WageSensitivityMultiplier, p.MoveSpeedMultiplier);
-            return new EmployeePersonaSetupData(EmployeeName, Traits, HourlyWageWon, profile);
+                p.AmbiguousCommandPenalty, WageSensitivityMultiplier, p.MoveSpeedMultiplier,
+                WorkFatigueMultiplier);
+            return new EmployeePersonaSetupData(EmployeeName, Traits, HourlyWageWon, profile, SummaryReason);
         }
     }
 

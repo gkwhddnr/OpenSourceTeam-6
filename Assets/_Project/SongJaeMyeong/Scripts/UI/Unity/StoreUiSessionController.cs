@@ -19,6 +19,7 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private InGameHudPresenter inGameHud;
         [SerializeField] private CommandOverlayPresenter commandOverlay;
         [SerializeField] private SettlementPanelPresenter settlementPanel;
+        [SerializeField] private EmployeeSettlementPanelPresenter employeeSettlementPanel;
         [SerializeField] private EndingPanelPresenter endingPanel;
         [SerializeField] private PausePanelPresenter pausePanel;
         [SerializeField] private SettingsPanelPresenter settingsPanel;
@@ -72,6 +73,7 @@ namespace OpenSourceTeam6.UI.Unity
         private Coroutine activeFadeCoroutine;
         private bool isTransitionFading;
         private FirstLaunchOnboardingController onboardingController;
+        private IPersonaConfirmEvaluator personaConfirmEvaluator;
 
         private float remainingDaySeconds;
         private float totalDaySeconds;
@@ -89,12 +91,18 @@ namespace OpenSourceTeam6.UI.Unity
         public bool IsCommandOverlayOpen => commandOverlay != null && commandOverlay.IsOpen;
         public bool IsPauseMenuOpen => pausePanel != null && pausePanel.IsOpen;
         public bool IsSettingsOpen => settingsPanel != null && settingsPanel.IsOpen;
-        public bool IsSettlementVisible => settlementPanel != null && settlementPanel.IsVisible;
+        public bool IsSettlementVisible => (settlementPanel != null && settlementPanel.IsVisible) ||
+                                           (employeeSettlementPanel != null && employeeSettlementPanel.IsVisible);
+        public bool IsEmployeeSettlementVisible => employeeSettlementPanel != null && employeeSettlementPanel.IsVisible;
         public bool IsEndingVisible => endingPanel != null && endingPanel.IsVisible;
         public bool IsTransitionFading => isTransitionFading;
         public bool IsOnboardingBlocking => onboardingController != null && onboardingController.IsBlockingInput;
         public bool IsExternalModalOpen => externalModalCount > 0;
         public float CurrentEmployeeStress => lastEmployeeSnapshot.Stress;
+        public float CurrentEmployeeFatigue => lastEmployeeSnapshot.Fatigue;
+        public float CurrentEmployeeLoyalty => lastEmployeeSnapshot.Loyalty;
+        public StaffWorkRole CurrentEmployeeRole => lastEmployeeSnapshot.CurrentRole;
+        public StaffMoveBadge CurrentEmployeeMoveBadge => lastEmployeeSnapshot.MoveBadge;
         public float CurrentMouseSensitivityMultiplier => settingsPanel != null
             ? settingsPanel.MouseSensitivityMultiplier
             : Mathf.Clamp(
@@ -151,6 +159,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (personaSetupPanel != null)
             {
                 personaSetupPanel.BindAudioPlayer(activeAudioPlayer);
+                if (personaConfirmEvaluator == null)
+                {
+                    personaConfirmEvaluator = new VoicePersonaEvaluationBridge();
+                }
+                personaSetupPanel.SetConfirmEvaluator(personaConfirmEvaluator);
                 personaSetupPanel.ConfirmStartClicked += HandlePersonaConfirmStartClicked;
             }
 
@@ -195,6 +208,13 @@ namespace OpenSourceTeam6.UI.Unity
                 settlementPanel.ViewEndingClicked += ShowEndingScreen;
                 settlementPanel.RetryDayClicked += HandleRetryDayClicked;
                 settlementPanel.ReturnLobbyClicked += ShowLobby;
+            }
+
+            if (employeeSettlementPanel != null)
+            {
+                employeeSettlementPanel.BindAudioPlayer(activeAudioPlayer);
+                employeeSettlementPanel.WageSettlementConfirmed -= HandleEmployeeWageSettlementConfirmed;
+                employeeSettlementPanel.WageSettlementConfirmed += HandleEmployeeWageSettlementConfirmed;
             }
 
             if (endingPanel != null)
@@ -261,6 +281,11 @@ namespace OpenSourceTeam6.UI.Unity
                 settlementPanel.ViewEndingClicked -= ShowEndingScreen;
                 settlementPanel.RetryDayClicked -= HandleRetryDayClicked;
                 settlementPanel.ReturnLobbyClicked -= ShowLobby;
+            }
+
+            if (employeeSettlementPanel != null)
+            {
+                employeeSettlementPanel.WageSettlementConfirmed -= HandleEmployeeWageSettlementConfirmed;
             }
 
             if (endingPanel != null)
@@ -520,6 +545,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
             if (inGameHud != null) inGameHud.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
+            if (employeeSettlementPanel != null) employeeSettlementPanel.SetVisible(false);
             if (endingPanel != null) endingPanel.SetVisible(false);
             onboardingController?.HideResumeGuideWithoutSaving();
 
@@ -545,6 +571,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (inGameHud != null) inGameHud.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
+            if (employeeSettlementPanel != null) employeeSettlementPanel.SetVisible(false);
             if (endingPanel != null) endingPanel.SetVisible(false);
             personaSetupPanel.SetVisible(true);
             EnsureOnboardingController().TryShowFirstPlayResumeGuide(ResolveTransitionTitleFont(), activeAudioPlayer);
@@ -568,6 +595,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (inventoryManager == null)
             {
                 inventoryManager = FindAnyObjectByType<StoreInventoryManager>();
+                if (inventoryManager == null && Application.isPlaying)
+                {
+                    GameObject invObj = new GameObject("Store_InventoryManager");
+                    inventoryManager = invObj.AddComponent<StoreInventoryManager>();
+                }
             }
 
             if (dayNumber <= 1)
@@ -598,6 +630,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
+            if (employeeSettlementPanel != null) employeeSettlementPanel.SetVisible(false);
             if (endingPanel != null) endingPanel.SetVisible(false);
             if (inGameHud != null)
             {
@@ -620,6 +653,17 @@ namespace OpenSourceTeam6.UI.Unity
 
             PrepareTimeSystemForDayStart(dayNumber);
             DayStarted?.Invoke();
+            if (dayNumber == 1 && !string.IsNullOrWhiteSpace(CurrentPersona.EvaluationSummary) && inGameHud != null)
+            {
+                int dailyWageCost = EmployeePersonaPresets.ComputeDailyOperatingCostWon(
+                    CurrentPersona.HourlyWageWon,
+                    settlementSettings.FixedOperatingCostWon);
+                inGameHud.RenderFeedback(new VoiceCommandFeedback(
+                    CommandFeedbackKind.Info,
+                    string.Empty,
+                    string.Empty,
+                    $"[채용 심사 반영] {CurrentPersona.EvaluationSummary} (일일 운영·인건비 {dailyWageCost:N0}원)"));
+            }
             RefreshTopBar();
             if (playDoorChime)
             {
@@ -725,6 +769,11 @@ namespace OpenSourceTeam6.UI.Unity
             if (inventoryManager == null)
             {
                 inventoryManager = FindAnyObjectByType<StoreInventoryManager>();
+                if (inventoryManager == null && Application.isPlaying)
+                {
+                    GameObject invObj = new GameObject("Store_InventoryManager");
+                    inventoryManager = invObj.AddComponent<StoreInventoryManager>();
+                }
             }
 
             CloseSettingsPanel();
@@ -735,7 +784,9 @@ namespace OpenSourceTeam6.UI.Unity
             int itemSalesWon = inventoryManager != null ? inventoryManager.TodayRevenueWon : 0;
             int cumulativeSalesWon = inventoryManager != null ? inventoryManager.CumulativeRevenueWon : itemSalesWon;
             int todayUnitsSold = inventoryManager != null ? inventoryManager.TodayUnitsSold : 0;
-            string inventoryDetailReport = inventoryManager != null ? inventoryManager.BuildSettlementDetailText(8) : null;
+            string inventoryDetailReport = inventoryManager != null
+                ? inventoryManager.BuildSettlementDetailText(int.MaxValue)
+                : null;
 
             DaySettlementResult result = settlementSession.SettleOnce(endingStress, itemSalesWon);
             lastSettlementResult = result;
@@ -750,10 +801,14 @@ namespace OpenSourceTeam6.UI.Unity
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
             if (inGameHud != null) inGameHud.SetVisible(false);
+            if (employeeSettlementPanel != null) employeeSettlementPanel.SetVisible(false);
             if (endingPanel != null) endingPanel.SetVisible(false);
             if (settlementPanel != null)
             {
+                // 1일차 포함 목표 매출/자산을 채우지 못하면 즉시 사출(폐업) 엔딩으로 분기
+                bool isTargetShortfall = result.OutcomeGrade == DayOutcomeGrade.FailedTargetShortfall;
                 bool isFinalOrQuit = endingStress >= StoreEndingRules.StressOverflowThreshold ||
+                                     isTargetShortfall ||
                                      result.DayNumber >= Mathf.Max(1, maxPlayableDays);
                 settlementPanel.SetVisible(true);
                 settlementPanel.RenderResult(
@@ -784,6 +839,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
             if (inGameHud != null) inGameHud.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
+            if (employeeSettlementPanel != null) employeeSettlementPanel.SetVisible(false);
 
             if (endingPanel != null)
             {
@@ -968,7 +1024,12 @@ namespace OpenSourceTeam6.UI.Unity
         private void RefreshTopBar()
         {
             if (inGameHud == null || settlementSession == null) return;
+            if (inventoryManager == null)
+            {
+                inventoryManager = FindAnyObjectByType<StoreInventoryManager>();
+            }
             int itemSalesWon = inventoryManager != null ? inventoryManager.TodayRevenueWon : 0;
+            int itemUnitsSold = inventoryManager != null ? inventoryManager.TodayUnitsSold : 0;
             int liveEstimatedBalance = settlementSession.StartingBalanceWon +
                                        settlementSession.EstimateLiveGrossSalesWon() +
                                        itemSalesWon;
@@ -983,7 +1044,9 @@ namespace OpenSourceTeam6.UI.Unity
                 liveEstimatedBalance,
                 settlementSession.TargetBalanceWon,
                 totalDaySeconds,
-                explicitGameHour);
+                explicitGameHour,
+                inventoryManager != null ? itemSalesWon : -1,
+                itemUnitsSold);
         }
 
         private void ResolveTimeSystem()
@@ -1277,6 +1340,15 @@ namespace OpenSourceTeam6.UI.Unity
             ShowPersonaSetup();
         }
 
+        public void SetPersonaConfirmEvaluator(IPersonaConfirmEvaluator evaluator)
+        {
+            personaConfirmEvaluator = evaluator;
+            if (personaSetupPanel != null)
+            {
+                personaSetupPanel.SetConfirmEvaluator(evaluator);
+            }
+        }
+
         private void HandlePersonaConfirmStartClicked(EmployeePersonaSetupData persona)
         {
             if (isTransitionFading || IsOnboardingBlocking) return;
@@ -1284,6 +1356,16 @@ namespace OpenSourceTeam6.UI.Unity
             StartFadeTransition(() =>
             {
                 CurrentPersona = persona;
+                if (settlementSession == null)
+                {
+                    settlementSession = new DaySettlementSession(settlementSettings);
+                }
+
+                settlementSession.SetFixedOperatingCostWon(
+                    EmployeePersonaPresets.ComputeDailyOperatingCostWon(
+                        persona.HourlyWageWon,
+                        settlementSettings.FixedOperatingCostWon));
+
                 EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
                 lastEmployeeSnapshot = new EmployeeHudSnapshot(
                     persona.EmployeeName,
@@ -1291,7 +1373,7 @@ namespace OpenSourceTeam6.UI.Unity
                     StaffWorkRole.Idle,
                     "IDLE",
                     StaffMoveBadge.Idle,
-                    demoRates.InitialStress,
+                    persona.Profile.InitialStress,
                     demoRates.InitialFatigue,
                     persona.Profile.Loyalty);
 
@@ -1572,14 +1654,146 @@ namespace OpenSourceTeam6.UI.Unity
             SyncTimeSystemPauseState();
         }
 
+        public void ShowEmployeeSettlementScreen()
+        {
+            CloseSettingsPanel();
+            ClosePauseMenu();
+            CloseCommandOverlay();
+            RestoreTimeScale();
+
+            CurrentMode = UiScreenMode.Settlement;
+
+            if (lobbyPanel != null) lobbyPanel.SetVisible(false);
+            if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
+            if (inGameHud != null) inGameHud.SetVisible(false);
+            if (settlementPanel != null) settlementPanel.SetVisible(false);
+            if (endingPanel != null) endingPanel.SetVisible(false);
+
+            EmployeeSettlementPanelPresenter empPanel = EnsureEmployeeSettlementPanel();
+            if (empPanel != null)
+            {
+                empPanel.SetVisible(true);
+                empPanel.RenderEmployeeSettlement(
+                    lastSettlementResult,
+                    CurrentPersona,
+                    lastEmployeeSnapshot,
+                    ResolvePaperFont(),
+                    ResolveClipboardSprite());
+            }
+
+            activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
+            SyncBgmForCurrentState();
+            AcquireScreenLock("EmployeeSettlementScreen");
+        }
+
+        private EmployeeSettlementPanelPresenter EnsureEmployeeSettlementPanel()
+        {
+            if (employeeSettlementPanel != null)
+            {
+                employeeSettlementPanel.BindAudioPlayer(activeAudioPlayer);
+                employeeSettlementPanel.WageSettlementConfirmed -= HandleEmployeeWageSettlementConfirmed;
+                employeeSettlementPanel.WageSettlementConfirmed += HandleEmployeeWageSettlementConfirmed;
+                return employeeSettlementPanel;
+            }
+
+            Transform existing = transform.Find("EmployeeSettlementPanel");
+            if (existing != null)
+            {
+                employeeSettlementPanel = existing.GetComponent<EmployeeSettlementPanelPresenter>();
+            }
+
+            if (employeeSettlementPanel == null)
+            {
+                GameObject panelObj = new GameObject("EmployeeSettlementPanel", typeof(RectTransform), typeof(Image));
+                panelObj.transform.SetParent(transform, false);
+                if (endingPanel != null)
+                {
+                    panelObj.transform.SetSiblingIndex(endingPanel.transform.GetSiblingIndex());
+                }
+                employeeSettlementPanel = panelObj.AddComponent<EmployeeSettlementPanelPresenter>();
+            }
+
+            employeeSettlementPanel.EnsureRuntimeUiBuilt(ResolvePaperFont(), ResolveClipboardSprite());
+            employeeSettlementPanel.BindAudioPlayer(activeAudioPlayer);
+            employeeSettlementPanel.WageSettlementConfirmed -= HandleEmployeeWageSettlementConfirmed;
+            employeeSettlementPanel.WageSettlementConfirmed += HandleEmployeeWageSettlementConfirmed;
+            return employeeSettlementPanel;
+        }
+
+        private Font ResolvePaperFont()
+        {
+            if (personaSetupPanel != null)
+            {
+                Text paperTxt = personaSetupPanel.GetComponentInChildren<Text>(true);
+                if (paperTxt != null && paperTxt.font != null)
+                {
+                    return paperTxt.font;
+                }
+            }
+
+            return ResolveTransitionTitleFont();
+        }
+
+        private Sprite ResolveClipboardSprite()
+        {
+            if (personaSetupPanel != null)
+            {
+                Transform clipTr = personaSetupPanel.transform.Find("ResumeClipboard");
+                Image clipImg = clipTr != null ? clipTr.GetComponent<Image>() : null;
+                if (clipImg != null && clipImg.sprite != null)
+                {
+                    return clipImg.sprite;
+                }
+            }
+
+            return null;
+        }
+
         private void HandleNextDayClicked()
         {
             if (isTransitionFading) return;
+            ShowEmployeeSettlementScreen();
+        }
+
+        private void HandleEmployeeWageSettlementConfirmed(
+            WageAdjustmentOption option,
+            EmployeePersonaSetupData updatedPersona)
+        {
+            if (isTransitionFading) return;
+
             int nextDay = Mathf.Max(2, lastSettlementResult.DayNumber + 1);
             int carryBalance = Mathf.Max(10000, lastSettlementResult.FinalBalanceWon);
 
             StartFadeTransition(() =>
             {
+                if (employeeSettlementPanel != null)
+                {
+                    employeeSettlementPanel.SetVisible(false);
+                }
+
+                CurrentPersona = updatedPersona;
+                if (settlementSession == null)
+                {
+                    settlementSession = new DaySettlementSession(settlementSettings);
+                }
+
+                settlementSession.SetFixedOperatingCostWon(
+                    EmployeePersonaPresets.ComputeDailyOperatingCostWon(
+                        updatedPersona.HourlyWageWon,
+                        settlementSettings.FixedOperatingCostWon));
+
+                EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
+                lastEmployeeSnapshot = new EmployeeHudSnapshot(
+                    updatedPersona.EmployeeName,
+                    updatedPersona.PersonalityTraits,
+                    StaffWorkRole.Idle,
+                    "IDLE",
+                    StaffMoveBadge.Idle,
+                    updatedPersona.Profile.InitialStress,
+                    demoRates.InitialFatigue,
+                    updatedPersona.Profile.Loyalty);
+
+                PersonaConfirmed?.Invoke(updatedPersona);
                 StartDayInternal(nextDay, carryBalance, settlementSettings.DayDurationSeconds, playDoorChime: true);
             }, dayBannerText: $"{nextDay}일차");
         }

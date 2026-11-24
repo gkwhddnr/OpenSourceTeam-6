@@ -244,7 +244,9 @@ namespace OpenSourceTeam6.UI.Unity
             int displayedBalanceWon,
             int targetBalanceWon = 0,
             float totalDaySeconds = 0f,
-            float? explicitGameHour = null)
+            float? explicitGameHour = null,
+            int todaySalesWon = -1,
+            int todayUnitsSold = 0)
         {
             EnsureCounterMonitorBound();
 
@@ -285,7 +287,25 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (counterMonitorBalanceText != null)
             {
-                counterMonitorBalanceText.text = balanceLabel;
+                if (todaySalesWon >= 0)
+                {
+                    Transform revParent = counterMonitorBalanceText.transform.parent;
+                    Transform revCapTr = revParent != null ? revParent.Find("RevenueCardCaption") : null;
+                    Text revCapText = revCapTr != null ? revCapTr.GetComponent<Text>() : null;
+                    if (revCapText != null)
+                    {
+                        revCapText.text = targetBalanceWon > 0
+                            ? $"보유 자산 {displayedBalanceWon:N0}원  /  목표 자산 {targetBalanceWon:N0}원"
+                            : $"예상 보유 자산 {displayedBalanceWon:N0}원";
+                    }
+
+                    counterMonitorBalanceText.text = $"오늘 매출 : {todaySalesWon:N0}원  ({todayUnitsSold}개 결제)";
+                }
+                else
+                {
+                    counterMonitorBalanceText.text = balanceLabel;
+                }
+
                 counterMonitorBalanceText.color = (targetBalanceWon > 0 && displayedBalanceWon >= targetBalanceWon)
                     ? new Color(0.28f, 0.98f, 0.68f, 1f)
                     : new Color(1f, 0.86f, 0.32f, 1f);

@@ -56,9 +56,19 @@ namespace OpenSourceTeam6.UI.Unity
                 if (uiController == null) return;
             }
 
-            if (playerCamera == null)
+            if (playerCamera == null ||
+                !playerCamera.isActiveAndEnabled ||
+                playerCamera.gameObject.name == "LobbyOverviewCamera" ||
+                playerCamera.gameObject.name == "PosSettlementCamera")
             {
-                playerCamera = Camera.main;
+                Camera mainCam = Camera.main;
+                if (mainCam != null &&
+                    mainCam.isActiveAndEnabled &&
+                    mainCam.gameObject.name != "LobbyOverviewCamera" &&
+                    mainCam.gameObject.name != "PosSettlementCamera")
+                {
+                    playerCamera = mainCam;
+                }
             }
 
             // 영업 중 화면이 아니거나 화면 전환(N일차 페이드) 중에는 상호작용 프롬프트·입력을 숨긴다.

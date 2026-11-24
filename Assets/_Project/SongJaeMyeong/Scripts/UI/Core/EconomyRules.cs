@@ -259,6 +259,7 @@ namespace OpenSourceTeam6.UI.Core
         public int DayNumber { get; private set; }
         public int StartingBalanceWon { get; private set; }
         public int TargetBalanceWon => settings.TargetBalanceWon;
+        public int FixedOperatingCostWon => settings.FixedOperatingCostWon;
         public float RawCheckoutSeconds { get; private set; }
         public float RawRestockSeconds { get; private set; }
         public float EffectiveCheckoutSeconds { get; private set; }
@@ -327,6 +328,11 @@ namespace OpenSourceTeam6.UI.Core
         public void SetTargetBalanceWon(int targetBalanceWon)
         {
             settings.TargetBalanceWon = Math.Max(0, targetBalanceWon);
+        }
+
+        public void SetFixedOperatingCostWon(int fixedOperatingCostWon)
+        {
+            settings.FixedOperatingCostWon = Math.Max(0, fixedOperatingCostWon);
         }
 
         public DaySettlementResult SettleOnce(float endingStress, int extraItemSalesRevenueWon = 0)

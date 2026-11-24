@@ -329,11 +329,11 @@ namespace OpenSourceTeam6.UI.Unity
                     uiController.RecordWorkSample(currentRole, stress, dt);
                 }
 
-                fatigue = Mathf.Clamp(fatigue + statRates.WorkFatiguePerSecond * dt, 0f, 100f);
+                fatigue = Mathf.Clamp(fatigue + statRates.WorkFatiguePerSecond * _activeProfile.WorkFatigueMultiplier * dt, 0f, 100f);
             }
             else
             {
-                fatigue = Mathf.Clamp(fatigue - statRates.RestFatigueRecoveryPerSecond * dt, 0f, 100f);
+                fatigue = Mathf.Clamp(fatigue - statRates.RestFatigueRecoveryPerSecond * _activeProfile.RestRecoveryMultiplier * dt, 0f, 100f);
             }
 
             PushSnapshot();

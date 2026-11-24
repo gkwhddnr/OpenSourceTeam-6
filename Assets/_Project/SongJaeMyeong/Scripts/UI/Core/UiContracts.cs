@@ -129,6 +129,7 @@ namespace OpenSourceTeam6.UI.Core
         public float AmbiguousCommandPenalty { get; }
         public float WageSensitivityMultiplier { get; }
         public float MoveSpeedMultiplier { get; }
+        public float WorkFatigueMultiplier { get; }
 
         public EmployeePersonalityProfile(
             float diligence,
@@ -143,7 +144,8 @@ namespace OpenSourceTeam6.UI.Core
             float praiseRecoveryMultiplier = 1.0f,
             float ambiguousCommandPenalty = 0f,
             float wageSensitivityMultiplier = 1.0f,
-            float moveSpeedMultiplier = 1.0f)
+            float moveSpeedMultiplier = 1.0f,
+            float workFatigueMultiplier = 1.0f)
         {
             Archetype = archetype;
             Diligence = StressRules.ClampStat(diligence);
@@ -158,6 +160,7 @@ namespace OpenSourceTeam6.UI.Core
             AmbiguousCommandPenalty = Math.Max(0f, ambiguousCommandPenalty);
             WageSensitivityMultiplier = Math.Max(0.1f, wageSensitivityMultiplier);
             MoveSpeedMultiplier = Math.Max(0.5f, moveSpeedMultiplier);
+            WorkFatigueMultiplier = Math.Max(0.1f, workFatigueMultiplier);
         }
 
         public static EmployeePersonalityProfile CreateDefault()
@@ -265,18 +268,95 @@ namespace OpenSourceTeam6.UI.Core
         public string PersonalityTraits { get; }
         public int HourlyWageWon { get; }
         public EmployeePersonalityProfile Profile { get; }
+        public string EvaluationSummary { get; }
 
         public EmployeePersonaSetupData(
             string employeeName,
             string personalityTraits,
             int hourlyWageWon = EmployeePersonaPresets.DefaultHourlyWageWon,
-            EmployeePersonalityProfile? profile = null)
+            EmployeePersonalityProfile? profile = null,
+            string evaluationSummary = "")
         {
             EmployeeName = EmployeePersonaPresets.SanitizeName(employeeName);
             PersonalityTraits = EmployeePersonaPresets.SanitizeTraits(personalityTraits);
             HourlyWageWon = hourlyWageWon > 0 ? hourlyWageWon : EmployeePersonaPresets.DefaultHourlyWageWon;
             Profile = profile ?? EmployeePersonaPresets.InferProfileFromTraits(PersonalityTraits);
+            EvaluationSummary = evaluationSummary ?? string.Empty;
         }
+    }
+
+    /// <summary>
+    /// 0일차 이력서 채용 확정 전 비동기 LLM/밸런스 심사 결과 DTO.
+    /// </summary>
+    public readonly struct PersonaEvaluationOutcome
+    {
+        public bool Succeeded { get; }
+        public EmployeePersonaSetupData PreparedPersona { get; }
+        public float WorkFatigueMultiplier { get; }
+        public string SummaryReason { get; }
+        public string ErrorMessage { get; }
+        public bool IsServerUnreachable { get; }
+
+        public PersonaEvaluationOutcome(
+            bool succeeded,
+            EmployeePersonaSetupData preparedPersona,
+            float workFatigueMultiplier,
+            string summaryReason,
+            string errorMessage,
+            bool isServerUnreachable = false)
+        {
+            Succeeded = succeeded;
+            PreparedPersona = preparedPersona;
+            WorkFatigueMultiplier = Math.Max(0.1f, workFatigueMultiplier);
+            SummaryReason = summaryReason ?? string.Empty;
+            ErrorMessage = errorMessage ?? string.Empty;
+            IsServerUnreachable = isServerUnreachable;
+        }
+
+        public static PersonaEvaluationOutcome Success(
+            EmployeePersonaSetupData preparedPersona,
+            float workFatigueMultiplier = 1.0f,
+            string summaryReason = "")
+        {
+            return new PersonaEvaluationOutcome(
+                true,
+                preparedPersona,
+                workFatigueMultiplier,
+                summaryReason,
+                string.Empty,
+                false);
+        }
+
+        public static PersonaEvaluationOutcome Failure(
+            string errorMessage,
+            bool isServerUnreachable = false,
+            EmployeePersonaSetupData fallbackBaseline = default)
+        {
+            return new PersonaEvaluationOutcome(
+                false,
+                fallbackBaseline,
+                1.0f,
+                string.Empty,
+                errorMessage,
+                isServerUnreachable);
+        }
+    }
+
+    /// <summary>
+    /// 0일차 이력서 UI(PersonaSetupPanelPresenter)가 채용 확정 시 외부 LLM 심사기(VoiceMovementIntegration 등)를
+    /// 비동기로 호출하기 위한 공개 인터페이스.
+    /// </summary>
+    public interface IPersonaConfirmEvaluator
+    {
+        bool IsEvaluationPending { get; }
+
+        System.Threading.Tasks.Task<PersonaEvaluationOutcome> EvaluateAndPrepareAsync(
+            string rawEmployeeName,
+            string rawTraits,
+            EmployeePersonaSetupData baseline,
+            System.Threading.CancellationToken cancellationToken);
+
+        void CancelEvaluation();
     }
 
     /// <summary>
@@ -362,41 +442,302 @@ namespace OpenSourceTeam6.UI.Core
             }
 
             string text = rawTraits.Trim();
+            EmployeePersonalityProfile baseProfile;
+
+            bool hasInsultResistance =
+                text.Contains("욕") ||
+                text.Contains("나쁘지 않") ||
+                text.Contains("화내지 않") ||
+                text.Contains("화 안") ||
+                text.Contains("상처 안") ||
+                text.Contains("상처받지 않") ||
+                text.Contains("멘탈") ||
+                text.Contains("무던") ||
+                text.Contains("참을성");
+
+            bool hasOverpoweredClaim =
+                text.Contains("절대") ||
+                text.Contains("완벽") ||
+                text.Contains("천재") ||
+                text.Contains("만능") ||
+                text.Contains("안 지치") ||
+                text.Contains("지치지 않") ||
+                text.Contains("무한") ||
+                text.Contains("최강");
+
             if (text.Contains("귀찮") || text.Contains("게으") || text.Contains("태만") ||
                 text.Contains("농땡") || text.Contains("한숨") || text.Contains("시급"))
             {
-                return EmployeePersonalityProfile.CreatePreset2Lazy();
+                baseProfile = EmployeePersonalityProfile.CreatePreset2Lazy();
             }
-
-            if (text.Contains("소심") || text.Contains("상처") || text.Contains("유리") ||
-                text.Contains("겁") || text.Contains("예민") || text.Contains("칭찬"))
+            else if (!hasInsultResistance &&
+                     (text.Contains("소심") || text.Contains("상처") || text.Contains("유리") ||
+                      text.Contains("겁") || text.Contains("예민") || text.Contains("칭찬")))
             {
                 if (text.Contains("열정") || text.Contains("의욕") || text.Contains("행동파") || text.Contains("뛰어"))
                 {
-                    return EmployeePersonalityProfile.CreateRandom5Passionate();
+                    baseProfile = EmployeePersonalityProfile.CreateRandom5Passionate();
                 }
-
-                return EmployeePersonalityProfile.CreatePreset3Timid();
+                else
+                {
+                    baseProfile = EmployeePersonalityProfile.CreatePreset3Timid();
+                }
             }
-
-            if (text.Contains("융통성") || text.Contains("원칙") || text.Contains("문자 그대로") ||
-                text.Contains("곧이곧대로") || text.Contains("고집"))
+            else if (text.Contains("융통성") || text.Contains("원칙") || text.Contains("문자 그대로") ||
+                     text.Contains("곧이곧대로") || text.Contains("고집"))
             {
-                return EmployeePersonalityProfile.CreateRandom4Rigid();
+                baseProfile = EmployeePersonalityProfile.CreateRandom4Rigid();
             }
-
-            if (text.Contains("열정") || text.Contains("의욕") || text.Contains("행동파") ||
-                text.Contains("활발") || text.Contains("뛰어"))
+            else if (text.Contains("열정") || text.Contains("의욕") || text.Contains("행동파") ||
+                     text.Contains("활발") || text.Contains("뛰어"))
             {
-                return EmployeePersonalityProfile.CreateRandom5Passionate();
+                baseProfile = EmployeePersonalityProfile.CreateRandom5Passionate();
             }
-
-            if (text.Contains("성실") || text.Contains("예의") || text.Contains("모범") || text.Contains("재촉"))
+            else if (text.Contains("성실") || text.Contains("예의") || text.Contains("모범") || text.Contains("재촉"))
             {
-                return EmployeePersonalityProfile.CreatePreset1Diligent();
+                baseProfile = EmployeePersonalityProfile.CreatePreset1Diligent();
+            }
+            else
+            {
+                baseProfile = EmployeePersonalityProfile.CreateDefault();
             }
 
-            return EmployeePersonalityProfile.CreateDefault();
+            if (!hasInsultResistance && !hasOverpoweredClaim)
+            {
+                return baseProfile;
+            }
+
+            float diligence = baseProfile.Diligence;
+            float laziness = baseProfile.Laziness;
+            float loyalty = baseProfile.Loyalty;
+            float workStressMult = baseProfile.WorkStressMultiplier;
+            float workFatigueMult = baseProfile.WorkFatigueMultiplier;
+            float harshToneMult = baseProfile.HarshToneMultiplier;
+            float wageSensMult = baseProfile.WageSensitivityMultiplier;
+
+            if (hasInsultResistance)
+            {
+                // 거친 말투·욕설에는 둔감해지지만, 반작용으로 내재된 업무 피로/시급 기대치가 높아진다.
+                harshToneMult = 0.50f;
+                loyalty = Math.Min(90f, Math.Max(loyalty, 78f));
+                workFatigueMult = Math.Max(workFatigueMult, 1.15f);
+                wageSensMult = Math.Max(wageSensMult, 1.20f);
+            }
+
+            if (hasOverpoweredClaim)
+            {
+                diligence = Math.Min(90f, Math.Max(diligence, 88f));
+                laziness = Math.Max(10f, Math.Min(laziness, 12f));
+                loyalty = Math.Min(90f, Math.Max(loyalty, 85f));
+                if (text.Contains("안 지치") || text.Contains("지치지 않"))
+                {
+                    workFatigueMult = 0.70f;
+                    workStressMult = Math.Max(workStressMult, 1.20f);
+                }
+                else
+                {
+                    workStressMult = 0.75f;
+                    workFatigueMult = Math.Max(workFatigueMult, 1.20f);
+                }
+                wageSensMult = Math.Max(wageSensMult, 1.35f);
+            }
+
+            return new EmployeePersonalityProfile(
+                diligence,
+                laziness,
+                loyalty,
+                baseProfile.Archetype,
+                baseProfile.InitialStress,
+                workStressMult,
+                baseProfile.RestRecoveryMultiplier,
+                baseProfile.TaskSwitchMultiplier,
+                harshToneMult,
+                baseProfile.PraiseRecoveryMultiplier,
+                baseProfile.AmbiguousCommandPenalty,
+                wageSensMult,
+                baseProfile.MoveSpeedMultiplier,
+                workFatigueMult);
+        }
+
+        public static bool TryValidateRawInputs(
+            string rawName,
+            string rawTraits,
+            out string trimmedName,
+            out string trimmedTraits,
+            out string errorMessage)
+        {
+            trimmedName = string.Empty;
+            trimmedTraits = string.Empty;
+
+            if (string.IsNullOrWhiteSpace(rawName) || rawName.Length > MaxNameLength || HasControlChar(rawName))
+            {
+                errorMessage = $"직원 이름은 1~{MaxNameLength}자로 입력해 주세요.";
+                return false;
+            }
+
+            string normalizedTraits = rawTraits != null
+                ? rawTraits.Replace("\r", string.Empty).Replace("\n", " ")
+                : string.Empty;
+            if (string.IsNullOrWhiteSpace(normalizedTraits) || normalizedTraits.Length > MaxTraitLength || HasControlChar(normalizedTraits))
+            {
+                errorMessage = $"직원 성격은 1~{MaxTraitLength}자로 입력해 주세요.";
+                return false;
+            }
+
+            trimmedName = rawName.Trim();
+            trimmedTraits = normalizedTraits.Trim();
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        private static bool HasControlChar(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return false;
+            for (int i = 0; i < value.Length; i++)
+            {
+                if (char.IsControl(value[i])) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// 심사된 시급(10,030~30,000원)을 일일 정산 고정 운영/인건비(기본 20,000원 = 기본시급 약 2시간분)로 환산한다.
+        /// 기본 시급(10,030원)일 때는 기존 정산 규격(20,000원)을 그대로 유지하며,
+        /// 좋은 성격으로 시급이 인상된 경우 인상된 시급 × 2시간을 일일 운영·인건비로 적용한다.
+        /// </summary>
+        public static int ComputeDailyOperatingCostWon(int hourlyWageWon, int baseFixedOperatingCostWon = 20000)
+        {
+            int safeBase = Math.Max(0, baseFixedOperatingCostWon);
+            if (hourlyWageWon <= DefaultHourlyWageWon)
+            {
+                return safeBase;
+            }
+
+            return Math.Max(safeBase, hourlyWageWon * 2);
+        }
+
+        /// <summary>
+        /// 서버(Gateway PersonaBalance.cs)와 동일한 산식으로 로컬 이력서 밸런스 심사를 수행한다.
+        /// (실시간 시급 미리보기 및 오프라인/폴백 심사 시 사용)
+        /// </summary>
+        public static PersonaEvaluationOutcome EvaluateLocalPersonaBalance(
+            string rawName,
+            string rawTraits,
+            EmployeePersonaSetupData baseline)
+        {
+            if (!TryValidateRawInputs(rawName, rawTraits, out string trimmedName, out string trimmedTraits, out string errorMsg))
+            {
+                return PersonaEvaluationOutcome.Failure(errorMsg, isServerUnreachable: false, fallbackBaseline: baseline);
+            }
+
+            // 기본 프리셋 5종과 정확히 일치하면 기본 시급(10,030원) 유지
+            for (int i = 0; i < _randomPool.Length; i++)
+            {
+                if (string.Equals(_randomPool[i].PersonalityTraits, trimmedTraits, StringComparison.Ordinal))
+                {
+                    EmployeePersonalityProfile presetProf = _randomPool[i].Profile;
+                    string presetSummary = $"표준 채용 프로필 적용 · 시급은 {DefaultHourlyWageWon:N0}원입니다.";
+                    EmployeePersonaSetupData presetData = new EmployeePersonaSetupData(
+                        trimmedName,
+                        trimmedTraits,
+                        DefaultHourlyWageWon,
+                        presetProf,
+                        presetSummary);
+                    return PersonaEvaluationOutcome.Success(presetData, presetProf.WorkFatigueMultiplier, presetSummary);
+                }
+            }
+
+            EmployeePersonalityProfile inferred = InferProfileFromTraits(trimmedTraits);
+            bool hasPositive =
+                trimmedTraits.Contains("성실") || trimmedTraits.Contains("열정") || trimmedTraits.Contains("빠르") ||
+                trimmedTraits.Contains("친절") || trimmedTraits.Contains("예의") || trimmedTraits.Contains("욕") ||
+                trimmedTraits.Contains("나쁘지 않") || trimmedTraits.Contains("화내지 않") || trimmedTraits.Contains("상처 안") ||
+                trimmedTraits.Contains("안 지치") || trimmedTraits.Contains("지치지 않") || trimmedTraits.Contains("참을성");
+            bool hasNegative =
+                trimmedTraits.Contains("하지만") || trimmedTraits.Contains("그러나") || trimmedTraits.Contains("대신") ||
+                trimmedTraits.Contains("예민") || trimmedTraits.Contains("소심") || trimmedTraits.Contains("상처") ||
+                trimmedTraits.Contains("귀찮") || trimmedTraits.Contains("게으") || trimmedTraits.Contains("느리") ||
+                trimmedTraits.Contains("실수") || trimmedTraits.Contains("고집");
+            bool isUnrealistic =
+                trimmedTraits.Contains("절대") || trimmedTraits.Contains("완벽") || trimmedTraits.Contains("천재") ||
+                trimmedTraits.Contains("만능") || trimmedTraits.Contains("무한") || trimmedTraits.Contains("최강") ||
+                (hasPositive && !hasNegative && (trimmedTraits.Contains("욕") || trimmedTraits.Contains("안 지치") || trimmedTraits.Contains("지치지 않")));
+            bool isOneSided = hasPositive && !hasNegative;
+
+            int diligence = (int)Math.Round(inferred.Diligence);
+            int laziness = (int)Math.Round(inferred.Laziness);
+            int loyalty = (int)Math.Round(inferred.Loyalty);
+            float stressMult = (float)Math.Round(inferred.WorkStressMultiplier, 2);
+            float fatigueMult = (float)Math.Round(inferred.WorkFatigueMultiplier, 2);
+            float wageSensMult = (float)Math.Round(inferred.WageSensitivityMultiplier, 2);
+
+            if (isUnrealistic)
+            {
+                diligence = Math.Min(90, Math.Max(85, diligence));
+                laziness = Math.Max(10, Math.Min(15, laziness));
+                loyalty = Math.Min(90, Math.Max(82, loyalty));
+                wageSensMult = Math.Max(1.25f, wageSensMult);
+            }
+            else if (isOneSided)
+            {
+                diligence = Math.Max(80, diligence);
+                laziness = Math.Min(20, laziness);
+                loyalty = Math.Max(78, loyalty);
+                wageSensMult = Math.Max(1.10f, wageSensMult);
+            }
+
+            bool strong = diligence >= 80 || laziness <= 20 || loyalty >= 80 ||
+                          Math.Min(stressMult, Math.Min(fatigueMult, wageSensMult)) <= 0.75f;
+            bool premium = strong || isUnrealistic || isOneSided;
+            if (premium)
+            {
+                wageSensMult = Math.Max(wageSensMult, isUnrealistic ? 1.25f : 1.10f);
+            }
+
+            float benefits = Math.Max(0, diligence - 50) +
+                             Math.Max(0, 50 - laziness) +
+                             Math.Max(0, loyalty - 50) +
+                             100f * (Math.Max(0f, 1f - stressMult) +
+                                     Math.Max(0f, 1f - fatigueMult) +
+                                     Math.Max(0f, 1f - wageSensMult));
+            int floor = isUnrealistic ? 20000 : (premium ? 16000 : DefaultHourlyWageWon);
+            int wage = Math.Max(floor, Math.Min(30000, DefaultHourlyWageWon + (int)Math.Round(50f * benefits)));
+
+            string merit = diligence > 50 ? "성실도가 높고" :
+                           laziness < 50 ? "게으름이 적고" :
+                           loyalty > 50 ? "충성도가 높고" :
+                           stressMult < 1f ? "업무 스트레스가 더디게 쌓이고" :
+                           fatigueMult < 1f ? "업무 피로가 더디게 쌓이고" : "업무 성향을 종합했고";
+            float largestCost = Math.Max(stressMult, Math.Max(fatigueMult, wageSensMult));
+            string cost = largestCost <= 1f ? "" :
+                          Math.Abs(stressMult - largestCost) < 0.001f ? " 업무 스트레스가 빨리 쌓이며" :
+                          Math.Abs(fatigueMult - largestCost) < 0.001f ? " 업무 피로가 빨리 쌓이며" : " 시급 변화에 민감하며";
+            string summaryReason = $"{merit}{cost} 시급은 {wage:N0}원입니다.";
+
+            EmployeePersonalityProfile evaluatedProfile = new EmployeePersonalityProfile(
+                diligence,
+                laziness,
+                loyalty,
+                inferred.Archetype,
+                inferred.InitialStress,
+                stressMult,
+                inferred.RestRecoveryMultiplier,
+                inferred.TaskSwitchMultiplier,
+                inferred.HarshToneMultiplier,
+                inferred.PraiseRecoveryMultiplier,
+                inferred.AmbiguousCommandPenalty,
+                wageSensMult,
+                inferred.MoveSpeedMultiplier,
+                fatigueMult);
+
+            EmployeePersonaSetupData prepared = new EmployeePersonaSetupData(
+                trimmedName,
+                trimmedTraits,
+                wage,
+                evaluatedProfile,
+                summaryReason);
+
+            return PersonaEvaluationOutcome.Success(prepared, fatigueMult, summaryReason);
         }
 
         public static string SanitizeName(string rawName)

@@ -187,7 +187,7 @@ namespace EmployeeVoice
             }
             else
             {
-                workFatigueMultiplier = 1f;
+                workFatigueMultiplier = setupData.Profile.WorkFatigueMultiplier;
                 if (evaluation != null) Debug.LogWarning("[VoiceIntegration] 이력서가 변경되어 심사 결과를 적용하지 않았습니다.");
             }
             currentProfile = setupData.Profile;
@@ -1187,12 +1187,19 @@ namespace EmployeeVoice
             if (!IsReaction(proposal)) throw new ArgumentException("Invalid reaction proposal.", nameof(proposal));
             if (double.IsNaN(sample) || sample < 0 || sample >= 1) throw new ArgumentOutOfRangeException(nameof(sample));
             int stress = Math.Max(0, Math.Min(100, employee.stress));
+            double diligenceOffset = (Math.Clamp(employee.diligence, 0, 100) - 70) * 0.25;
+            double lazinessOffset = (Math.Clamp(employee.laziness, 0, 100) - 20) * 0.20 +
+                                    Math.Max(0, Math.Clamp(employee.fatigue, 0, 100) - 15) * 0.08;
+            double loyaltyRefuseOffset = (70 - Math.Clamp(employee.loyalty, 0, 100)) * 0.22;
             // Mistakes remain in the action enum but are disabled for this demo. The remaining
             // weights are sampled relative to their total, which renormalizes each stress band.
             double[] weights = stress < 40 ? new double[] { 85, 10, 0, 2, 0 } :
                 stress < 70 ? new double[] { 35, 40, 0, 10, 5 } :
                 stress < 90 ? new double[] { 10, 25, 0, 20, 25 } :
                               new double[] { 0, 10, 0, 20, 55 };
+            if (stress < 90) weights[0] = Math.Max(1.0, weights[0] + diligenceOffset);
+            weights[3] = Math.Max(0.5, weights[3] + lazinessOffset);
+            if (stress >= 40) weights[4] = Math.Max(1.0, weights[4] + loyaltyRefuseOffset);
             if (employee.archetype == EmployeeArchetype.DiligentStandard) weights[0] *= 1.15;
             if (employee.archetype == EmployeeArchetype.LazyComplainer) weights[3] *= 1.8;
             if (employee.archetype == EmployeeArchetype.LiteralRigid) { weights[0] *= 1.2; weights[3] *= 0.5; }

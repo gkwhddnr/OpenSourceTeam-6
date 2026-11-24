@@ -130,7 +130,11 @@ namespace OpenSourceTeam6.UI.Editor
 
                 bool needsFontOrLobbyRefresh = NeedsFontOrTransparentLobbySync(prefab, worldPrefab, targetKoreanFont, targetPaperFont);
 
-                if (prefab == null || prefab.transform.Find("EndingPanel") == null || isWorkSceneMissingEnvironment || needsFontOrLobbyRefresh)
+                if (prefab == null ||
+                    prefab.transform.Find("EndingPanel") == null ||
+                    prefab.transform.Find("EmployeeSettlementPanel") == null ||
+                    isWorkSceneMissingEnvironment ||
+                    needsFontOrLobbyRefresh)
                 {
                     BuildUiPrefabAndWorkScene();
                     return;
@@ -213,7 +217,8 @@ namespace OpenSourceTeam6.UI.Editor
                 return true;
             }
 
-            if (uiPrefab.transform.Find("SettlementPanel/PosClickAreaButton") == null)
+            if (uiPrefab.transform.Find("SettlementPanel/PosClickAreaButton") == null ||
+                uiPrefab.transform.Find("EmployeeSettlementPanel") == null)
             {
                 return true;
             }
@@ -948,6 +953,7 @@ namespace OpenSourceTeam6.UI.Editor
             InGameHudPresenter hudPresenter = BuildInGameHud(root.transform, font, resolvedPaperFont, whiteSprite, smoothRectSprite);
             CommandOverlayPresenter overlayPresenter = BuildCommandOverlay(root.transform, font, whiteSprite);
             SettlementPanelPresenter settlementPresenter = BuildSettlementPanel(root.transform, font, resolvedPaperFont, whiteSprite);
+            EmployeeSettlementPanelPresenter empSettlementPresenter = BuildEmployeeSettlementPanel(root.transform, resolvedPaperFont);
             EndingPanelPresenter endingPresenter = BuildEndingPanel(root.transform, font, whiteSprite);
             PausePanelPresenter pausePresenter = BuildPausePanel(root.transform, font, whiteSprite);
             SettingsPanelPresenter settingsPresenter = BuildSettingsPanel(root.transform, font, whiteSprite);
@@ -956,6 +962,7 @@ namespace OpenSourceTeam6.UI.Editor
             hudPresenter.SetVisible(false);
             overlayPresenter.SetOpen(false);
             settlementPresenter.SetVisible(false);
+            empSettlementPresenter.SetVisible(false);
             endingPresenter.SetVisible(false);
             pausePresenter.SetOpen(false);
             settingsPresenter.SetOpen(false);
@@ -967,6 +974,10 @@ namespace OpenSourceTeam6.UI.Editor
             so.FindProperty("inGameHud").objectReferenceValue = hudPresenter;
             so.FindProperty("commandOverlay").objectReferenceValue = overlayPresenter;
             so.FindProperty("settlementPanel").objectReferenceValue = settlementPresenter;
+            if (so.FindProperty("employeeSettlementPanel") != null)
+            {
+                so.FindProperty("employeeSettlementPanel").objectReferenceValue = empSettlementPresenter;
+            }
             so.FindProperty("endingPanel").objectReferenceValue = endingPresenter;
             so.FindProperty("pausePanel").objectReferenceValue = pausePresenter;
             so.FindProperty("settingsPanel").objectReferenceValue = settingsPresenter;
@@ -976,6 +987,15 @@ namespace OpenSourceTeam6.UI.Editor
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return root;
+        }
+
+        private static EmployeeSettlementPanelPresenter BuildEmployeeSettlementPanel(Transform parent, Font paperFont)
+        {
+            GameObject panelObj = new GameObject("EmployeeSettlementPanel", typeof(RectTransform), typeof(Image));
+            panelObj.transform.SetParent(parent, false);
+            EmployeeSettlementPanelPresenter presenter = panelObj.AddComponent<EmployeeSettlementPanelPresenter>();
+            presenter.EnsureRuntimeUiBuilt(paperFont, _resumeClipboardSprite);
+            return presenter;
         }
 
         private static void AssignDefaultAudioClips(StoreAudioManager audioManager)
@@ -2715,7 +2735,7 @@ namespace OpenSourceTeam6.UI.Editor
                 hintContent,
                 paperFont,
                 "[조작 가이드 · 음성/LLM 연동]\n" +
-                "• WASD : 이동 · E : 계산대 설명서\n" +
+                "• WASD : 이동 · E : 포스기 결제 / 설명서\n" +
                 "• R(홀드)/V : 실제 음성 지시 (Whisper)\n" +
                 "• Tab : 텍스트 명령창 (LLM 중계)\n" +
                 "• 좌클릭 : 이동 위치 지정 · P/Esc : 정지\n" +
@@ -3069,7 +3089,7 @@ namespace OpenSourceTeam6.UI.Editor
                 "RevenueCardCaption",
                 revenueCard.transform,
                 uiFont,
-                "실시간 매출  (현재 잔액 / 목표 금액)",
+                "보유 자산 50,000원  /  목표 자산 80,000원",
                 32,
                 FontStyle.Normal,
                 new Color(0.64f, 0.80f, 0.94f, 1f),
@@ -3080,7 +3100,7 @@ namespace OpenSourceTeam6.UI.Editor
                 "MonitorBalanceText",
                 revenueCard.transform,
                 uiFont,
-                "현재 50,000원  /  목표 80,000원",
+                "오늘 매출 : 0원  (0개 결제)",
                 56,
                 FontStyle.Bold,
                 new Color(1f, 0.86f, 0.32f, 1f),
@@ -3525,15 +3545,15 @@ namespace OpenSourceTeam6.UI.Editor
             Transform rightSidewalk = CreateEmptyWaypoint(npcSysObj.transform, "Sidewalk_Right", rightSidewalkPos);
             Transform entrance = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Entrance", entrancePos);
             Transform shelf = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Shelf", shelfPos);
-            Transform checkout = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Checkout", new Vector3(-3.80f, 0f, -1.55f));
+            Transform checkout = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Checkout", new Vector3(-2.55f, 0f, -1.55f));
             Transform exit = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Exit", exitPos);
 
             Transform[] queueSlots =
             {
-                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_0", new Vector3(-2.70f, 0f, -1.55f)),
-                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_1", new Vector3(-1.60f, 0f, -1.55f)),
-                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_2", new Vector3(-0.50f, 0f, -1.55f)),
-                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_3", new Vector3(0.60f, 0f, -1.55f))
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_0", new Vector3(-1.55f, 0f, -1.55f)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_1", new Vector3(-0.55f, 0f, -1.55f)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_2", new Vector3(0.45f, 0f, -1.55f)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_3", new Vector3(1.45f, 0f, -1.55f))
             };
 
             NpcPopulationController population = npcSysObj.AddComponent<NpcPopulationController>();
