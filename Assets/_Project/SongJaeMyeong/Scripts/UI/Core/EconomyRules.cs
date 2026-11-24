@@ -8,6 +8,7 @@ namespace OpenSourceTeam6.UI.Core
         public float DayDurationSeconds;
         public int StartingBalanceWon;
         public int TargetBalanceWon;
+        public int TargetSalesRevenueWon;
         public float CheckoutWonPerEffectiveSecond;
         public float RestockWonPerEffectiveSecond;
         public float MinEffectiveRestockSeconds;
@@ -30,6 +31,27 @@ namespace OpenSourceTeam6.UI.Core
                 RestockShortageMultiplier = 0.8f,
                 CostOfGoodsRatio = 0.3f,
                 FixedOperatingCostWon = 25000,
+                AngerStressThreshold = 80f,
+                MaxAllowedAngerRefusals = 2
+            };
+        }
+
+        /// <summary>
+        /// 1차 통합 데모 규격서(4.2절) 기준 120초 시연용 정산 밸런스 프리셋.
+        /// </summary>
+        public static DaySettlementSettings CreateDemoPreset()
+        {
+            return new DaySettlementSettings
+            {
+                DayDurationSeconds = 120f,
+                StartingBalanceWon = 50000,
+                TargetBalanceWon = 80000,
+                CheckoutWonPerEffectiveSecond = 1000f,
+                RestockWonPerEffectiveSecond = 650f,
+                MinEffectiveRestockSeconds = 15f,
+                RestockShortageMultiplier = 0.8f,
+                CostOfGoodsRatio = 0.3f,
+                FixedOperatingCostWon = 20000,
                 AngerStressThreshold = 80f,
                 MaxAllowedAngerRefusals = 2
             };
@@ -111,8 +133,13 @@ namespace OpenSourceTeam6.UI.Core
         public int DayNumber { get; }
         public int StartingBalanceWon { get; }
         public int TargetBalanceWon { get; }
+        public int TargetSalesRevenueWon { get; }
+        public bool UsesSalesRevenueTarget => TargetSalesRevenueWon > 0;
+        public int EffectiveTargetWon => UsesSalesRevenueTarget ? TargetSalesRevenueWon : TargetBalanceWon;
+        public int EffectiveActualForTargetWon => UsesSalesRevenueTarget ? FinalSalesRevenueWon : FinalBalanceWon;
         public float EffectiveCheckoutSeconds { get; }
         public float EffectiveRestockSeconds { get; }
+        public float MinEffectiveRestockSeconds { get; }
         public int CheckoutRevenueWon { get; }
         public int RestockRevenueWon { get; }
         public int GrossBaseRevenueWon { get; }
@@ -143,13 +170,17 @@ namespace OpenSourceTeam6.UI.Core
             int finalBalanceWon,
             float endingStress,
             int angerRefusalCount,
-            DayOutcomeGrade outcomeGrade)
+            DayOutcomeGrade outcomeGrade,
+            float minEffectiveRestockSeconds = 25f,
+            int targetSalesRevenueWon = 0)
         {
             DayNumber = dayNumber;
             StartingBalanceWon = startingBalanceWon;
             TargetBalanceWon = targetBalanceWon;
+            TargetSalesRevenueWon = Math.Max(0, targetSalesRevenueWon);
             EffectiveCheckoutSeconds = effectiveCheckoutSeconds;
             EffectiveRestockSeconds = effectiveRestockSeconds;
+            MinEffectiveRestockSeconds = minEffectiveRestockSeconds;
             CheckoutRevenueWon = checkoutRevenueWon;
             RestockRevenueWon = restockRevenueWon;
             GrossBaseRevenueWon = grossBaseRevenueWon;
@@ -185,8 +216,12 @@ namespace OpenSourceTeam6.UI.Core
             int netProfitWon = finalSalesWon - (cogsWon + fixedCostWon);
             int finalBalanceWon = input.StartingBalanceWon + netProfitWon;
 
+            bool isTargetShortfall = settings.TargetSalesRevenueWon > 0
+                ? finalSalesWon < settings.TargetSalesRevenueWon
+                : finalBalanceWon < settings.TargetBalanceWon;
+
             DayOutcomeGrade grade;
-            if (finalBalanceWon < settings.TargetBalanceWon)
+            if (isTargetShortfall)
             {
                 grade = DayOutcomeGrade.FailedTargetShortfall;
             }
@@ -217,7 +252,9 @@ namespace OpenSourceTeam6.UI.Core
                 finalBalanceWon,
                 input.EndingStress,
                 input.AngerRefusalCount,
-                grade);
+                grade,
+                settings.MinEffectiveRestockSeconds,
+                settings.TargetSalesRevenueWon);
         }
 
         private static int RoundToWon(float value)
@@ -233,6 +270,9 @@ namespace OpenSourceTeam6.UI.Core
 
         public int DayNumber { get; private set; }
         public int StartingBalanceWon { get; private set; }
+        public int TargetBalanceWon => settings.TargetBalanceWon;
+        public int TargetSalesRevenueWon => settings.TargetSalesRevenueWon;
+        public int FixedOperatingCostWon => settings.FixedOperatingCostWon;
         public float RawCheckoutSeconds { get; private set; }
         public float RawRestockSeconds { get; private set; }
         public float EffectiveCheckoutSeconds { get; private set; }
@@ -298,7 +338,22 @@ namespace OpenSourceTeam6.UI.Core
             return checkoutWon + restockWon;
         }
 
-        public DaySettlementResult SettleOnce(float endingStress)
+        public void SetTargetBalanceWon(int targetBalanceWon)
+        {
+            settings.TargetBalanceWon = Math.Max(0, targetBalanceWon);
+        }
+
+        public void SetTargetSalesRevenueWon(int targetSalesRevenueWon)
+        {
+            settings.TargetSalesRevenueWon = Math.Max(0, targetSalesRevenueWon);
+        }
+
+        public void SetFixedOperatingCostWon(int fixedOperatingCostWon)
+        {
+            settings.FixedOperatingCostWon = Math.Max(0, fixedOperatingCostWon);
+        }
+
+        public DaySettlementResult SettleOnce(float endingStress, int extraItemSalesRevenueWon = 0)
         {
             if (IsSettled)
             {
@@ -315,9 +370,280 @@ namespace OpenSourceTeam6.UI.Core
                 endingStress,
                 AngerRefusalCount);
 
-            cachedResult = DaySettlementCalculator.Calculate(settings, input);
+            DaySettlementResult baseResult = DaySettlementCalculator.Calculate(settings, input);
+            int extraWon = Math.Max(0, extraItemSalesRevenueWon);
+            if (extraWon > 0)
+            {
+                int finalSalesWon = baseResult.FinalSalesRevenueWon + extraWon;
+                int cogsWon = (int)Math.Round(finalSalesWon * settings.CostOfGoodsRatio, MidpointRounding.AwayFromZero);
+                int netProfitWon = finalSalesWon - cogsWon - settings.FixedOperatingCostWon;
+                int finalBalanceWon = input.StartingBalanceWon + netProfitWon;
+
+                bool isTargetShortfall = settings.TargetSalesRevenueWon > 0
+                    ? finalSalesWon < settings.TargetSalesRevenueWon
+                    : finalBalanceWon < settings.TargetBalanceWon;
+
+                DayOutcomeGrade grade;
+                if (isTargetShortfall)
+                {
+                    grade = DayOutcomeGrade.FailedTargetShortfall;
+                }
+                else if (input.EndingStress >= settings.AngerStressThreshold || input.AngerRefusalCount > settings.MaxAllowedAngerRefusals)
+                {
+                    grade = DayOutcomeGrade.UnstableAngerSuccess;
+                }
+                else
+                {
+                    grade = DayOutcomeGrade.StableSuccess;
+                }
+
+                baseResult = new DaySettlementResult(
+                    baseResult.DayNumber,
+                    baseResult.StartingBalanceWon,
+                    baseResult.TargetBalanceWon,
+                    baseResult.EffectiveCheckoutSeconds,
+                    baseResult.EffectiveRestockSeconds,
+                    baseResult.CheckoutRevenueWon,
+                    baseResult.RestockRevenueWon,
+                    baseResult.GrossBaseRevenueWon + extraWon,
+                    baseResult.RestockShortagePenaltyApplied,
+                    finalSalesWon,
+                    cogsWon,
+                    baseResult.FixedOperatingCostWon,
+                    netProfitWon,
+                    finalBalanceWon,
+                    baseResult.EndingStress,
+                    baseResult.AngerRefusalCount,
+                    grade,
+                    baseResult.MinEffectiveRestockSeconds,
+                    settings.TargetSalesRevenueWon);
+            }
+
+            cachedResult = baseResult;
             IsSettled = true;
             return cachedResult;
+        }
+    }
+
+    /// <summary>
+    /// 하루 영업 시간 진행에 따른 낮·노을·밤·새벽 구간 구분.
+    /// </summary>
+    public enum StoreTimeOfDayPhase
+    {
+        Day = 0,
+        Sunset = 1,
+        Night = 2,
+        Dawn = 3
+    }
+
+    /// <summary>
+    /// 시간 시스템(BusinessTimeController · DayNightPresenter 9월 기본값)과 동일한 기준으로
+    /// UI 영업 타이머 진행률(0~1)을 게임 시각(08:00 ~ 익일 08:00) 및 낮·밤 상태로 변환하는 순수 규칙.
+    /// </summary>
+    public static class StoreDayTimeRules
+    {
+        public const float DefaultOpeningHour = 8f;
+        public const float DefaultClosingHour = 32f;
+        public const float DefaultSunriseHour = 6f;
+        public const float DefaultSunsetHour = 18.5f;
+
+        public static float ComputeDayProgress(float remainingSeconds, float totalSeconds)
+        {
+            if (float.IsNaN(remainingSeconds) || float.IsInfinity(remainingSeconds) ||
+                float.IsNaN(totalSeconds) || float.IsInfinity(totalSeconds) ||
+                totalSeconds <= 0f)
+            {
+                return 0f;
+            }
+
+            float clampedRemaining = Math.Max(0f, Math.Min(totalSeconds, remainingSeconds));
+            float progress = 1f - (clampedRemaining / totalSeconds);
+            if (progress < 0f) return 0f;
+            if (progress > 1f) return 1f;
+            return progress;
+        }
+
+        public static float ComputeGameHour(
+            float progress,
+            float openingHour = DefaultOpeningHour,
+            float closingHour = DefaultClosingHour)
+        {
+            float clampedProgress = float.IsNaN(progress) || float.IsInfinity(progress)
+                ? 0f
+                : Math.Max(0f, Math.Min(1f, progress));
+            float safeOpening = float.IsNaN(openingHour) || float.IsInfinity(openingHour)
+                ? DefaultOpeningHour
+                : openingHour;
+            float safeClosing = float.IsNaN(closingHour) || float.IsInfinity(closingHour) || closingHour <= safeOpening
+                ? DefaultClosingHour
+                : closingHour;
+
+            float rawHour = safeOpening + (safeClosing - safeOpening) * clampedProgress;
+            return WrapHour24(rawHour);
+        }
+
+        public static StoreTimeOfDayPhase ClassifyPhase(
+            float gameHour,
+            float sunriseHour = DefaultSunriseHour,
+            float sunsetHour = DefaultSunsetHour)
+        {
+            float wrapped = WrapHour24(gameHour);
+            float dawnStart = Math.Max(0f, sunriseHour - 0.5f);
+            float dawnEnd = Math.Min(24f, sunriseHour + 0.5f);
+            float sunsetStart = Math.Max(dawnEnd, sunsetHour - 1.0f);
+            float sunsetEnd = Math.Min(24f, sunsetHour + 0.5f);
+
+            if (wrapped >= dawnStart && wrapped < dawnEnd)
+            {
+                return StoreTimeOfDayPhase.Dawn;
+            }
+
+            if (wrapped >= dawnEnd && wrapped < sunsetStart)
+            {
+                return StoreTimeOfDayPhase.Day;
+            }
+
+            if (wrapped >= sunsetStart && wrapped < sunsetEnd)
+            {
+                return StoreTimeOfDayPhase.Sunset;
+            }
+
+            return StoreTimeOfDayPhase.Night;
+        }
+
+        public static bool IsNightTime(
+            float gameHour,
+            float sunriseHour = DefaultSunriseHour,
+            float sunsetHour = DefaultSunsetHour)
+        {
+            float wrapped = WrapHour24(gameHour);
+            return wrapped < sunriseHour || wrapped >= sunsetHour;
+        }
+
+        public static string GetPhaseLabel(StoreTimeOfDayPhase phase)
+        {
+            switch (phase)
+            {
+                case StoreTimeOfDayPhase.Dawn:
+                    return "새벽";
+                case StoreTimeOfDayPhase.Sunset:
+                    return "노을";
+                case StoreTimeOfDayPhase.Night:
+                    return "밤";
+                default:
+                    return "낮";
+            }
+        }
+
+        public static string FormatGameClock(float gameHour)
+        {
+            float wrapped = WrapHour24(gameHour);
+            int totalMinutes = (int)Math.Floor(wrapped * 60f + 0.0001f);
+            if (totalMinutes < 0) totalMinutes = 0;
+            int hours = (totalMinutes / 60) % 24;
+            int minutes = totalMinutes % 60;
+            return $"{hours:00}:{minutes:00}";
+        }
+
+        public static string FormatGameClockStepped(float gameHour, int minuteStep = 10)
+        {
+            float wrapped = WrapHour24(gameHour);
+            int totalMinutes = (int)Math.Floor(wrapped * 60f + 0.0001f);
+            if (totalMinutes < 0) totalMinutes = 0;
+            int safeStep = Math.Max(1, minuteStep);
+            int steppedMinutes = (totalMinutes / safeStep) * safeStep;
+            int hours = (steppedMinutes / 60) % 24;
+            int minutes = steppedMinutes % 60;
+            return $"{hours:00}:{minutes:00}";
+        }
+
+        public static string FormatMonitorClock(
+            float remainingSeconds,
+            float totalSeconds,
+            float? explicitGameHour = null,
+            int minuteStep = 10,
+            float openingHour = DefaultOpeningHour,
+            float closingHour = DefaultClosingHour)
+        {
+            float safeRemaining = float.IsNaN(remainingSeconds) || float.IsInfinity(remainingSeconds)
+                ? 0f
+                : Math.Max(0f, remainingSeconds);
+            bool hasExplicitHour = explicitGameHour.HasValue &&
+                                   !float.IsNaN(explicitGameHour.Value) &&
+                                   !float.IsInfinity(explicitGameHour.Value);
+            bool hasValidTotal = !float.IsNaN(totalSeconds) && !float.IsInfinity(totalSeconds) && totalSeconds > 0f;
+
+            float gameHour = hasExplicitHour
+                ? WrapHour24(explicitGameHour.Value)
+                : (hasValidTotal
+                    ? ComputeGameHour(ComputeDayProgress(safeRemaining, totalSeconds), openingHour, closingHour)
+                    : WrapHour24(openingHour));
+
+            string clockText = FormatGameClockStepped(gameHour, minuteStep);
+            return $"현재 시간 : {clockText}";
+        }
+
+        public static string FormatHudClockAndTimer(
+            float remainingSeconds,
+            float totalSeconds,
+            float? explicitGameHour = null,
+            float openingHour = DefaultOpeningHour,
+            float closingHour = DefaultClosingHour)
+        {
+            float safeRemaining = float.IsNaN(remainingSeconds) || float.IsInfinity(remainingSeconds)
+                ? 0f
+                : Math.Max(0f, remainingSeconds);
+            int clampedSec = Math.Max(0, (int)Math.Ceiling(safeRemaining));
+            int mins = clampedSec / 60;
+            int secs = clampedSec % 60;
+
+            bool hasValidTotal = !float.IsNaN(totalSeconds) && !float.IsInfinity(totalSeconds) && totalSeconds > 0f;
+            bool hasExplicitHour = explicitGameHour.HasValue &&
+                                   !float.IsNaN(explicitGameHour.Value) &&
+                                   !float.IsInfinity(explicitGameHour.Value);
+
+            if (!hasValidTotal && !hasExplicitHour)
+            {
+                return $"남은 시간  {mins:00}:{secs:00}";
+            }
+
+            float gameHour = hasExplicitHour
+                ? WrapHour24(explicitGameHour.Value)
+                : ComputeGameHour(ComputeDayProgress(safeRemaining, totalSeconds), openingHour, closingHour);
+            StoreTimeOfDayPhase phase = ClassifyPhase(gameHour);
+            string phaseLabel = GetPhaseLabel(phase);
+            string clockText = FormatGameClock(gameHour);
+            return $"{clockText} ({phaseLabel})  ·  남은 {mins:00}:{secs:00}";
+        }
+
+        /// <summary>
+        /// 일차별 기본 날씨(비) 적용 규칙. 1일차는 항상 맑은 낮과 밤으로 진행하며,
+        /// 추후 2일차 또는 3일차 날씨 이벤트 활성화 시 비 날씨를 적용한다.
+        /// </summary>
+        public static bool ShouldRainForDay(int dayNumber, bool enableDay2Or3RainEvent = false)
+        {
+            if (dayNumber <= 1)
+            {
+                return false;
+            }
+
+            if ((dayNumber == 2 || dayNumber == 3) && enableDay2Or3RainEvent)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static float WrapHour24(float hour)
+        {
+            if (float.IsNaN(hour) || float.IsInfinity(hour))
+            {
+                return DefaultOpeningHour;
+            }
+
+            float wrapped = hour % 24f;
+            return wrapped < 0f ? wrapped + 24f : wrapped;
         }
     }
 }

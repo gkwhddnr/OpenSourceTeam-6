@@ -5,10 +5,9 @@ These notices are prepared for the current model and library selection. Include 
 - **whisper.unity 1.4.0** — Copyright (c) 2023 Macoron. MIT License. Source: https://github.com/Macoron/whisper.unity ; license: https://github.com/Macoron/whisper.unity/blob/master/LICENSE.MD
 - **OpenAI Whisper model** (`ggml-small-q5_1.bin`) — Copyright (c) 2022 OpenAI. MIT License. Original: https://github.com/openai/whisper ; model conversion: https://huggingface.co/ggerganov/whisper.cpp
 - **whisper.cpp** — Copyright (c) 2023-2026 The ggml authors. MIT License. Source and license: https://github.com/ggml-org/whisper.cpp/blob/master/LICENSE
-- **LLM for Unity 3.0.3** — Apache License 2.0. License text: `Assets/LLMUnity/LICENSE.md`; third-party notices: `Assets/LLMUnity/Third Party Notices.md`. Source: https://github.com/undreamai/LLMUnity
-- **Qwen2.5-1.5B-Instruct-GGUF** (`qwen2.5-1.5b-instruct-q4_k_m.gguf`) — Apache License 2.0. Model and license: https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF
+- **LLM for Unity / LlamaLib** — The local LLM Unity package and Qwen models were removed from this work folder. A `Assets/StreamingAssets/LlamaLib-v2.0.5` directory outside the work folder may still contain native libraries. If included in a distribution, review the applicable licenses and notices: https://github.com/undreamai/LLMUnity
 
-The Apache 2.0 license text referenced above must accompany the distribution where applicable. LLMUnity's third-party notices identify additional dependencies, including llama.cpp, llamafile and USearch; review the licenses and notices applicable to the actual native binaries included in the final build. These notices do not establish that a release package has already been assembled or audited.
+Review the licenses and notices applicable to the native binaries actually included in the final build. These notices do not establish that a release package has already been assembled or audited.
 
 ## MIT License
 
