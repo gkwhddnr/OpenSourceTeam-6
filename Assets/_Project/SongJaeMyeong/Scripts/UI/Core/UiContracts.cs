@@ -940,6 +940,12 @@ namespace OpenSourceTeam6.UI.Core
         public const float WageRaiseStressDelta = -25f;
         public const float WageFreezeStressDelta = -10f;
         public const float WageCutStressDelta = 25f;
+        public const float CheckoutCompletionBaseStress = 6f;
+        public const float RestockCompletionBaseStress = 8f;
+        public const float OtherWorkCompletionBaseStress = 6f;
+        public const float CheckoutCompletionBaseFatigue = 5f;
+        public const float RestockCompletionBaseFatigue = 7f;
+        public const float OtherWorkCompletionBaseFatigue = 5f;
 
         public static float ClampStat(float value)
         {
@@ -1005,6 +1011,61 @@ namespace OpenSourceTeam6.UI.Core
             }
 
             return ratePerSec * deltaSeconds;
+        }
+
+        /// <summary>
+        /// 업무(계산 1건, 진열 1회 등)를 실제로 완수했을 때 1회 적용되는 스트레스 증가량 계산.
+        /// </summary>
+        public static float EvaluateTaskCompletionStressDelta(
+            StaffWorkRole completedRole,
+            EmployeePersonalityProfile profile)
+        {
+            float baseStress;
+            switch (completedRole)
+            {
+                case StaffWorkRole.Checkout:
+                    baseStress = CheckoutCompletionBaseStress;
+                    break;
+                case StaffWorkRole.Restock:
+                    baseStress = RestockCompletionBaseStress;
+                    break;
+                case StaffWorkRole.Other:
+                    baseStress = OtherWorkCompletionBaseStress;
+                    break;
+                default:
+                    return 0f;
+            }
+
+            return baseStress * profile.WorkStressMultiplier;
+        }
+
+        /// <summary>
+        /// 업무(계산 1건, 진열 1회 등)를 실제로 완수했을 때 1회 적용되는 피로도 증가량 계산.
+        /// </summary>
+        public static float EvaluateTaskCompletionFatigueDelta(
+            StaffWorkRole completedRole,
+            float workFatigueMultiplier)
+        {
+            float baseFatigue;
+            switch (completedRole)
+            {
+                case StaffWorkRole.Checkout:
+                    baseFatigue = CheckoutCompletionBaseFatigue;
+                    break;
+                case StaffWorkRole.Restock:
+                    baseFatigue = RestockCompletionBaseFatigue;
+                    break;
+                case StaffWorkRole.Other:
+                    baseFatigue = OtherWorkCompletionBaseFatigue;
+                    break;
+                default:
+                    return 0f;
+            }
+
+            float safeMult = float.IsNaN(workFatigueMultiplier) || float.IsInfinity(workFatigueMultiplier)
+                ? 1f
+                : Math.Max(0.1f, workFatigueMultiplier);
+            return baseFatigue * safeMult;
         }
 
         /// <summary>
@@ -1378,9 +1439,11 @@ namespace OpenSourceTeam6.UI.Core
             DaySettlementResult settlement,
             EmployeePersonaSetupData persona)
         {
+            int actualWon = settlement.EffectiveActualForTargetWon;
+            int targetWon = settlement.EffectiveTargetWon;
             StoreEndingType endingType = EvaluateEnding(
-                settlement.FinalBalanceWon,
-                settlement.TargetBalanceWon,
+                actualWon,
+                targetWon,
                 settlement.EndingStress,
                 settlement.AngerRefusalCount);
 
@@ -1388,8 +1451,9 @@ namespace OpenSourceTeam6.UI.Core
                 endingType,
                 persona,
                 settlement.EndingStress,
-                settlement.FinalBalanceWon,
-                settlement.TargetBalanceWon);
+                actualWon,
+                targetWon,
+                settlement.UsesSalesRevenueTarget);
         }
 
         public static StoreEndingReport BuildReport(
@@ -1397,7 +1461,8 @@ namespace OpenSourceTeam6.UI.Core
             EmployeePersonaSetupData persona,
             float endingStress,
             int finalBalanceWon,
-            int targetBalanceWon)
+            int targetBalanceWon,
+            bool isSalesTarget = false)
         {
             string name = string.IsNullOrWhiteSpace(persona.EmployeeName)
                 ? EmployeePersonaPresets.Preset1Name
@@ -1409,9 +1474,12 @@ namespace OpenSourceTeam6.UI.Core
             int roundedStress = (int)Math.Round(StressRules.ClampStat(endingStress), MidpointRounding.AwayFromZero);
             string archetypeLabel = GetArchetypeShortLabel(persona.Profile.Archetype);
 
+            string amountSummary = isSalesTarget
+                ? $"당일 매출: {finalBalanceWon:N0}원 (목표 매출: {targetBalanceWon:N0}원)"
+                : $"최종 잔액: {finalBalanceWon:N0}원 (목표: {targetBalanceWon:N0}원)";
             string personaSummaryLine =
                 $"알바: {name} ({archetypeLabel})  |  성격: \"{traits}\"\n" +
-                $"최종 스트레스 지수: {roundedStress} / 100  |  최종 잔액: {finalBalanceWon:N0}원 (목표: {targetBalanceWon:N0}원)";
+                $"최종 스트레스 지수: {roundedStress} / 100  |  {amountSummary}";
 
             string endingCode;
             string headerTitle;
@@ -1446,11 +1514,13 @@ namespace OpenSourceTeam6.UI.Core
 
                 case StoreEndingType.BadEnding1_TargetShortfall:
                     endingCode = "BAD_ENDING_01";
-                    headerTitle = "실패 엔딩 1  ·  일차 목표 금액 달성 실패";
-                    conditionSummary = "발생 조건 : 일차 마감 시 최종 잔액이 목표 금액에 도달하지 못함";
+                    headerTitle = "실패 엔딩 1  ·  사출 엔딩 (일차 목표 매출 미달)";
+                    conditionSummary = isSalesTarget
+                        ? "발생 조건 : 일차 마감 시 당일 매출이 목표 매출에 도달하지 못해 즉시 사출"
+                        : "발생 조건 : 일차 마감 시 최종 잔액이 목표 금액에 도달하지 못해 즉시 사출";
                     cutscenePlaceholder =
-                        "[ 컷신 슬롯 : 실패 엔딩 1 (목표 금액 미달 · 폐업) ]\n" +
-                        "추후 2D 애니메이션 또는 3D 동작 녹화 영상이 재생될 영역입니다.";
+                        "[ 컷신 슬롯 : 사출 엔딩 (실패 엔딩 1 · 목표 매출 미달) ]\n" +
+                        "경고음과 함께 매장에서 강제 사출되는 2D/3D 컷신이 재생될 영역입니다.";
                     break;
 
                 default:
@@ -1540,8 +1610,8 @@ namespace OpenSourceTeam6.UI.Core
                     }
 
                 case StoreEndingType.BadEnding1_TargetShortfall:
-                    return $"[매장 결말] 일차 목표 금액을 채우지 못해 결국 편의점 운영 자금이 바닥났습니다.\n" +
-                           $"[알바 후일담] '{traits}' 성향의 {name}(최종 스트레스 {stress}/100)은(는) 불 꺼진 편의점 간판을 쓸쓸히 올려다보며 \"사장님... 장사가 참 쉽지 않네요. 그동안 고생 많으셨습니다\"라고 인사한 뒤 구인 앱을 켜고 새 일자리를 찾아 떠났습니다.";
+                    return $"[매장 결말 · 사출 엔딩] 일차 목표 매출을 채우지 못해 영업 종료와 동시에 매장에서 강제 사출되었습니다!\n" +
+                           $"[알바 후일담] '{traits}' 성향의 {name}(최종 스트레스 {stress}/100)은(는) 불 꺼진 편의점 간판을 올려다보며 \"사장님... 목표 매출을 못 채워서 결국 사출되셨네요. 그동안 고생 많으셨습니다\"라고 인사한 뒤 새 일자리를 찾아 떠났습니다.";
 
                 default:
                     return $"[매장 결말] 알바의 스트레스 지수가 100을 초과해 근무 도중 멘탈이 폭발했습니다!\n" +

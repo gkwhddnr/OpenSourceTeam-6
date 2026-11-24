@@ -1,4 +1,6 @@
 using System;
+using System.Collections;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using OpenSourceTeam6.UI.Core;
@@ -7,6 +9,7 @@ using UnityEngine.UI;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Time = UnityEngine.Time;
     /// <summary>
     /// 0일차 : 알바 채용 이력서 화면 프리젠터.
     /// 프리셋 1~3번 불러오기, 랜덤 생성, 이름·성격(1~50자) 직접 입력,
@@ -38,8 +41,18 @@ namespace OpenSourceTeam6.UI.Unity
         private CancellationTokenSource _evaluationCts;
         private int _evaluationGeneration;
         private Text _confirmButtonLabelText;
-        private string _defaultConfirmButtonLabel = "채용 확정  (1일차 영업 시작)";
+        private string _defaultConfirmButtonLabel = "AI 일급 심사하기  →";
         private string _lastOfflineFailedSignature = string.Empty;
+        private bool _appliedCrispTypography;
+        private GameObject _pledgeTextObject;
+        private Text _wageSectionLabelText;
+        private Image _wageBoxImage;
+        private Color _defaultWageBoxColor = new Color(0.96f, 0.93f, 0.87f, 0.72f);
+        private Outline _wageBoxOutline;
+        private Coroutine _wageHighlightCoroutine;
+        private bool _hasVerifiedEvaluation;
+        private string _verifiedEvaluationSignature = string.Empty;
+        private EmployeePersonaSetupData _verifiedPersonaData;
 
         public bool IsVisible => (_panelRoot != null ? _panelRoot : gameObject).activeSelf;
         public bool IsEvaluating => _isEvaluating;
@@ -69,6 +82,7 @@ namespace OpenSourceTeam6.UI.Unity
         {
             ConfigureInputFields();
             EnsureRuntimeStatusTextAndButtonLabel();
+            ApplyCrispPaperTypography();
             CancelPendingEvaluation();
 
             if (!_initializedDefault)
@@ -173,6 +187,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (isVisible)
             {
                 EnsureRuntimeStatusTextAndButtonLabel();
+                ApplyCrispPaperTypography();
                 if (!_initializedDefault)
                 {
                     ApplyCandidate(EmployeePersonaPresets.CreatePreset1());
@@ -219,6 +234,7 @@ namespace OpenSourceTeam6.UI.Unity
         public void ApplyCandidate(EmployeePersonaSetupData candidate)
         {
             CancelPendingEvaluation();
+            ClearVerifiedEvaluationState();
             _lastOfflineFailedSignature = string.Empty;
             _currentProfile = candidate.Profile;
             _currentHourlyWageWon = candidate.HourlyWageWon > 0
@@ -254,14 +270,111 @@ namespace OpenSourceTeam6.UI.Unity
             }
         }
 
+        /// <summary>
+        /// 손글씨 폰트(KyoboHandwriting2025lyb)에 Unity 합성 Bold가 걸리면 작은 크기에서 획이 뭉개지고 깨지므로
+        /// 모든 종이 텍스트를 Normal 스타일로 보정하고, 입력창 외 라벨 텍스트는 2x 슈퍼샘플링으로 선명하게 렌더링한다.
+        /// </summary>
+        private void ApplyCrispPaperTypography()
+        {
+            if (_appliedCrispTypography)
+            {
+                return;
+            }
+
+            GameObject root = _panelRoot != null ? _panelRoot : gameObject;
+            if (root == null || !root.activeInHierarchy)
+            {
+                return;
+            }
+
+            Canvas.ForceUpdateCanvases();
+
+            Text[] allTexts = root.GetComponentsInChildren<Text>(true);
+            for (int i = 0; i < allTexts.Length; i++)
+            {
+                Text txt = allTexts[i];
+                if (txt == null) continue;
+
+                // 단일 웨이트 손글씨 폰트의 합성 Bold 뭉개짐 제거
+                if (txt.fontStyle == FontStyle.Bold)
+                {
+                    txt.fontStyle = FontStyle.Normal;
+                }
+
+                // InputField 내부 텍스트·플레이스홀더는 캐럿 정렬 유지를 위해 1x 스케일 유지
+                bool isInputChild = txt.GetComponentInParent<InputField>() != null;
+                if (isInputChild)
+                {
+                    continue;
+                }
+
+                RectTransform rt = txt.rectTransform;
+                if (rt == null || rt.localScale.x < 0.75f)
+                {
+                    continue;
+                }
+
+                Rect currentRect = rt.rect;
+                if (currentRect.width < 4f || currentRect.height < 4f)
+                {
+                    continue;
+                }
+
+                // 현재 화면상 위치를 그대로 유지하면서 2x 해상도 아틀라스로 렌더링
+                Vector3 worldCenter = rt.TransformPoint(currentRect.center);
+                rt.anchorMin = new Vector2(0.5f, 0.5f);
+                rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(currentRect.width * 2f, currentRect.height * 2f);
+                rt.localScale = new Vector3(0.5f, 0.5f, 1f);
+                rt.position = worldCenter;
+                txt.fontSize = Mathf.Max(24, txt.fontSize * 2);
+            }
+
+            _appliedCrispTypography = true;
+        }
+
         private void EnsureRuntimeStatusTextAndButtonLabel()
         {
             if (_confirmStartButton != null && _confirmButtonLabelText == null)
             {
                 _confirmButtonLabelText = _confirmStartButton.GetComponentInChildren<Text>(true);
-                if (_confirmButtonLabelText != null && !string.IsNullOrWhiteSpace(_confirmButtonLabelText.text))
+                if (_confirmButtonLabelText != null)
                 {
-                    _defaultConfirmButtonLabel = _confirmButtonLabelText.text;
+                    _confirmButtonLabelText.text = _defaultConfirmButtonLabel;
+                }
+            }
+
+            Transform parent = _confirmStartButton != null ? _confirmStartButton.transform.parent : null;
+            if (parent != null)
+            {
+                if (_wageSectionLabelText == null)
+                {
+                    Transform wageLabelTr = parent.Find("WageLabel");
+                    if (wageLabelTr != null)
+                    {
+                        _wageSectionLabelText = wageLabelTr.GetComponent<Text>();
+                        if (_wageSectionLabelText != null)
+                        {
+                            _wageSectionLabelText.text = "일급 (1일 인건비)";
+                        }
+                    }
+                }
+
+                if (_wageBoxImage == null && _hourlyWageValueText != null && _hourlyWageValueText.transform.parent != null)
+                {
+                    _wageBoxImage = _hourlyWageValueText.transform.parent.GetComponent<Image>();
+                    if (_wageBoxImage != null)
+                    {
+                        _defaultWageBoxColor = _wageBoxImage.color;
+                        _wageBoxOutline = _wageBoxImage.GetComponent<Outline>();
+                        if (_wageBoxOutline == null)
+                        {
+                            _wageBoxOutline = _wageBoxImage.gameObject.AddComponent<Outline>();
+                        }
+                        _wageBoxOutline.effectColor = new Color(0.86f, 0.62f, 0.14f, 0f);
+                        _wageBoxOutline.effectDistance = new Vector2(3f, -3f);
+                    }
                 }
             }
 
@@ -270,8 +383,16 @@ namespace OpenSourceTeam6.UI.Unity
                 return;
             }
 
-            Transform parent = _confirmStartButton.transform.parent;
             if (parent == null) return;
+
+            if (_pledgeTextObject == null)
+            {
+                Transform pledgeTr = parent.Find("ResumePledgeText");
+                if (pledgeTr != null)
+                {
+                    _pledgeTextObject = pledgeTr.gameObject;
+                }
+            }
 
             Transform existing = parent.Find("EvaluationStatusText");
             if (existing != null)
@@ -289,8 +410,8 @@ namespace OpenSourceTeam6.UI.Unity
                 statusRt.anchorMin = new Vector2(0f, 0f);
                 statusRt.anchorMax = new Vector2(1f, 0f);
                 statusRt.pivot = new Vector2(0.5f, 0f);
-                statusRt.anchoredPosition = new Vector2(0f, btnRt.anchoredPosition.y + btnRt.sizeDelta.y + 4f);
-                statusRt.sizeDelta = new Vector2(0f, 36f);
+                statusRt.anchoredPosition = new Vector2(0f, btnRt.anchoredPosition.y + btnRt.sizeDelta.y + 8f);
+                statusRt.sizeDelta = new Vector2(0f, 32f);
             }
 
             Text txt = statusObj.GetComponent<Text>();
@@ -298,7 +419,7 @@ namespace OpenSourceTeam6.UI.Unity
                 ? _hourlyWageValueText.font
                 : (_confirmButtonLabelText != null ? _confirmButtonLabelText.font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"));
             txt.font = referenceFont;
-            txt.fontSize = 21;
+            txt.fontSize = 16;
             txt.fontStyle = FontStyle.Normal;
             txt.alignment = TextAnchor.MiddleCenter;
             txt.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -325,6 +446,13 @@ namespace OpenSourceTeam6.UI.Unity
         private void SetStatusMessage(string message, bool isError)
         {
             EnsureRuntimeStatusTextAndButtonLabel();
+            bool hasMessage = !string.IsNullOrWhiteSpace(message);
+
+            if (_pledgeTextObject != null && _pledgeTextObject.activeSelf == hasMessage)
+            {
+                _pledgeTextObject.SetActive(!hasMessage);
+            }
+
             if (_evaluationStatusText == null) return;
 
             _evaluationStatusText.text = message ?? string.Empty;
@@ -371,6 +499,7 @@ namespace OpenSourceTeam6.UI.Unity
         private void HandleNameValueChanged(string newValue)
         {
             CancelPendingEvaluation();
+            ClearVerifiedEvaluationState();
             _lastOfflineFailedSignature = string.Empty;
             SetStatusMessage(string.Empty, isError: false);
 
@@ -384,6 +513,7 @@ namespace OpenSourceTeam6.UI.Unity
         private void HandleTraitValueChanged(string newValue)
         {
             CancelPendingEvaluation();
+            ClearVerifiedEvaluationState();
             _lastOfflineFailedSignature = string.Empty;
 
             string clamped = EmployeePersonaPresets.ClampTraitInput(newValue);
@@ -433,7 +563,9 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 int wage = _currentHourlyWageWon > 0 ? _currentHourlyWageWon : EmployeePersonaPresets.DefaultHourlyWageWon;
                 int dailyCost = EmployeePersonaPresets.ComputeDailyOperatingCostWon(wage);
-                _hourlyWageValueText.text = $"{wage:N0}원  (일일 인건비 {dailyCost:N0}원)";
+                _hourlyWageValueText.text = _hasVerifiedEvaluation
+                    ? $"확정 일급  {dailyCost:N0}원"
+                    : $"예상 일급  {dailyCost:N0}원  (심사 전)";
             }
         }
 
@@ -458,7 +590,17 @@ namespace OpenSourceTeam6.UI.Unity
                 return;
             }
 
-            _audioPlayer?.PlaySfx(StoreSfxId.PencilWrite);
+            // 2단계: 이미 AI 일급 심사가 끝난 상태라면 확정된 일급으로 1일차 바로 시작
+            string signature = $"{trimmedName}|{trimmedTraits}";
+            if (_hasVerifiedEvaluation && string.Equals(_verifiedEvaluationSignature, signature, StringComparison.Ordinal))
+            {
+                _audioPlayer?.PlaySfx(StoreSfxId.PencilWrite);
+                ConfirmStartClicked?.Invoke(_verifiedPersonaData);
+                return;
+            }
+
+            // 1단계: 아직 미심사 상태라면 AI 일급 심사 요청 후 결과를 강조 표시
+            _audioPlayer?.PlaySfx(StoreSfxId.UiClick);
             _ = EvaluateAndConfirmAsync(trimmedName, trimmedTraits);
         }
 
@@ -477,10 +619,10 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (_confirmButtonLabelText != null)
             {
-                _confirmButtonLabelText.text = "AI 이력서 심사 중...";
+                _confirmButtonLabelText.text = "AI 일급 심사 중...";
             }
 
-            SetStatusMessage("AI 면접관이 성격을 분석하여 시급·능력치·스트레스 배율을 심사 중입니다...", isError: false);
+            SetStatusMessage("AI 면접관이 성격을 분석하여 일급과 성향 배율을 심사 중입니다...", isError: false);
 
             EmployeePersonalityProfile baselineProfile = EmployeePersonaPresets.InferProfileFromTraits(expectedTraits);
             EmployeePersonaSetupData baseline = new EmployeePersonaSetupData(
@@ -582,18 +724,142 @@ namespace OpenSourceTeam6.UI.Unity
             _isEvaluating = false;
             RestoreConfirmButtonState();
 
-            EmployeePersonaSetupData confirmed = outcome.PreparedPersona;
+            EmployeePersonaSetupData rawConfirmed = outcome.PreparedPersona;
+            int confirmedDailyWage = EmployeePersonaPresets.ComputeDailyOperatingCostWon(rawConfirmed.HourlyWageWon);
+            string formattedSummary = FormatSummaryForDailyWage(outcome.SummaryReason, confirmedDailyWage);
+            EmployeePersonaSetupData confirmed = new EmployeePersonaSetupData(
+                rawConfirmed.EmployeeName,
+                rawConfirmed.PersonalityTraits,
+                rawConfirmed.HourlyWageWon,
+                rawConfirmed.Profile,
+                formattedSummary);
+
             _currentProfile = confirmed.Profile;
             _currentHourlyWageWon = confirmed.HourlyWageWon;
-            _currentEvaluationSummary = outcome.SummaryReason;
-            RefreshCounterAndWage();
+            _currentEvaluationSummary = formattedSummary;
+            _verifiedPersonaData = confirmed;
+            _verifiedEvaluationSignature = $"{expectedName}|{expectedTraits}";
+            _hasVerifiedEvaluation = true;
 
-            if (!string.IsNullOrWhiteSpace(outcome.SummaryReason))
+            RefreshCounterAndWage();
+            SetStatusMessage($"[심사 완료] {formattedSummary}", isError: false);
+
+            if (_confirmButtonLabelText != null)
             {
-                SetStatusMessage($"[심사 완료] {outcome.SummaryReason}", isError: false);
+                _confirmButtonLabelText.text = $"일급 {confirmedDailyWage:N0}원으로 채용 확정 · 시작 →";
             }
 
-            ConfirmStartClicked?.Invoke(confirmed);
+            _audioPlayer?.PlaySfx(StoreSfxId.CheckoutCoin, 0.85f);
+            PlayWageHighlightEffect();
+        }
+
+        private void ClearVerifiedEvaluationState()
+        {
+            _hasVerifiedEvaluation = false;
+            _verifiedEvaluationSignature = string.Empty;
+            if (_wageHighlightCoroutine != null)
+            {
+                StopCoroutine(_wageHighlightCoroutine);
+                _wageHighlightCoroutine = null;
+            }
+
+            if (_wageBoxImage != null)
+            {
+                _wageBoxImage.color = _defaultWageBoxColor;
+                _wageBoxImage.rectTransform.localScale = Vector3.one;
+            }
+
+            if (_wageBoxOutline != null)
+            {
+                Color c = _wageBoxOutline.effectColor;
+                c.a = 0f;
+                _wageBoxOutline.effectColor = c;
+            }
+
+            if (_confirmButtonLabelText != null && !_isEvaluating)
+            {
+                _confirmButtonLabelText.text = _defaultConfirmButtonLabel;
+            }
+        }
+
+        private void PlayWageHighlightEffect()
+        {
+            if (_wageHighlightCoroutine != null)
+            {
+                StopCoroutine(_wageHighlightCoroutine);
+            }
+
+            if (isActiveAndEnabled && _wageBoxImage != null)
+            {
+                _wageHighlightCoroutine = StartCoroutine(CoPlayWageHighlightEffect());
+            }
+        }
+
+        private IEnumerator CoPlayWageHighlightEffect()
+        {
+            RectTransform boxRt = _wageBoxImage.rectTransform;
+            Color flashColor = new Color(1.0f, 0.90f, 0.46f, 0.96f);
+            Color settledHighlightColor = new Color(1.0f, 0.95f, 0.72f, 0.92f);
+            Color borderColor = new Color(0.84f, 0.52f, 0.10f, 1f);
+
+            // 1. 스케일 펀치 + 황금빛 플래시 (0.45초)
+            const float punchDuration = 0.45f;
+            float elapsed = 0f;
+            while (elapsed < punchDuration)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / punchDuration);
+                float bump = Mathf.Sin(t * Mathf.PI);
+                boxRt.localScale = Vector3.one * (1f + 0.10f * bump);
+                _wageBoxImage.color = Color.Lerp(flashColor, settledHighlightColor, t);
+                if (_wageBoxOutline != null)
+                {
+                    borderColor.a = Mathf.Lerp(1f, 0.85f, t);
+                    _wageBoxOutline.effectColor = borderColor;
+                }
+                yield return null;
+            }
+
+            boxRt.localScale = Vector3.one;
+            _wageBoxImage.color = settledHighlightColor;
+            if (_wageBoxOutline != null)
+            {
+                borderColor.a = 0.85f;
+                _wageBoxOutline.effectColor = borderColor;
+            }
+
+            // 2. 확정 상태가 유지되는 동안 은은한 황금 테두리 맥동
+            while (_hasVerifiedEvaluation && _wageBoxImage != null)
+            {
+                if (_wageBoxOutline != null)
+                {
+                    float pulse = 0.55f + 0.35f * Mathf.Sin(Time.unscaledTime * 3.8f);
+                    borderColor.a = pulse;
+                    _wageBoxOutline.effectColor = borderColor;
+                }
+                yield return null;
+            }
+
+            _wageHighlightCoroutine = null;
+        }
+
+        private static string FormatSummaryForDailyWage(string rawSummary, int dailyWageWon)
+        {
+            if (string.IsNullOrWhiteSpace(rawSummary))
+            {
+                return $"확정 일급은 {dailyWageWon:N0}원입니다.";
+            }
+
+            string replaced = Regex.Replace(
+                rawSummary,
+                @"시급은\s*[0-9,]+원입니다\.?",
+                $"확정 일급은 {dailyWageWon:N0}원입니다.");
+            if (replaced == rawSummary)
+            {
+                replaced = $"{rawSummary.Trim()} (확정 일급 {dailyWageWon:N0}원)";
+            }
+
+            return replaced;
         }
     }
 }

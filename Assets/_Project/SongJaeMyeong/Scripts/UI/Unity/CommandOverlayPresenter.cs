@@ -30,6 +30,8 @@ namespace OpenSourceTeam6.UI.Unity
             if (quickRestockButton != null) quickRestockButton.onClick.AddListener(HandleQuickRestock);
             if (cancelWorkButton != null) cancelWorkButton.onClick.AddListener(HandleCancelWork);
             if (closeButton != null) closeButton.onClick.AddListener(HandleCloseClicked);
+
+            CleanupLegacyModalHistoryUi();
         }
 
         private void OnDisable()
@@ -67,12 +69,29 @@ namespace OpenSourceTeam6.UI.Unity
                 target.SetActive(open);
             }
 
-            if (open && commandInputField != null)
+            if (open)
             {
-                commandInputField.text = string.Empty;
-                commandInputField.Select();
-                commandInputField.ActivateInputField();
+                CleanupLegacyModalHistoryUi();
+                if (commandInputField != null)
+                {
+                    commandInputField.text = string.Empty;
+                    commandInputField.Select();
+                    commandInputField.ActivateInputField();
+                }
             }
+        }
+
+        private void CleanupLegacyModalHistoryUi()
+        {
+            Transform root = overlayRoot != null ? overlayRoot.transform : transform;
+            Transform modal = root.Find("CommandModalCard");
+            if (modal == null) return;
+
+            Transform oldBtn = modal.Find("ChatHistoryToggleButton");
+            if (oldBtn != null) oldBtn.gameObject.SetActive(false);
+
+            Transform oldDrawer = modal.Find("ChatHistoryDrawer");
+            if (oldDrawer != null) oldDrawer.gameObject.SetActive(false);
         }
 
         private void HandleInputFieldSubmitted(string submittedText)

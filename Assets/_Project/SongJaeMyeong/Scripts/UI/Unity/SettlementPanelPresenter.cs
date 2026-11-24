@@ -142,7 +142,9 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (goalValueText != null)
             {
-                goalValueText.text = $"목표 자산 :  {result.TargetBalanceWon:N0}원   (당일 매출 +{result.FinalSalesRevenueWon:N0}원)";
+                goalValueText.text = result.UsesSalesRevenueTarget
+                    ? $"목표 매출 :  {result.TargetSalesRevenueWon:N0}원   (당일 매출 +{result.FinalSalesRevenueWon:N0}원)"
+                    : $"목표 자산 :  {result.TargetBalanceWon:N0}원   (당일 매출 +{result.FinalSalesRevenueWon:N0}원)";
             }
 
             if (currentValueText != null)
@@ -196,7 +198,7 @@ namespace OpenSourceTeam6.UI.Unity
                     ? (result.OutcomeGrade == DayOutcomeGrade.FailedTargetShortfall
                         ? "다음 (사출 엔딩 보기)  →"
                         : "다음 (엔딩 보기)  →")
-                    : "다음 (알바 시급 정산)  →";
+                    : "다음 (알바 일급 정산)  →";
             }
 
             // 1단계: 포스기 클릭 대기 상태로 초기화

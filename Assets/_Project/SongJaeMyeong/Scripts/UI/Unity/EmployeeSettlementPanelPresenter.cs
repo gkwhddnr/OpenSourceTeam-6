@@ -124,10 +124,10 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 statusAndAssetBodyText.text =
                     $"[ 당일 정산 자산 및 알바 상태 수치 ]\n" +
-                    $"• 당일 매출 +{dayResult.FinalSalesRevenueWon:N0}원  -  영업원가 {dayResult.CostOfGoodsWon:N0}원  -  알바급여 {dayResult.FixedOperatingCostWon:N0}원  =  순수익 {profitSign}{dayResult.NetProfitWon:N0}원\n" +
-                    $"• 플레이어 보유 자산 (누적 재화) :  {dayResult.FinalBalanceWon:N0}원   (현재 시급 {currentWage:N0}원 / 일일 급여 {dailyWageCost:N0}원)\n" +
+                    $"• 당일 매출 +{dayResult.FinalSalesRevenueWon:N0}원  -  영업원가 {dayResult.CostOfGoodsWon:N0}원  -  알바 일급 {dayResult.FixedOperatingCostWon:N0}원  =  순수익 {profitSign}{dayResult.NetProfitWon:N0}원\n" +
+                    $"• 플레이어 보유 자산 (누적 재화) :  {dayResult.FinalBalanceWon:N0}원   (현재 일급 {dailyWageCost:N0}원)\n" +
                     $"• 현재 감정 수치 :  스트레스 {stressInt}/100   |   피로도 {fatigueInt}/100   |   충성도 {loyaltyInt}/100\n" +
-                    $"• 세부 능력 배율 :  성실도 {diligenceInt}  ·  게으름 {lazinessInt}  ·  스트레스×{persona.Profile.WorkStressMultiplier:F2}  ·  피로×{persona.Profile.WorkFatigueMultiplier:F2}  ·  시급민감도×{persona.Profile.WageSensitivityMultiplier:F2}";
+                    $"• 세부 능력 배율 :  성실도 {diligenceInt}  ·  게으름 {lazinessInt}  ·  스트레스×{persona.Profile.WorkStressMultiplier:F2}  ·  피로×{persona.Profile.WorkFatigueMultiplier:F2}  ·  급여민감도×{persona.Profile.WageSensitivityMultiplier:F2}";
             }
 
             if (conditionAdviceText != null)
@@ -135,7 +135,7 @@ namespace OpenSourceTeam6.UI.Unity
                 string advice;
                 if (stressInt >= 65)
                 {
-                    advice = "※ [스트레스 경고] 스트레스가 높아 매출 효율이 떨어지고 있습니다! 시급을 올려 스트레스를 낮추거나 내일 바른말·칭찬을 건네세요.";
+                    advice = "※ [스트레스 경고] 스트레스가 높아 매출 효율이 떨어지고 있습니다! 일급을 올려 스트레스를 낮추거나 내일 바른말·칭찬을 건네세요.";
                     conditionAdviceText.color = new Color(0.68f, 0.16f, 0.14f, 1f);
                 }
                 else if (fatigueInt >= 45)
@@ -145,12 +145,12 @@ namespace OpenSourceTeam6.UI.Unity
                 }
                 else if (loyaltyInt >= 80)
                 {
-                    advice = "※ [충성도 우수] 높은 충성도로 업무 거부 확률이 낮습니다. 시급 인상으로 충성도를 유지하면 긍정 엔딩 분기에 유리합니다.";
+                    advice = "※ [충성도 우수] 높은 충성도로 업무 거부 확률이 낮습니다. 일급 인상으로 충성도를 유지하면 긍정 엔딩 분기에 유리합니다.";
                     conditionAdviceText.color = new Color(0.12f, 0.42f, 0.34f, 1f);
                 }
                 else
                 {
-                    advice = "※ [안정 상태] 보유 자산과 알바의 시급 민감도를 고려하여 내일 적용할 시급을 아래에서 선택해 주세요.";
+                    advice = "※ [안정 상태] 보유 자산과 알바의 급여 민감도를 고려하여 내일 적용할 일급을 아래에서 선택해 주세요.";
                     conditionAdviceText.color = new Color(0.18f, 0.34f, 0.30f, 1f);
                 }
                 conditionAdviceText.text = advice;
@@ -158,7 +158,7 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (confirmNextDayButtonLabel != null)
             {
-                confirmNextDayButtonLabel.text = $"시급 정산 확정  ·  {dayResult.DayNumber + 1}일차 영업 시작  →";
+                confirmNextDayButtonLabel.text = $"일급 정산 확정  ·  {dayResult.DayNumber + 1}일차 영업 시작  →";
             }
 
             RefreshSelectionPreview();
@@ -301,13 +301,13 @@ namespace OpenSourceTeam6.UI.Unity
             if (wagePreviewText != null)
             {
                 string optLabel = selectedOption == WageAdjustmentOption.Cut
-                    ? "[시급 내리기 (-10%) 선택]"
-                    : (selectedOption == WageAdjustmentOption.Raise ? "[시급 올리기 (+10%) 선택]" : "[시급 유지 (동결) 선택]");
+                    ? "[일급 내리기 (-10%) 선택]"
+                    : (selectedOption == WageAdjustmentOption.Raise ? "[일급 올리기 (+10%) 선택]" : "[일급 유지 (동결) 선택]");
                 string sSign = stressDelta >= 0 ? "+" : "";
                 string lSign = loyaltyDelta >= 0 ? "+" : "";
 
                 wagePreviewText.text =
-                    $"▶ {optLabel}  내일 시급 {nextWage:N0}원  (일일 인건·운영비 {nextDailyCost:N0}원)\n" +
+                    $"▶ {optLabel}  내일 일급 {nextDailyCost:N0}원\n" +
                     $"   예상 내일 시작 스트레스: {Mathf.RoundToInt(nextStress)} ({sSign}{stressDelta})   |   예상 충성도: {Mathf.RoundToInt(nextLoyalty)} ({lSign}{loyaltyDelta})";
             }
         }
@@ -325,7 +325,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (txt != null)
             {
                 txt.color = isSelected ? Color.white : new Color(0.16f, 0.15f, 0.13f, 1f);
-                txt.fontStyle = isSelected ? FontStyle.Bold : FontStyle.Normal;
+                txt.fontStyle = FontStyle.Normal;
             }
         }
 
@@ -415,17 +415,17 @@ namespace OpenSourceTeam6.UI.Unity
             conditionAdviceText.lineSpacing = 1.2f;
             SetRect(conditionAdviceText.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -424f), new Vector2(-12f, 58f));
 
-            // 4. 하단 시급 조정 선택 타이틀 & 3버튼 (시급 내리기 / 시급 유지 / 시급 올리기)
-            Text wageSectionTitle = CreateRuntimeText("WageSectionTitle", contentArea.transform, font, "내일 적용할 알바 시급 조정 선택 (스트레스 · 충성도 · 일일 인건비 연동)", 20, FontStyle.Bold, inkPrimary, TextAnchor.MiddleLeft);
+            // 4. 하단 일급 조정 선택 타이틀 & 3버튼 (일급 내리기 / 일급 유지 / 일급 올리기)
+            Text wageSectionTitle = CreateRuntimeText("WageSectionTitle", contentArea.transform, font, "내일 적용할 알바 일급 조정 선택 (스트레스 · 충성도 · 하루 인건비 연동)", 20, FontStyle.Normal, inkPrimary, TextAnchor.MiddleLeft);
             SetRect(wageSectionTitle.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -490f), new Vector2(0f, 32f));
 
-            wageCutButton = CreateRuntimeButton("WageCutButton", contentArea.transform, font, "시급 내리기 (-10%)", 21);
+            wageCutButton = CreateRuntimeButton("WageCutButton", contentArea.transform, font, "일급 내리기 (-10%)", 21);
             SetRect(wageCutButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -530f), new Vector2(194f, 58f));
 
-            wageFreezeButton = CreateRuntimeButton("WageFreezeButton", contentArea.transform, font, "시급 유지 (동결)", 21);
+            wageFreezeButton = CreateRuntimeButton("WageFreezeButton", contentArea.transform, font, "일급 유지 (동결)", 21);
             SetRect(wageFreezeButton.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -530f), new Vector2(194f, 58f));
 
-            wageRaiseButton = CreateRuntimeButton("WageRaiseButton", contentArea.transform, font, "시급 올리기 (+10%)", 21);
+            wageRaiseButton = CreateRuntimeButton("WageRaiseButton", contentArea.transform, font, "일급 올리기 (+10%)", 21);
             SetRect(wageRaiseButton.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(0f, -530f), new Vector2(194f, 58f));
 
             // 5. 선택 결과 미리보기 박스
@@ -472,7 +472,7 @@ namespace OpenSourceTeam6.UI.Unity
             txt.font = font;
             txt.text = content;
             txt.fontSize = fontSize;
-            txt.fontStyle = style;
+            txt.fontStyle = FontStyle.Normal;
             txt.color = color;
             txt.alignment = anchor;
             txt.horizontalOverflow = HorizontalWrapMode.Wrap;

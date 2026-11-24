@@ -19,6 +19,8 @@ namespace OpenSourceTeam6.UI.Unity
     public sealed class UiPrototypeDemoDriver : MonoBehaviour
     {
         [SerializeField] private StoreUiSessionController uiController;
+        [Tooltip("외부 AI(VoiceMovementIntegration)가 없는 단독 UI 테스트일 때만 켭니다. 실제 AI 연동 씬에서는 꺼두어야 이중 행동을 방지합니다.")]
+        [SerializeField] private bool enableStandaloneDemoSimulation = false;
         [SerializeField] private string demoEmployeeName = "김민수";
         [SerializeField] private string demoPersonality = "성실함";
         [SerializeField, Range(0f, 100f)] private float diligence = 70f;
@@ -60,18 +62,34 @@ namespace OpenSourceTeam6.UI.Unity
         private bool externalVoiceActive;
         private MonoBehaviour externalVoiceComponent;
         private SettingsPanelPresenter boundSettingsPanel;
+        private GameObject shortcutGuideObject;
 
         private void OnEnable()
         {
             RefreshExternalVoiceIntegration();
             BindSettingsMicrophoneRelay();
 
-            if (uiController == null || externalVoiceActive) return;
+            if (!enableStandaloneDemoSimulation || uiController == null || externalVoiceActive) return;
             uiController.PersonaConfirmed += HandlePersonaConfirmed;
             uiController.DayStarted += HandleDayStarted;
             uiController.TextCommandSubmitted += HandleTextCommandSubmitted;
             uiController.CancelWorkRequested += HandleCancelWorkRequested;
             uiController.VoiceRecordToggleRequested += HandleVoiceRecordToggleRequested;
+        }
+
+        private void Start()
+        {
+            RefreshExternalVoiceIntegration();
+            BindSettingsMicrophoneRelay();
+
+            if ((!enableStandaloneDemoSimulation || externalVoiceActive) && uiController != null)
+            {
+                uiController.PersonaConfirmed -= HandlePersonaConfirmed;
+                uiController.DayStarted -= HandleDayStarted;
+                uiController.TextCommandSubmitted -= HandleTextCommandSubmitted;
+                uiController.CancelWorkRequested -= HandleCancelWorkRequested;
+                uiController.VoiceRecordToggleRequested -= HandleVoiceRecordToggleRequested;
+            }
         }
 
         private void OnDisable()
@@ -104,6 +122,28 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 externalVoiceComponent = mb;
                 externalVoiceActive = true;
+            }
+        }
+
+        private void SyncShortcutGuideVisibility()
+        {
+            if (shortcutGuideObject == null)
+            {
+                Transform guideTr = transform.Find("DemoShortcutGuide");
+                if (guideTr != null)
+                {
+                    shortcutGuideObject = guideTr.gameObject;
+                }
+            }
+
+            if (shortcutGuideObject == null || uiController == null) return;
+
+            bool shouldShow = uiController.CurrentMode != UiScreenMode.Settlement &&
+                              !uiController.IsSettlementVisible &&
+                              !uiController.IsEndingVisible;
+            if (shortcutGuideObject.activeSelf != shouldShow)
+            {
+                shortcutGuideObject.SetActive(shouldShow);
             }
         }
 
@@ -141,6 +181,8 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void Update()
         {
+            SyncShortcutGuideVisibility();
+
             if (uiController == null ||
                 uiController.CurrentMode != UiScreenMode.InGame ||
                 uiController.IsPauseMenuOpen ||
@@ -149,7 +191,7 @@ namespace OpenSourceTeam6.UI.Unity
                 return;
             }
 
-            if (externalVoiceActive)
+            if (!enableStandaloneDemoSimulation || externalVoiceActive)
             {
                 HandleExternalVoiceUtilityHotkeys();
                 return;

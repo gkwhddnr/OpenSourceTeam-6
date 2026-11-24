@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Text;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 namespace OpenSourceTeam6.UI.Unity
@@ -44,6 +47,7 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Text feedbackBannerText;
 
         private const string FoldedNoteResourcePath = "UI/Spr_FoldedNote";
+        private const int MaxChatHistoryEntries = 80;
 
         private VoiceProcessStage currentVoiceStage = VoiceProcessStage.Idle;
         private float processingAnimTimer;
@@ -52,10 +56,20 @@ namespace OpenSourceTeam6.UI.Unity
         private GameObject collapsedNoteRoot;
         private Sprite runtimeCreatedFoldedSprite;
 
+        private readonly List<string> chatHistoryEntries = new List<string>(MaxChatHistoryEntries);
+        private bool isChatHistoryExpanded;
+        private Button chatHistoryToggleButton;
+        private Text chatHistoryToggleLabel;
+        private GameObject chatHistoryDrawerRoot;
+        private ScrollRect chatHistoryScrollRect;
+        private Text chatHistoryBodyText;
+
         public bool IsEmployeeCardCollapsed => isEmployeeCardCollapsed;
+        public bool IsChatHistoryExpanded => isChatHistoryExpanded;
 
         public event Action OpenCommandOverlayClicked;
         public event Action EmployeeCardFoldToggleClicked;
+        public event Action ChatHistoryToggleClicked;
 
         private static readonly Color StressStableColor = new Color(0.20f, 0.78f, 0.52f, 1f);
         private static readonly Color StressComplainColor = new Color(0.95f, 0.72f, 0.18f, 1f);
@@ -90,6 +104,22 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void Update()
         {
+            if (isChatHistoryExpanded && chatHistoryScrollRect != null)
+            {
+                Keyboard kb = Keyboard.current;
+                if (kb != null)
+                {
+                    if (kb.pageUpKey.wasPressedThisFrame)
+                    {
+                        chatHistoryScrollRect.verticalNormalizedPosition = Mathf.Clamp01(chatHistoryScrollRect.verticalNormalizedPosition + 0.25f);
+                    }
+                    else if (kb.pageDownKey.wasPressedThisFrame)
+                    {
+                        chatHistoryScrollRect.verticalNormalizedPosition = Mathf.Clamp01(chatHistoryScrollRect.verticalNormalizedPosition - 0.25f);
+                    }
+                }
+            }
+
             if (currentVoiceStage != VoiceProcessStage.Processing || voiceStageText == null) return;
 
             processingAnimTimer += Time.unscaledDeltaTime;
@@ -110,7 +140,57 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 EnsureCollapsibleNoteWidgets();
                 ApplyEmployeeCardFoldState();
+                EnsureDockChatHistoryWidgets();
+                ApplyChatHistoryExpandedState();
+                RefreshChatHistoryView();
             }
+        }
+
+        public void AppendChatLog(string speakerLabel, string message, bool isEmployee = false)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return;
+
+            string cleanSpeaker = string.IsNullOrWhiteSpace(speakerLabel)
+                ? (isEmployee ? "알바" : "사장")
+                : speakerLabel.Trim();
+            string cleanMessage = message.Trim();
+            string tagColor = cleanSpeaker == "안내"
+                ? "#A8C4DF"
+                : (isEmployee ? "#8CE9D4" : "#FFD97D");
+            string entry = $"<color={tagColor}>[{cleanSpeaker}]</color>  {cleanMessage}";
+
+            if (chatHistoryEntries.Count > 0 &&
+                string.Equals(chatHistoryEntries[chatHistoryEntries.Count - 1], entry, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            chatHistoryEntries.Add(entry);
+            while (chatHistoryEntries.Count > MaxChatHistoryEntries)
+            {
+                chatHistoryEntries.RemoveAt(0);
+            }
+
+            RefreshChatHistoryView();
+        }
+
+        public void ClearChatLog()
+        {
+            chatHistoryEntries.Clear();
+            RefreshChatHistoryView();
+        }
+
+        public void SetChatHistoryExpanded(bool expanded)
+        {
+            isChatHistoryExpanded = expanded;
+            EnsureDockChatHistoryWidgets();
+            ApplyChatHistoryExpandedState();
+            RefreshChatHistoryView();
+        }
+
+        public void ToggleChatHistoryExpanded()
+        {
+            SetChatHistoryExpanded(!isChatHistoryExpanded);
         }
 
         public void SetEmployeeCardCollapsed(bool collapsed)
@@ -246,7 +326,9 @@ namespace OpenSourceTeam6.UI.Unity
             float totalDaySeconds = 0f,
             float? explicitGameHour = null,
             int todaySalesWon = -1,
-            int todayUnitsSold = 0)
+            int todayUnitsSold = 0,
+            bool isSalesTargetMode = false,
+            int displayedAssetBalanceWon = -1)
         {
             EnsureCounterMonitorBound();
 
@@ -256,8 +338,12 @@ namespace OpenSourceTeam6.UI.Unity
                 totalDaySeconds,
                 explicitGameHour,
                 minuteStep: 10);
+            int shownSales = todaySalesWon >= 0 ? todaySalesWon : displayedBalanceWon;
+            int shownAsset = displayedAssetBalanceWon >= 0 ? displayedAssetBalanceWon : displayedBalanceWon;
             string balanceLabel = targetBalanceWon > 0
-                ? $"현재 {displayedBalanceWon:N0}원  /  목표 {targetBalanceWon:N0}원"
+                ? (isSalesTargetMode
+                    ? $"오늘 매출 {shownSales:N0}원  /  목표 {targetBalanceWon:N0}원"
+                    : $"현재 {displayedBalanceWon:N0}원  /  목표 {targetBalanceWon:N0}원")
                 : $"예상 잔액  {displayedBalanceWon:N0}원";
 
             if (dayLabelText != null)
@@ -294,9 +380,16 @@ namespace OpenSourceTeam6.UI.Unity
                     Text revCapText = revCapTr != null ? revCapTr.GetComponent<Text>() : null;
                     if (revCapText != null)
                     {
-                        revCapText.text = targetBalanceWon > 0
-                            ? $"보유 자산 {displayedBalanceWon:N0}원  /  목표 자산 {targetBalanceWon:N0}원"
-                            : $"예상 보유 자산 {displayedBalanceWon:N0}원";
+                        if (isSalesTargetMode && targetBalanceWon > 0)
+                        {
+                            revCapText.text = $"목표 매출 {targetBalanceWon:N0}원  ·  보유 자산 {shownAsset:N0}원";
+                        }
+                        else
+                        {
+                            revCapText.text = targetBalanceWon > 0
+                                ? $"보유 자산 {shownAsset:N0}원  /  목표 자산 {targetBalanceWon:N0}원"
+                                : $"예상 보유 자산 {shownAsset:N0}원";
+                        }
                     }
 
                     counterMonitorBalanceText.text = $"오늘 매출 : {todaySalesWon:N0}원  ({todayUnitsSold}개 결제)";
@@ -306,7 +399,8 @@ namespace OpenSourceTeam6.UI.Unity
                     counterMonitorBalanceText.text = balanceLabel;
                 }
 
-                counterMonitorBalanceText.color = (targetBalanceWon > 0 && displayedBalanceWon >= targetBalanceWon)
+                int compareActual = isSalesTargetMode ? shownSales : displayedBalanceWon;
+                counterMonitorBalanceText.color = (targetBalanceWon > 0 && compareActual >= targetBalanceWon)
                     ? new Color(0.28f, 0.98f, 0.68f, 1f)
                     : new Color(1f, 0.86f, 0.32f, 1f);
             }
@@ -731,6 +825,249 @@ namespace OpenSourceTeam6.UI.Unity
             }
 
             return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        }
+
+        private Font ResolveDockUiFont()
+        {
+            if (feedbackBannerText != null && feedbackBannerText.font != null)
+            {
+                return feedbackBannerText.font;
+            }
+
+            if (voiceStageText != null && voiceStageText.font != null)
+            {
+                return voiceStageText.font;
+            }
+
+            return ResolveUiFont();
+        }
+
+        private void HandleChatHistoryToggleButtonClicked()
+        {
+            if (ChatHistoryToggleClicked != null)
+            {
+                ChatHistoryToggleClicked.Invoke();
+            }
+            else
+            {
+                ToggleChatHistoryExpanded();
+            }
+        }
+
+        private void EnsureDockChatHistoryWidgets()
+        {
+            Transform root = hudRoot != null ? hudRoot.transform : transform;
+            Transform voiceDock = root.Find("VoiceFeedbackDock");
+            if (voiceDock == null) return;
+
+            Transform voiceDockContent = voiceDock.Find("VoiceDockContent");
+            Transform buttonParent = voiceDockContent != null ? voiceDockContent : voiceDock;
+            bool is2xSupersampled = voiceDockContent != null;
+            Font dockFont = ResolveDockUiFont();
+
+            // 1. VoiceFeedbackDock 우측 상단 '대화 기록 (H) ▴' 토글 버튼
+            if (chatHistoryToggleButton == null)
+            {
+                Transform existingBtn = buttonParent.Find("DockChatHistoryToggleButton");
+                if (existingBtn != null)
+                {
+                    chatHistoryToggleButton = existingBtn.GetComponent<Button>();
+                    chatHistoryToggleLabel = existingBtn.GetComponentInChildren<Text>(true);
+                }
+                else
+                {
+                    if (transcriptText != null)
+                    {
+                        RectTransform trRt = transcriptText.rectTransform;
+                        float minRightTrim = is2xSupersampled ? -920f : -460f;
+                        if (trRt.sizeDelta.x > minRightTrim)
+                        {
+                            trRt.sizeDelta = new Vector2(minRightTrim, trRt.sizeDelta.y);
+                        }
+                    }
+
+                    GameObject btnObj = new GameObject("DockChatHistoryToggleButton", typeof(RectTransform), typeof(Image), typeof(Button), typeof(Outline));
+                    btnObj.transform.SetParent(buttonParent, false);
+
+                    RectTransform btnRt = btnObj.GetComponent<RectTransform>();
+                    btnRt.anchorMin = new Vector2(1f, 1f);
+                    btnRt.anchorMax = new Vector2(1f, 1f);
+                    btnRt.pivot = new Vector2(1f, 1f);
+                    btnRt.anchoredPosition = is2xSupersampled ? new Vector2(-36f, -28f) : new Vector2(-18f, -14f);
+                    btnRt.sizeDelta = is2xSupersampled ? new Vector2(330f, 76f) : new Vector2(165f, 38f);
+
+                    Image btnBg = btnObj.GetComponent<Image>();
+                    btnBg.color = new Color(0.16f, 0.25f, 0.38f, 0.96f);
+                    btnBg.raycastTarget = true;
+
+                    Outline btnOutline = btnObj.GetComponent<Outline>();
+                    btnOutline.effectColor = new Color(0.45f, 0.70f, 0.90f, 0.72f);
+                    btnOutline.effectDistance = is2xSupersampled ? new Vector2(2f, -2f) : new Vector2(1f, -1f);
+
+                    chatHistoryToggleButton = btnObj.GetComponent<Button>();
+                    chatHistoryToggleButton.targetGraphic = btnBg;
+                    chatHistoryToggleButton.onClick.AddListener(HandleChatHistoryToggleButtonClicked);
+
+                    GameObject lblObj = new GameObject("Label", typeof(RectTransform), typeof(Text));
+                    lblObj.transform.SetParent(btnObj.transform, false);
+                    RectTransform lblRt = lblObj.GetComponent<RectTransform>();
+                    lblRt.anchorMin = Vector2.zero;
+                    lblRt.anchorMax = Vector2.one;
+                    lblRt.offsetMin = Vector2.zero;
+                    lblRt.offsetMax = Vector2.zero;
+
+                    chatHistoryToggleLabel = lblObj.GetComponent<Text>();
+                    chatHistoryToggleLabel.font = dockFont;
+                    chatHistoryToggleLabel.fontSize = is2xSupersampled ? 32 : 16;
+                    chatHistoryToggleLabel.fontStyle = FontStyle.Normal;
+                    chatHistoryToggleLabel.color = Color.white;
+                    chatHistoryToggleLabel.alignment = TextAnchor.MiddleCenter;
+                    chatHistoryToggleLabel.raycastTarget = false;
+                }
+            }
+
+            // 2. VoiceFeedbackDock 바로 위로 펼쳐지는 대화 기록 스크롤 패널
+            if (chatHistoryDrawerRoot == null)
+            {
+                Transform existingDrawer = voiceDock.Find("DockChatHistoryDrawer");
+                if (existingDrawer != null)
+                {
+                    chatHistoryDrawerRoot = existingDrawer.gameObject;
+                    chatHistoryScrollRect = existingDrawer.GetComponentInChildren<ScrollRect>(true);
+                    Transform bodyTr = existingDrawer.Find("Viewport/Content/HistoryBodyText");
+                    chatHistoryBodyText = bodyTr != null ? bodyTr.GetComponent<Text>() : existingDrawer.GetComponentInChildren<Text>(true);
+                }
+                else
+                {
+                    chatHistoryDrawerRoot = new GameObject("DockChatHistoryDrawer", typeof(RectTransform), typeof(Image), typeof(Outline));
+                    chatHistoryDrawerRoot.transform.SetParent(voiceDock, false);
+
+                    RectTransform drawerRt = chatHistoryDrawerRoot.GetComponent<RectTransform>();
+                    drawerRt.anchorMin = new Vector2(0f, 1f);
+                    drawerRt.anchorMax = new Vector2(1f, 1f);
+                    drawerRt.pivot = new Vector2(0.5f, 0f);
+                    drawerRt.anchoredPosition = new Vector2(0f, 8f);
+                    drawerRt.sizeDelta = new Vector2(0f, 240f);
+
+                    Image drawerBg = chatHistoryDrawerRoot.GetComponent<Image>();
+                    drawerBg.color = new Color(0.07f, 0.10f, 0.16f, 0.94f);
+                    drawerBg.raycastTarget = true;
+
+                    Outline drawerOutline = chatHistoryDrawerRoot.GetComponent<Outline>();
+                    drawerOutline.effectColor = new Color(0.36f, 0.56f, 0.78f, 0.64f);
+                    drawerOutline.effectDistance = new Vector2(1.4f, -1.4f);
+
+                    GameObject titleObj = new GameObject("DrawerTitle", typeof(RectTransform), typeof(Text));
+                    titleObj.transform.SetParent(chatHistoryDrawerRoot.transform, false);
+                    RectTransform titleRt = titleObj.GetComponent<RectTransform>();
+                    titleRt.anchorMin = new Vector2(0f, 1f);
+                    titleRt.anchorMax = new Vector2(1f, 1f);
+                    titleRt.pivot = new Vector2(0.5f, 1f);
+                    titleRt.anchoredPosition = new Vector2(0f, -8f);
+                    titleRt.sizeDelta = new Vector2(-36f, 26f);
+
+                    Text titleText = titleObj.GetComponent<Text>();
+                    titleText.font = dockFont;
+                    titleText.fontSize = 15;
+                    titleText.fontStyle = FontStyle.Normal;
+                    titleText.color = new Color(0.74f, 0.87f, 0.98f, 1f);
+                    titleText.alignment = TextAnchor.MiddleLeft;
+                    titleText.raycastTarget = false;
+                    titleText.text = "최근 지시 · 직원 대화 기록   (H 키로 열기/접기 · PageUp/PageDown 또는 휠 스크롤)";
+
+                    GameObject viewportObj = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(RectMask2D));
+                    viewportObj.transform.SetParent(chatHistoryDrawerRoot.transform, false);
+                    RectTransform viewportRt = viewportObj.GetComponent<RectTransform>();
+                    viewportRt.anchorMin = Vector2.zero;
+                    viewportRt.anchorMax = Vector2.one;
+                    viewportRt.offsetMin = new Vector2(18f, 12f);
+                    viewportRt.offsetMax = new Vector2(-18f, -38f);
+
+                    Image viewportBg = viewportObj.GetComponent<Image>();
+                    viewportBg.color = new Color(0.05f, 0.07f, 0.11f, 0.88f);
+                    viewportBg.raycastTarget = true;
+
+                    GameObject contentObj = new GameObject("Content", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+                    contentObj.transform.SetParent(viewportObj.transform, false);
+                    RectTransform contentRt = contentObj.GetComponent<RectTransform>();
+                    contentRt.anchorMin = new Vector2(0f, 1f);
+                    contentRt.anchorMax = new Vector2(1f, 1f);
+                    contentRt.pivot = new Vector2(0.5f, 1f);
+                    contentRt.anchoredPosition = Vector2.zero;
+                    contentRt.sizeDelta = Vector2.zero;
+
+                    VerticalLayoutGroup vlg = contentObj.GetComponent<VerticalLayoutGroup>();
+                    vlg.padding = new RectOffset(14, 14, 10, 12);
+                    vlg.childControlWidth = true;
+                    vlg.childControlHeight = true;
+                    vlg.childForceExpandWidth = true;
+                    vlg.childForceExpandHeight = false;
+
+                    ContentSizeFitter csf = contentObj.GetComponent<ContentSizeFitter>();
+                    csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+                    csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+                    GameObject bodyObj = new GameObject("HistoryBodyText", typeof(RectTransform), typeof(Text));
+                    bodyObj.transform.SetParent(contentObj.transform, false);
+                    chatHistoryBodyText = bodyObj.GetComponent<Text>();
+                    chatHistoryBodyText.font = dockFont;
+                    chatHistoryBodyText.fontSize = 16;
+                    chatHistoryBodyText.lineSpacing = 1.32f;
+                    chatHistoryBodyText.supportRichText = true;
+                    chatHistoryBodyText.color = new Color(0.93f, 0.96f, 0.99f, 1f);
+                    chatHistoryBodyText.alignment = TextAnchor.UpperLeft;
+                    chatHistoryBodyText.horizontalOverflow = HorizontalWrapMode.Wrap;
+                    chatHistoryBodyText.verticalOverflow = VerticalWrapMode.Overflow;
+                    chatHistoryBodyText.raycastTarget = false;
+
+                    chatHistoryScrollRect = chatHistoryDrawerRoot.AddComponent<ScrollRect>();
+                    chatHistoryScrollRect.viewport = viewportRt;
+                    chatHistoryScrollRect.content = contentRt;
+                    chatHistoryScrollRect.horizontal = false;
+                    chatHistoryScrollRect.vertical = true;
+                    chatHistoryScrollRect.movementType = ScrollRect.MovementType.Clamped;
+                    chatHistoryScrollRect.scrollSensitivity = 28f;
+                }
+            }
+        }
+
+        private void ApplyChatHistoryExpandedState()
+        {
+            if (chatHistoryToggleLabel != null)
+            {
+                chatHistoryToggleLabel.text = isChatHistoryExpanded ? "기록 접기 (H)  ▾" : "대화 기록 (H)  ▴";
+            }
+
+            if (chatHistoryDrawerRoot != null && chatHistoryDrawerRoot.activeSelf != isChatHistoryExpanded)
+            {
+                chatHistoryDrawerRoot.SetActive(isChatHistoryExpanded);
+            }
+        }
+
+        private void RefreshChatHistoryView()
+        {
+            if (chatHistoryBodyText == null) return;
+
+            if (chatHistoryEntries.Count == 0)
+            {
+                chatHistoryBodyText.text = "<color=#7E8FA6>아직 주고받은 대화 기록이 없습니다. [R/V] 음성 또는 [Tab] 명령으로 지시해 보세요.</color>";
+            }
+            else
+            {
+                StringBuilder sb = new StringBuilder(chatHistoryEntries.Count * 48);
+                for (int i = 0; i < chatHistoryEntries.Count; i++)
+                {
+                    if (i > 0) sb.Append('\n');
+                    sb.Append(chatHistoryEntries[i]);
+                }
+                chatHistoryBodyText.text = sb.ToString();
+            }
+
+            if (isChatHistoryExpanded && chatHistoryScrollRect != null && isActiveAndEnabled)
+            {
+                Canvas.ForceUpdateCanvases();
+                chatHistoryScrollRect.verticalNormalizedPosition = 0f;
+            }
         }
     }
 }

@@ -1,10 +1,12 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Time = UnityEngine.Time;
     /// <summary>
     /// 기능정의서 SND-00 ~ SND-03 및 UI-04 볼륨 연동 담당 중앙 사운드 매니저.
     /// 외부 오디오 에셋이 할당되면 해당 에셋을 우선 재생하며,
@@ -23,6 +25,7 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField, Range(0f, 1f)] private float _initialBgmVolume = 0.30f;
         [SerializeField, Range(0f, 1f)] private float _inGameBgmVolumeScale = 0.55f;
         [SerializeField, Range(0f, 1f)] private float _initialSfxVolume = 1.0f;
+        [SerializeField, Range(0f, 1f)] private float _reactionSfxVolumeScale = 0.42f;
         [SerializeField] private bool _initialBgmMuted;
 
         [Header("Fallback Options (외부 에셋 임포트 전 테스트용 파형 자동 생성)")]
@@ -62,6 +65,9 @@ namespace OpenSourceTeam6.UI.Unity
         private readonly List<AudioClip> _createdProceduralClips = new List<AudioClip>();
 
         private StoreAudioVolumeState _volumeState;
+        private Coroutine _bgmFadeCoroutine;
+        private StoreBgmTrack _pendingFadeTrack = StoreBgmTrack.None;
+        private float _bgmFadeGain = 1f;
 
         public StoreBgmTrack CurrentBgm { get; private set; } = StoreBgmTrack.None;
         public StoreAudioVolumeState VolumeState => _volumeState;
@@ -110,7 +116,8 @@ namespace OpenSourceTeam6.UI.Unity
                 return;
             }
 
-            if (!forceRestart && CurrentBgm == track && _bgmSource.isPlaying)
+            if (!forceRestart && CurrentBgm == track &&
+                (_bgmSource.isPlaying || (_bgmFadeCoroutine != null && _pendingFadeTrack == track)))
             {
                 return;
             }
@@ -126,6 +133,8 @@ namespace OpenSourceTeam6.UI.Unity
                 return;
             }
 
+            CancelBgmFadeCoroutine();
+            _bgmFadeGain = 1f;
             CurrentBgm = track;
 
             if (clip == null)
@@ -141,8 +150,110 @@ namespace OpenSourceTeam6.UI.Unity
             _bgmSource.Play();
         }
 
+        public void PlayBgmWithFadeIn(StoreBgmTrack track, float fadeInSeconds, float startDelaySeconds = 0f, bool forceRestart = false)
+        {
+            EnsureAudioSources();
+
+            if (track == StoreBgmTrack.None)
+            {
+                StopBgm();
+                return;
+            }
+
+            if (!forceRestart && CurrentBgm == track &&
+                (_bgmSource.isPlaying || (_bgmFadeCoroutine != null && _pendingFadeTrack == track)))
+            {
+                return;
+            }
+
+            AudioClip clip = ResolveBgmClip(track);
+            if (clip == null)
+            {
+                StopBgm();
+                return;
+            }
+
+            if (!isActiveAndEnabled || (fadeInSeconds <= 0.01f && startDelaySeconds <= 0.01f))
+            {
+                PlayBgm(track, forceRestart);
+                return;
+            }
+
+            StoreBgmTrack previousTrack = CurrentBgm;
+            CancelBgmFadeCoroutine();
+            _bgmSource.Stop();
+            _bgmSource.clip = null;
+
+            CurrentBgm = track;
+            _pendingFadeTrack = track;
+            _bgmFadeGain = 0f;
+            Debug.Log($"[StoreAudio] BGM 지연 크레센도 예약: {previousTrack} -> {track} (delay={startDelaySeconds:F2}s, fadeIn={fadeInSeconds:F2}s, clip={clip.name})");
+            _bgmFadeCoroutine = StartCoroutine(CoPlayBgmWithFadeIn(track, clip, Mathf.Max(0f, startDelaySeconds), Mathf.Max(0.05f, fadeInSeconds)));
+        }
+
+        private IEnumerator CoPlayBgmWithFadeIn(StoreBgmTrack track, AudioClip clip, float delaySeconds, float fadeInSeconds)
+        {
+            if (delaySeconds > 0.001f)
+            {
+                float waited = 0f;
+                while (waited < delaySeconds)
+                {
+                    waited += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+            }
+
+            if (CurrentBgm != track)
+            {
+                _bgmFadeCoroutine = null;
+                _pendingFadeTrack = StoreBgmTrack.None;
+                yield break;
+            }
+
+            _bgmFadeGain = 0f;
+            _bgmSource.clip = clip;
+            _bgmSource.loop = true;
+            ApplyVolumeToSources();
+            _bgmSource.Play();
+
+            float elapsed = 0f;
+            while (elapsed < fadeInSeconds)
+            {
+                if (CurrentBgm != track)
+                {
+                    _bgmFadeCoroutine = null;
+                    _pendingFadeTrack = StoreBgmTrack.None;
+                    yield break;
+                }
+
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(elapsed / fadeInSeconds);
+                // 크레센도 곡선 (초반엔 아주 조용하게 들어와 서서히 커짐)
+                _bgmFadeGain = t * t;
+                ApplyVolumeToSources();
+                yield return null;
+            }
+
+            _bgmFadeGain = 1f;
+            _pendingFadeTrack = StoreBgmTrack.None;
+            _bgmFadeCoroutine = null;
+            ApplyVolumeToSources();
+        }
+
+        private void CancelBgmFadeCoroutine()
+        {
+            if (_bgmFadeCoroutine != null)
+            {
+                StopCoroutine(_bgmFadeCoroutine);
+                _bgmFadeCoroutine = null;
+            }
+            _pendingFadeTrack = StoreBgmTrack.None;
+        }
+
         public void StopBgm()
         {
+            CancelBgmFadeCoroutine();
+            _bgmFadeGain = 1f;
             CurrentBgm = StoreBgmTrack.None;
             if (_bgmSource != null)
             {
@@ -159,6 +270,13 @@ namespace OpenSourceTeam6.UI.Unity
             if (clip == null) return;
 
             float clampedScale = StoreAudioRules.ClampVolume01(volumeScale);
+            if (sfxId == StoreSfxId.ReactionAccept ||
+                sfxId == StoreSfxId.ReactionComplain ||
+                sfxId == StoreSfxId.ReactionRefuseOrCrisis)
+            {
+                clampedScale *= Mathf.Clamp01(_reactionSfxVolumeScale);
+            }
+
             float effectiveSfx = _volumeState.EffectiveSfxVolume;
             if (effectiveSfx * clampedScale <= 0.0001f) return;
 
@@ -256,7 +374,7 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 bool isInGameTrack = CurrentBgm == StoreBgmTrack.DayNormal || CurrentBgm == StoreBgmTrack.DayCrisis;
                 float trackScale = isInGameTrack ? Mathf.Clamp01(_inGameBgmVolumeScale) : 1f;
-                _bgmSource.volume = _volumeState.EffectiveBgmVolume * trackScale;
+                _bgmSource.volume = _volumeState.EffectiveBgmVolume * trackScale * Mathf.Clamp01(_bgmFadeGain);
                 _bgmSource.mute = _volumeState.IsBgmMuted;
             }
 

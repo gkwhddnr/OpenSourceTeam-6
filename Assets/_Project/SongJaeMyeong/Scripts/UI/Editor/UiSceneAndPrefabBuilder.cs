@@ -1252,14 +1252,14 @@ namespace OpenSourceTeam6.UI.Editor
             Text subHeader = CreatePaperText("ResumeDaySubHeader", paperArea.transform, font, "0일차  ·  신규 스태프 채용 심사표", 15, FontStyle.Normal, inkSecondary, TextAnchor.MiddleCenter);
             SetRect(subHeader.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(0f, 24f));
 
-            Text titleText = CreatePaperText("ResumeTitleText", paperArea.transform, font, "이   력   서", 36, FontStyle.Bold, inkPrimary, TextAnchor.MiddleCenter);
+            Text titleText = CreatePaperText("ResumeTitleText", paperArea.transform, font, "이   력   서", 38, FontStyle.Normal, inkPrimary, TextAnchor.MiddleCenter);
             SetRect(titleText.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -28f), new Vector2(0f, 48f));
 
             CreatePaperRule("HeaderRuleBold", paperArea.transform, sprite, -82f, 2.5f, new Color(0.18f, 0.16f, 0.15f, 0.78f));
             CreatePaperRule("HeaderRuleThin", paperArea.transform, sprite, -87f, 1f, inkRule);
 
             // 2. 프리셋 1·2·3 및 Random 선택 줄
-            Text presetLabel = CreatePaperText("PresetRowLabel", paperArea.transform, font, "지원자 프리셋", 16, FontStyle.Bold, inkSecondary, TextAnchor.MiddleLeft);
+            Text presetLabel = CreatePaperText("PresetRowLabel", paperArea.transform, font, "지원자 프리셋", 18, FontStyle.Normal, inkSecondary, TextAnchor.MiddleLeft);
             SetRect(presetLabel.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -104f), new Vector2(114f, 38f));
 
             Button preset1Btn = CreatePaperButton("Preset1Button", paperArea.transform, font, sprite, "1", 19, paperBtnBg, inkPrimary, inkRule);
@@ -1289,7 +1289,7 @@ namespace OpenSourceTeam6.UI.Editor
             portraitImg.preserveAspect = true;
 
             // 우측 인적사항 (성명 + 시급)
-            Text nameLabel = CreatePaperText("NameLabel", paperArea.transform, font, "성  명", 19, FontStyle.Bold, inkSecondary, TextAnchor.MiddleLeft);
+            Text nameLabel = CreatePaperText("NameLabel", paperArea.transform, font, "성  명", 20, FontStyle.Normal, inkSecondary, TextAnchor.MiddleLeft);
             SetRect(nameLabel.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(182f, -176f), new Vector2(347f, 28f));
 
             InputField nameInput = CreatePaperInputField(
@@ -1309,7 +1309,7 @@ namespace OpenSourceTeam6.UI.Editor
                 inkSecondary,
                 multiLine: false);
 
-            Text wageLabel = CreatePaperText("WageLabel", paperArea.transform, font, "희망 시급 및 기본급", 18, FontStyle.Bold, inkSecondary, TextAnchor.MiddleLeft);
+            Text wageLabel = CreatePaperText("WageLabel", paperArea.transform, font, "일급 (1일 인건비)", 19, FontStyle.Normal, inkSecondary, TextAnchor.MiddleLeft);
             SetRect(wageLabel.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(182f, -278f), new Vector2(347f, 28f));
 
             GameObject wageBox = CreateFlatRect("WagePaperBox", paperArea.transform, new Color(0.96f, 0.93f, 0.87f, 0.72f), sprite);
@@ -1320,9 +1320,9 @@ namespace OpenSourceTeam6.UI.Editor
                 "HourlyWageValueText",
                 wageBox.transform,
                 font,
-                $"{EmployeePersonaPresets.DefaultHourlyWageWon:N0}원  (일일 기본급 20,000원)",
-                18,
-                FontStyle.Bold,
+                "예상 일급  20,000원  (심사 전)",
+                20,
+                FontStyle.Normal,
                 inkAccent,
                 TextAnchor.MiddleLeft);
             SetRect(wageValueText.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-20f, -8f));
@@ -1330,7 +1330,7 @@ namespace OpenSourceTeam6.UI.Editor
             CreatePaperRule("MidSectionRule", paperArea.transform, sprite, -396f, 1.5f, inkRule);
 
             // 4. 중단 영역: 성격 및 특징 (자유 서술 0/50자)
-            Text traitLabel = CreatePaperText("TraitLabel", paperArea.transform, font, "성격 및 특기 사항 (자유 기입)", 20, FontStyle.Bold, inkPrimary, TextAnchor.MiddleLeft);
+            Text traitLabel = CreatePaperText("TraitLabel", paperArea.transform, font, "성격 및 특기 사항 (자유 기입)", 21, FontStyle.Normal, inkPrimary, TextAnchor.MiddleLeft);
             SetRect(traitLabel.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -412f), new Vector2(360f, 30f));
 
             string initialCounter = EmployeePersonaPresets.FormatTraitLengthCounter(EmployeePersonaPresets.Preset1Traits);
@@ -2520,12 +2520,14 @@ namespace OpenSourceTeam6.UI.Editor
             npcRoot.transform.position = restTarget.position;
 
             NavMeshAgent employeeAgent = npcRoot.AddComponent<NavMeshAgent>();
-            employeeAgent.radius = 0.34f;
+            employeeAgent.radius = 0.24f;
             employeeAgent.height = 1.44f;
             employeeAgent.speed = 3.2f;
             employeeAgent.acceleration = 14f;
             employeeAgent.angularSpeed = 480f;
             employeeAgent.stoppingDistance = 0.12f;
+            employeeAgent.avoidancePriority = 5;
+            employeeAgent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
 
             EmployeeMovementController employeeMovement = npcRoot.AddComponent<EmployeeMovementController>();
             MovementProfile moveProfile = AssetDatabase.LoadAssetAtPath<MovementProfile>(EmployeeMovementProfilePath);
@@ -2841,7 +2843,7 @@ namespace OpenSourceTeam6.UI.Editor
 
             Sprite smoothSprite = _smoothRectSprite != null ? _smoothRectSprite : whiteSprite;
             GameObject manualBorder = CreateFlatRect("ManualPaperBorder", dimBg.transform, new Color(0.32f, 0.26f, 0.20f, 0.95f), smoothSprite);
-            SetRect(manualBorder.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(844f, 656f));
+            SetRect(manualBorder.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(0f, 12f), new Vector2(880f, 720f));
 
             GameObject manualCard = CreateFlatRect("ManualPaperCard", manualBorder.transform, new Color(0.98f, 0.96f, 0.89f, 1f), smoothSprite);
             SetRect(manualCard.GetComponent<RectTransform>(), Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-10f, -10f));
@@ -2853,7 +2855,7 @@ namespace OpenSourceTeam6.UI.Editor
             mcRt.anchorMin = new Vector2(0.5f, 0.5f);
             mcRt.anchorMax = new Vector2(0.5f, 0.5f);
             mcRt.pivot = new Vector2(0.5f, 0.5f);
-            mcRt.sizeDelta = new Vector2(1540f, 1180f);
+            mcRt.sizeDelta = new Vector2(1620f, 1320f);
             mcRt.localScale = new Vector3(0.5f, 0.5f, 1f);
 
             Color inkPrimary = new Color(0.14f, 0.13f, 0.11f, 1f);
@@ -2894,12 +2896,12 @@ namespace OpenSourceTeam6.UI.Editor
                 "   • 영업 시간(08:00 ~ 익일 08:00) 동안 목표 매출을 달성해 정산에 통과하세요.\n" +
                 "   • F1~F5 : 음성·오류·스트레스 시뮬 / F6 : 즉시 마감 / F7 : +4시간 / F8 : 비 토글";
 
-            Text bodyTxt = CreatePaperText("ManualBodyText", manualContent.transform, uiFont, manualBody, 36, FontStyle.Normal, inkPrimary, TextAnchor.UpperLeft);
-            bodyTxt.lineSpacing = 1.32f;
-            SetRect(bodyTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -146f), new Vector2(0f, 920f));
+            Text bodyTxt = CreatePaperText("ManualBodyText", manualContent.transform, uiFont, manualBody, 33, FontStyle.Normal, inkPrimary, TextAnchor.UpperLeft);
+            bodyTxt.lineSpacing = 1.20f;
+            SetRect(bodyTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -138f), new Vector2(0f, 1050f));
 
-            Text footerTxt = CreatePaperText("ManualFooterText", manualContent.transform, paperFont, "※ 카운터 앞 노란 바인더를 바라보고 [E]를 누르면 언제든 다시 확인할 수 있습니다.", 36, FontStyle.Normal, inkAccent, TextAnchor.MiddleCenter);
-            SetRect(footerTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(0f, 64f));
+            Text footerTxt = CreatePaperText("ManualFooterText", manualContent.transform, paperFont, "※ 카운터 앞 노란 바인더를 바라보고 [E]를 누르면 언제든 다시 확인할 수 있습니다.", 32, FontStyle.Normal, inkAccent, TextAnchor.MiddleCenter);
+            SetRect(footerTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 14f), new Vector2(0f, 60f));
 
             dimBg.SetActive(false);
 

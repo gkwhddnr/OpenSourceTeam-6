@@ -8,6 +8,7 @@ namespace OpenSourceTeam6.UI.Core
         public float DayDurationSeconds;
         public int StartingBalanceWon;
         public int TargetBalanceWon;
+        public int TargetSalesRevenueWon;
         public float CheckoutWonPerEffectiveSecond;
         public float RestockWonPerEffectiveSecond;
         public float MinEffectiveRestockSeconds;
@@ -132,6 +133,10 @@ namespace OpenSourceTeam6.UI.Core
         public int DayNumber { get; }
         public int StartingBalanceWon { get; }
         public int TargetBalanceWon { get; }
+        public int TargetSalesRevenueWon { get; }
+        public bool UsesSalesRevenueTarget => TargetSalesRevenueWon > 0;
+        public int EffectiveTargetWon => UsesSalesRevenueTarget ? TargetSalesRevenueWon : TargetBalanceWon;
+        public int EffectiveActualForTargetWon => UsesSalesRevenueTarget ? FinalSalesRevenueWon : FinalBalanceWon;
         public float EffectiveCheckoutSeconds { get; }
         public float EffectiveRestockSeconds { get; }
         public float MinEffectiveRestockSeconds { get; }
@@ -166,11 +171,13 @@ namespace OpenSourceTeam6.UI.Core
             float endingStress,
             int angerRefusalCount,
             DayOutcomeGrade outcomeGrade,
-            float minEffectiveRestockSeconds = 25f)
+            float minEffectiveRestockSeconds = 25f,
+            int targetSalesRevenueWon = 0)
         {
             DayNumber = dayNumber;
             StartingBalanceWon = startingBalanceWon;
             TargetBalanceWon = targetBalanceWon;
+            TargetSalesRevenueWon = Math.Max(0, targetSalesRevenueWon);
             EffectiveCheckoutSeconds = effectiveCheckoutSeconds;
             EffectiveRestockSeconds = effectiveRestockSeconds;
             MinEffectiveRestockSeconds = minEffectiveRestockSeconds;
@@ -209,8 +216,12 @@ namespace OpenSourceTeam6.UI.Core
             int netProfitWon = finalSalesWon - (cogsWon + fixedCostWon);
             int finalBalanceWon = input.StartingBalanceWon + netProfitWon;
 
+            bool isTargetShortfall = settings.TargetSalesRevenueWon > 0
+                ? finalSalesWon < settings.TargetSalesRevenueWon
+                : finalBalanceWon < settings.TargetBalanceWon;
+
             DayOutcomeGrade grade;
-            if (finalBalanceWon < settings.TargetBalanceWon)
+            if (isTargetShortfall)
             {
                 grade = DayOutcomeGrade.FailedTargetShortfall;
             }
@@ -242,7 +253,8 @@ namespace OpenSourceTeam6.UI.Core
                 input.EndingStress,
                 input.AngerRefusalCount,
                 grade,
-                settings.MinEffectiveRestockSeconds);
+                settings.MinEffectiveRestockSeconds,
+                settings.TargetSalesRevenueWon);
         }
 
         private static int RoundToWon(float value)
@@ -259,6 +271,7 @@ namespace OpenSourceTeam6.UI.Core
         public int DayNumber { get; private set; }
         public int StartingBalanceWon { get; private set; }
         public int TargetBalanceWon => settings.TargetBalanceWon;
+        public int TargetSalesRevenueWon => settings.TargetSalesRevenueWon;
         public int FixedOperatingCostWon => settings.FixedOperatingCostWon;
         public float RawCheckoutSeconds { get; private set; }
         public float RawRestockSeconds { get; private set; }
@@ -330,6 +343,11 @@ namespace OpenSourceTeam6.UI.Core
             settings.TargetBalanceWon = Math.Max(0, targetBalanceWon);
         }
 
+        public void SetTargetSalesRevenueWon(int targetSalesRevenueWon)
+        {
+            settings.TargetSalesRevenueWon = Math.Max(0, targetSalesRevenueWon);
+        }
+
         public void SetFixedOperatingCostWon(int fixedOperatingCostWon)
         {
             settings.FixedOperatingCostWon = Math.Max(0, fixedOperatingCostWon);
@@ -361,8 +379,12 @@ namespace OpenSourceTeam6.UI.Core
                 int netProfitWon = finalSalesWon - cogsWon - settings.FixedOperatingCostWon;
                 int finalBalanceWon = input.StartingBalanceWon + netProfitWon;
 
+                bool isTargetShortfall = settings.TargetSalesRevenueWon > 0
+                    ? finalSalesWon < settings.TargetSalesRevenueWon
+                    : finalBalanceWon < settings.TargetBalanceWon;
+
                 DayOutcomeGrade grade;
-                if (finalBalanceWon < settings.TargetBalanceWon)
+                if (isTargetShortfall)
                 {
                     grade = DayOutcomeGrade.FailedTargetShortfall;
                 }
@@ -393,7 +415,8 @@ namespace OpenSourceTeam6.UI.Core
                     baseResult.EndingStress,
                     baseResult.AngerRefusalCount,
                     grade,
-                    baseResult.MinEffectiveRestockSeconds);
+                    baseResult.MinEffectiveRestockSeconds,
+                    settings.TargetSalesRevenueWon);
             }
 
             cachedResult = baseResult;

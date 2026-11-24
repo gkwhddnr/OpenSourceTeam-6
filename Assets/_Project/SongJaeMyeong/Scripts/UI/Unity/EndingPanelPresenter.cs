@@ -32,7 +32,8 @@ namespace OpenSourceTeam6.UI.Unity
 
         private IStoreAudioPlayer _audioPlayer;
         private EmployeePersonaSetupData _currentPersona = EmployeePersonaPresets.CreatePreset1();
-        private int _currentTargetBalanceWon = 80000;
+        private int _currentTargetBalanceWon = 10000;
+        private bool _currentUsesSalesTarget = true;
 
         public bool IsVisible => (_panelRoot != null ? _panelRoot : gameObject).activeSelf;
         public StoreEndingType CurrentEndingType { get; private set; }
@@ -123,7 +124,8 @@ namespace OpenSourceTeam6.UI.Unity
         public void RenderEnding(DaySettlementResult settlement, EmployeePersonaSetupData persona)
         {
             _currentPersona = persona;
-            _currentTargetBalanceWon = settlement.TargetBalanceWon > 0 ? settlement.TargetBalanceWon : 80000;
+            _currentUsesSalesTarget = settlement.UsesSalesRevenueTarget;
+            _currentTargetBalanceWon = settlement.EffectiveTargetWon > 0 ? settlement.EffectiveTargetWon : 10000;
             StoreEndingReport report = StoreEndingRules.EvaluateAndBuildReport(settlement, persona);
             RenderReport(report);
         }
@@ -185,7 +187,8 @@ namespace OpenSourceTeam6.UI.Unity
                 _currentPersona,
                 endingStress: 28f,
                 finalBalanceWon: _currentTargetBalanceWon + 12000,
-                targetBalanceWon: _currentTargetBalanceWon);
+                targetBalanceWon: _currentTargetBalanceWon,
+                isSalesTarget: _currentUsesSalesTarget);
             RenderReport(report);
         }
 
@@ -197,7 +200,8 @@ namespace OpenSourceTeam6.UI.Unity
                 _currentPersona,
                 endingStress: 84f,
                 finalBalanceWon: _currentTargetBalanceWon + 5000,
-                targetBalanceWon: _currentTargetBalanceWon);
+                targetBalanceWon: _currentTargetBalanceWon,
+                isSalesTarget: _currentUsesSalesTarget);
             RenderReport(report);
         }
 
@@ -208,8 +212,9 @@ namespace OpenSourceTeam6.UI.Unity
                 StoreEndingType.BadEnding1_TargetShortfall,
                 _currentPersona,
                 endingStress: 55f,
-                finalBalanceWon: Math.Max(0, _currentTargetBalanceWon - 18000),
-                targetBalanceWon: _currentTargetBalanceWon);
+                finalBalanceWon: Math.Max(0, _currentTargetBalanceWon - 12000),
+                targetBalanceWon: _currentTargetBalanceWon,
+                isSalesTarget: _currentUsesSalesTarget);
             RenderReport(report);
         }
 
@@ -220,8 +225,9 @@ namespace OpenSourceTeam6.UI.Unity
                 StoreEndingType.BadEnding2_StressOverflow,
                 _currentPersona,
                 endingStress: 100f,
-                finalBalanceWon: Math.Max(0, _currentTargetBalanceWon - 25000),
-                targetBalanceWon: _currentTargetBalanceWon);
+                finalBalanceWon: Math.Max(0, _currentTargetBalanceWon - 15000),
+                targetBalanceWon: _currentTargetBalanceWon,
+                isSalesTarget: _currentUsesSalesTarget);
             RenderReport(report);
         }
 

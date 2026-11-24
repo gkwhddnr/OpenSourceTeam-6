@@ -13,7 +13,8 @@ namespace OpenSourceTeam6.UI.Unity
     public sealed class EmployeeWorldStatusPresenter : MonoBehaviour
     {
         [SerializeField] private Transform followTarget;
-        [SerializeField] private Vector3 headOffset = new Vector3(0f, 1.55f, 0f);
+        [SerializeField] private Vector3 headOffset = new Vector3(0f, 2.38f, 0f);
+        [SerializeField] private float minHeadClearanceMeters = 0.42f;
         [SerializeField] private Image statusHeaderBg;
         [SerializeField] private Text statusHeaderText;
         [SerializeField] private GameObject speechBubbleRoot;
@@ -22,6 +23,8 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private float bubbleDisplaySeconds = 4.5f;
 
         private float bubbleTimer;
+        private Transform cachedMeasuredTarget;
+        private float cachedTargetHeadHeight = -1f;
 
         private static readonly Color HeaderStableColor = new Color(0.10f, 0.42f, 0.32f, 0.92f);
         private static readonly Color HeaderComplainColor = new Color(0.56f, 0.42f, 0.10f, 0.92f);
@@ -34,7 +37,7 @@ namespace OpenSourceTeam6.UI.Unity
         {
             if (followTarget != null)
             {
-                transform.position = followTarget.position + headOffset;
+                transform.position = followTarget.position + ResolveEffectiveHeadOffset();
             }
 
             Camera cam = Camera.main;
@@ -56,6 +59,46 @@ namespace OpenSourceTeam6.UI.Unity
         public void SetFollowTarget(Transform target)
         {
             followTarget = target;
+            cachedMeasuredTarget = null;
+            cachedTargetHeadHeight = -1f;
+        }
+
+        private Vector3 ResolveEffectiveHeadOffset()
+        {
+            float baseY = Mathf.Max(headOffset.y, 2.38f);
+            if (followTarget != null)
+            {
+                if (cachedMeasuredTarget != followTarget || cachedTargetHeadHeight < 0f)
+                {
+                    cachedMeasuredTarget = followTarget;
+                    cachedTargetHeadHeight = MeasureTargetTopHeight(followTarget);
+                }
+
+                if (cachedTargetHeadHeight > 0.1f)
+                {
+                    baseY = Mathf.Max(baseY, cachedTargetHeadHeight + Mathf.Max(0.25f, minHeadClearanceMeters));
+                }
+            }
+
+            return new Vector3(headOffset.x, baseY, headOffset.z);
+        }
+
+        private static float MeasureTargetTopHeight(Transform target)
+        {
+            float maxRelativeY = -1f;
+            Renderer[] renderers = target.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer r = renderers[i];
+                if (r == null || r is ParticleSystemRenderer) continue;
+                float relTop = r.bounds.max.y - target.position.y;
+                if (relTop > maxRelativeY)
+                {
+                    maxRelativeY = relTop;
+                }
+            }
+
+            return maxRelativeY;
         }
 
         public void RenderSnapshot(EmployeeHudSnapshot snapshot)

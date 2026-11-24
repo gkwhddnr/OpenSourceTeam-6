@@ -47,6 +47,8 @@ namespace OpenSourceTeam6.UI.Unity
 
         [Header("Settlement & Day Settings (1차 데모 120초 규격 기본값)")]
         [SerializeField] private DaySettlementSettings settlementSettings = DaySettlementSettings.CreateDemoPreset();
+        [SerializeField, Min(0)] private int day1SalesGoalWon = 10000;
+        [SerializeField, Min(0)] private int dailySalesGoalStepWon = 10000;
 
         [Header("Screen Transition Fade (화면 전환 · 일차 타이틀 페이드 연출)")]
         [SerializeField, Min(0f)] private float transitionFadeOutSeconds = 0.45f;
@@ -55,6 +57,8 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField, Min(0f)] private float dayTitleFadeInSeconds = 0.55f;
         [SerializeField, Min(0f)] private float dayTitleHoldSeconds = 1.05f;
         [SerializeField, Min(0f)] private float dayTitleFadeOutSeconds = 0.50f;
+        [SerializeField, Min(0f)] private float dayBgmStartDelaySeconds = 0.85f;
+        [SerializeField, Min(0f)] private float dayBgmCrescendoSeconds = 3.0f;
 
         private DaySettlementSession settlementSession;
         private ICursorLockGate activeLockGate;
@@ -72,6 +76,8 @@ namespace OpenSourceTeam6.UI.Unity
         private Text transitionDayTitleText;
         private Coroutine activeFadeCoroutine;
         private bool isTransitionFading;
+        private bool isDayBannerAudioHold;
+        private bool isWaitingSettlementReceiptPrint;
         private FirstLaunchOnboardingController onboardingController;
         private IPersonaConfirmEvaluator personaConfirmEvaluator;
 
@@ -126,10 +132,12 @@ namespace OpenSourceTeam6.UI.Unity
         public event Action VoiceRecordToggleRequested;
         public event Action DayStarted;
         public event Action<float> MouseSensitivityChanged;
+        public event Action<StaffWorkRole> EmployeeTaskCompleted;
 
         private void Awake()
         {
             settlementSession = new DaySettlementSession(settlementSettings);
+            settlementSession.SetTargetSalesRevenueWon(ComputeTargetSalesForDay(1));
             ResolveCursorLockGate();
             ResolveAudioPlayer();
             ResolveTimeSystem();
@@ -179,6 +187,7 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 inGameHud.OpenCommandOverlayClicked += ToggleCommandOverlay;
                 inGameHud.EmployeeCardFoldToggleClicked += ToggleEmployeeStatusCardFold;
+                inGameHud.ChatHistoryToggleClicked += ToggleChatHistoryDrawer;
             }
 
             if (commandOverlay != null)
@@ -204,6 +213,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (settlementPanel != null)
             {
                 settlementPanel.BindAudioPlayer(activeAudioPlayer);
+                settlementPanel.PosPrintRequested += HandleSettlementPosPrintRequested;
                 settlementPanel.NextDayClicked += HandleNextDayClicked;
                 settlementPanel.ViewEndingClicked += ShowEndingScreen;
                 settlementPanel.RetryDayClicked += HandleRetryDayClicked;
@@ -253,6 +263,7 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 inGameHud.OpenCommandOverlayClicked -= ToggleCommandOverlay;
                 inGameHud.EmployeeCardFoldToggleClicked -= ToggleEmployeeStatusCardFold;
+                inGameHud.ChatHistoryToggleClicked -= ToggleChatHistoryDrawer;
             }
 
             if (commandOverlay != null)
@@ -277,11 +288,13 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (settlementPanel != null)
             {
+                settlementPanel.PosPrintRequested -= HandleSettlementPosPrintRequested;
                 settlementPanel.NextDayClicked -= HandleNextDayClicked;
                 settlementPanel.ViewEndingClicked -= ShowEndingScreen;
                 settlementPanel.RetryDayClicked -= HandleRetryDayClicked;
                 settlementPanel.ReturnLobbyClicked -= ShowLobby;
             }
+            isWaitingSettlementReceiptPrint = false;
 
             if (employeeSettlementPanel != null)
             {
@@ -534,6 +547,7 @@ namespace OpenSourceTeam6.UI.Unity
             RestoreTimeScale();
 
             CurrentMode = UiScreenMode.Lobby;
+            isWaitingSettlementReceiptPrint = false;
             SyncTimeSystemPauseState();
             if (ownsFallbackExternalClock && businessTimeController != null && fallbackActiveTimeDayId > 0)
             {
@@ -567,6 +581,7 @@ namespace OpenSourceTeam6.UI.Unity
             RestoreTimeScale();
 
             CurrentMode = UiScreenMode.Lobby;
+            isWaitingSettlementReceiptPrint = false;
 
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (inGameHud != null) inGameHud.SetVisible(false);
@@ -605,12 +620,16 @@ namespace OpenSourceTeam6.UI.Unity
             if (dayNumber <= 1)
             {
                 settlementSession.SetTargetBalanceWon(settlementSettings.TargetBalanceWon);
+                settlementSession.SetTargetSalesRevenueWon(ComputeTargetSalesForDay(1));
                 inventoryManager?.ResetForNewGame();
+                inGameHud?.ClearChatLog();
+                inGameHud?.SetChatHistoryExpanded(false);
             }
             else
             {
                 int dailyGoalDelta = Mathf.Max(20000, settlementSettings.TargetBalanceWon - settlementSettings.StartingBalanceWon);
                 settlementSession.SetTargetBalanceWon(startingBalanceWon + dailyGoalDelta);
+                settlementSession.SetTargetSalesRevenueWon(ComputeTargetSalesForDay(dayNumber));
                 inventoryManager?.BeginNextDay();
             }
 
@@ -627,6 +646,7 @@ namespace OpenSourceTeam6.UI.Unity
             CurrentMode = UiScreenMode.InGame;
             lastVoiceStage = VoiceProcessStage.Idle;
             isCrisisBgmLatched = false;
+            isWaitingSettlementReceiptPrint = false;
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
             if (settlementPanel != null) settlementPanel.SetVisible(false);
@@ -655,14 +675,11 @@ namespace OpenSourceTeam6.UI.Unity
             DayStarted?.Invoke();
             if (dayNumber == 1 && !string.IsNullOrWhiteSpace(CurrentPersona.EvaluationSummary) && inGameHud != null)
             {
-                int dailyWageCost = EmployeePersonaPresets.ComputeDailyOperatingCostWon(
-                    CurrentPersona.HourlyWageWon,
-                    settlementSettings.FixedOperatingCostWon);
                 inGameHud.RenderFeedback(new VoiceCommandFeedback(
                     CommandFeedbackKind.Info,
                     string.Empty,
                     string.Empty,
-                    $"[채용 심사 반영] {CurrentPersona.EvaluationSummary} (일일 운영·인건비 {dailyWageCost:N0}원)"));
+                    $"[채용 심사 반영] {CurrentPersona.EvaluationSummary}"));
             }
             RefreshTopBar();
             if (playDoorChime)
@@ -718,6 +735,11 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 inGameHud.RenderVoiceStage(stage, recognizedTranscript);
             }
+
+            if (stage == VoiceProcessStage.Processing && !string.IsNullOrWhiteSpace(recognizedTranscript))
+            {
+                inGameHud?.AppendChatLog("사장", recognizedTranscript, isEmployee: false);
+            }
         }
 
         public void PushCommandFeedback(VoiceCommandFeedback feedback)
@@ -735,6 +757,17 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud != null)
             {
                 inGameHud.RenderFeedback(feedback);
+            }
+
+            if (!string.IsNullOrWhiteSpace(feedback.EmployeeDialogue))
+            {
+                inGameHud?.AppendChatLog(CurrentPersona.EmployeeName, feedback.EmployeeDialogue, isEmployee: true);
+            }
+            else if (!string.IsNullOrWhiteSpace(feedback.DetailMessage) &&
+                     !feedback.DetailMessage.StartsWith("[점장 직접 계산", StringComparison.Ordinal) &&
+                     !feedback.DetailMessage.StartsWith("[알바 계산 완료", StringComparison.Ordinal))
+            {
+                inGameHud?.AppendChatLog("안내", feedback.DetailMessage, isEmployee: true);
             }
 
             if (worldStatusPresenter != null && !string.IsNullOrWhiteSpace(feedback.EmployeeDialogue))
@@ -759,6 +792,12 @@ namespace OpenSourceTeam6.UI.Unity
         public void NotifyInventoryRevenueChanged()
         {
             RefreshTopBar();
+        }
+
+        public void NotifyEmployeeTaskCompleted(StaffWorkRole completedRole)
+        {
+            if (CurrentMode != UiScreenMode.InGame || completedRole == StaffWorkRole.Idle) return;
+            EmployeeTaskCompleted?.Invoke(completedRole);
         }
 
         public DaySettlementResult CompleteDayAndShowSettlement(float endingStress)
@@ -800,6 +839,16 @@ namespace OpenSourceTeam6.UI.Unity
                 businessTimeController.Clock.ConfirmSettlement(fallbackActiveTimeDayId);
             }
 
+            // 목표 매출 미달(사출 엔딩) 또는 스트레스 100 초과 시 정산 영수증 화면을 거치지 않고 일차 종료 즉시 엔딩 화면으로 직행
+            bool isTargetShortfall = result.OutcomeGrade == DayOutcomeGrade.FailedTargetShortfall;
+            bool isStressOverflow = endingStress >= StoreEndingRules.StressOverflowThreshold;
+            if (isTargetShortfall || isStressOverflow)
+            {
+                isWaitingSettlementReceiptPrint = false;
+                ShowEndingScreen();
+                return result;
+            }
+
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
             if (inGameHud != null) inGameHud.SetVisible(false);
@@ -807,11 +856,7 @@ namespace OpenSourceTeam6.UI.Unity
             if (endingPanel != null) endingPanel.SetVisible(false);
             if (settlementPanel != null)
             {
-                // 1일차 포함 목표 매출/자산을 채우지 못하면 즉시 사출(폐업) 엔딩으로 분기
-                bool isTargetShortfall = result.OutcomeGrade == DayOutcomeGrade.FailedTargetShortfall;
-                bool isFinalOrQuit = endingStress >= StoreEndingRules.StressOverflowThreshold ||
-                                     isTargetShortfall ||
-                                     result.DayNumber >= Mathf.Max(1, maxPlayableDays);
+                bool isFinalDay = result.DayNumber >= Mathf.Max(1, maxPlayableDays);
                 settlementPanel.SetVisible(true);
                 settlementPanel.RenderResult(
                     result,
@@ -819,10 +864,11 @@ namespace OpenSourceTeam6.UI.Unity
                     cumulativeSalesWon,
                     todayUnitsSold,
                     inventoryDetailReport,
-                    isFinalOrQuit);
+                    isFinalDay);
             }
 
-            activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
+            // 정산 신(포스기 대기 화면)에서는 브금을 끄고, 영수증을 출력할 때 정산 브금을 재생한다.
+            isWaitingSettlementReceiptPrint = true;
             SyncBgmForCurrentState();
             AcquireScreenLock("SettlementScreen");
             return result;
@@ -830,12 +876,14 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void ShowEndingScreen()
         {
+            bool wasAlreadyEndingVisible = IsEndingVisible;
             CloseSettingsPanel();
             ClosePauseMenu();
             CloseCommandOverlay();
             RestoreTimeScale();
 
             CurrentMode = UiScreenMode.Settlement;
+            isWaitingSettlementReceiptPrint = false;
 
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
@@ -849,9 +897,29 @@ namespace OpenSourceTeam6.UI.Unity
                 endingPanel.RenderEnding(lastSettlementResult, CurrentPersona);
             }
 
-            activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
+            if (!wasAlreadyEndingVisible)
+            {
+                bool isBadEnding = endingPanel != null &&
+                                   (endingPanel.CurrentEndingType == StoreEndingType.BadEnding1_TargetShortfall ||
+                                    endingPanel.CurrentEndingType == StoreEndingType.BadEnding2_StressOverflow);
+                activeAudioPlayer?.PlaySfx(isBadEnding ? StoreSfxId.ReactionRefuseOrCrisis : StoreSfxId.PaperFlip);
+            }
             SyncBgmForCurrentState();
             AcquireScreenLock("EndingScreen");
+        }
+
+        private void HandleSettlementPosPrintRequested()
+        {
+            if (!isWaitingSettlementReceiptPrint) return;
+            isWaitingSettlementReceiptPrint = false;
+            SyncBgmForCurrentState();
+        }
+
+        private int ComputeTargetSalesForDay(int dayNumber)
+        {
+            if (day1SalesGoalWon <= 0) return 0;
+            int safeDayOffset = Mathf.Max(0, dayNumber - 1);
+            return day1SalesGoalWon + safeDayOffset * Mathf.Max(0, dailySalesGoalStepWon);
         }
 
         public void ToggleCommandOverlay()
@@ -1014,6 +1082,10 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 ToggleEmployeeStatusCardFold();
             }
+            else if (kb.hKey.wasPressedThisFrame && !IsCommandOverlayOpen)
+            {
+                ToggleChatHistoryDrawer();
+            }
         }
 
         public void ToggleEmployeeStatusCardFold()
@@ -1021,6 +1093,13 @@ namespace OpenSourceTeam6.UI.Unity
             if (inGameHud == null || CurrentMode != UiScreenMode.InGame) return;
             inGameHud.ToggleEmployeeCardCollapsed();
             activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
+        }
+
+        public void ToggleChatHistoryDrawer()
+        {
+            if (inGameHud == null || CurrentMode != UiScreenMode.InGame) return;
+            inGameHud.ToggleChatHistoryExpanded();
+            activeAudioPlayer?.PlaySfx(StoreSfxId.UiPopupOpenClose);
         }
 
         private void RefreshTopBar()
@@ -1032,9 +1111,12 @@ namespace OpenSourceTeam6.UI.Unity
             }
             int itemSalesWon = inventoryManager != null ? inventoryManager.DisplayedTodayRevenueWon : 0;
             int itemUnitsSold = inventoryManager != null ? inventoryManager.DisplayedTodayUnitsSold : 0;
-            int liveEstimatedBalance = settlementSession.StartingBalanceWon +
-                                       settlementSession.EstimateLiveGrossSalesWon() +
-                                       itemSalesWon;
+            int liveTodaySalesWon = settlementSession.EstimateLiveGrossSalesWon() + itemSalesWon;
+            int liveEstimatedBalance = settlementSession.StartingBalanceWon + liveTodaySalesWon;
+            bool usesSalesTarget = settlementSession.TargetSalesRevenueWon > 0;
+            int displayedTargetWon = usesSalesTarget
+                ? settlementSession.TargetSalesRevenueWon
+                : settlementSession.TargetBalanceWon;
             float? explicitGameHour = businessTimeController != null &&
                                       (businessTimeController.Clock.Phase == BusinessPhase.Open ||
                                        businessTimeController.Clock.Phase == BusinessPhase.Closing)
@@ -1043,12 +1125,14 @@ namespace OpenSourceTeam6.UI.Unity
             inGameHud.UpdateTopBar(
                 settlementSession.DayNumber,
                 remainingDaySeconds,
-                liveEstimatedBalance,
-                settlementSession.TargetBalanceWon,
+                usesSalesTarget ? liveTodaySalesWon : liveEstimatedBalance,
+                displayedTargetWon,
                 totalDaySeconds,
                 explicitGameHour,
-                inventoryManager != null ? itemSalesWon : -1,
-                itemUnitsSold);
+                liveTodaySalesWon,
+                itemUnitsSold,
+                isSalesTargetMode: usesSalesTarget,
+                displayedAssetBalanceWon: liveEstimatedBalance);
         }
 
         private void ResolveTimeSystem()
@@ -1175,9 +1259,33 @@ namespace OpenSourceTeam6.UI.Unity
             activeAudioPlayer = audioManager;
         }
 
+        private StoreBgmTrack ResolveTargetBgmForCurrentState()
+        {
+            if (CurrentMode == UiScreenMode.InGame)
+            {
+                float stress = lastEmployeeSnapshot.Stress;
+                isCrisisBgmLatched = stress >= StressRules.AngerThreshold;
+                return isCrisisBgmLatched ? StoreBgmTrack.DayCrisis : StoreBgmTrack.DayNormal;
+            }
+
+            isCrisisBgmLatched = false;
+            return StoreAudioRules.ResolveBgmForState(CurrentMode, lastEmployeeSnapshot.Stress);
+        }
+
         private void SyncBgmForCurrentState()
         {
             if (activeAudioPlayer == null) return;
+
+            if (isDayBannerAudioHold)
+            {
+                return;
+            }
+
+            if (CurrentMode == UiScreenMode.Settlement && isWaitingSettlementReceiptPrint)
+            {
+                activeAudioPlayer.StopBgm();
+                return;
+            }
 
             if (onboardingController != null && onboardingController.IsBootIntroActive)
             {
@@ -1185,27 +1293,7 @@ namespace OpenSourceTeam6.UI.Unity
                 return;
             }
 
-            StoreBgmTrack targetTrack;
-            if (CurrentMode == UiScreenMode.InGame)
-            {
-                float stress = lastEmployeeSnapshot.Stress;
-                if (!isCrisisBgmLatched && stress >= StressRules.AngerThreshold)
-                {
-                    isCrisisBgmLatched = true;
-                }
-                else if (isCrisisBgmLatched && stress < StressRules.AngerThreshold - 12f)
-                {
-                    isCrisisBgmLatched = false;
-                }
-
-                targetTrack = isCrisisBgmLatched ? StoreBgmTrack.DayCrisis : StoreBgmTrack.DayNormal;
-            }
-            else
-            {
-                isCrisisBgmLatched = false;
-                targetTrack = StoreAudioRules.ResolveBgmForState(CurrentMode, lastEmployeeSnapshot.Stress);
-            }
-
+            StoreBgmTrack targetTrack = ResolveTargetBgmForCurrentState();
             activeAudioPlayer.PlayBgm(targetTrack);
         }
 
@@ -1433,14 +1521,20 @@ namespace OpenSourceTeam6.UI.Unity
             }
             fadeGroup.alpha = 1f;
 
+            bool hasDayBanner = !string.IsNullOrWhiteSpace(dayBannerText) && transitionDayTitleGroup != null && transitionDayTitleText != null;
+            if (hasDayBanner)
+            {
+                isDayBannerAudioHold = true;
+                activeAudioPlayer?.StopBgm();
+            }
+
             // 2. 암전 상태에서 다음 일차·카메라·상태 전환 수행
             onMidpoint?.Invoke();
             SyncTimeSystemPauseState();
 
-            // 3. 검은 화면 위 'N일차' 텍스트 페이드 인 → 유지 → 페이드 아웃 (심장박동 효과음 단독 재생)
-            if (!string.IsNullOrWhiteSpace(dayBannerText) && transitionDayTitleGroup != null && transitionDayTitleText != null)
+            // 3. 검은 화면 위 'N일차' 텍스트 페이드 인 → 유지 → 페이드 아웃 (전환 효과음 단독 재생)
+            if (hasDayBanner)
             {
-                activeAudioPlayer?.StopBgm();
                 transitionDayTitleText.text = dayBannerText;
                 transitionDayTitleGroup.alpha = 0f;
                 transitionDayTitleGroup.gameObject.SetActive(true);
@@ -1486,7 +1580,6 @@ namespace OpenSourceTeam6.UI.Unity
 
                 transitionDayTitleGroup.alpha = 0f;
                 transitionDayTitleGroup.gameObject.SetActive(false);
-                SyncBgmForCurrentState();
             }
 
             float holdDuration = Mathf.Max(0f, transitionFadeHoldSeconds);
@@ -1518,8 +1611,23 @@ namespace OpenSourceTeam6.UI.Unity
             fadeGroup.blocksRaycasts = false;
             fadeGroup.gameObject.SetActive(false);
             isTransitionFading = false;
+            isDayBannerAudioHold = false;
             activeFadeCoroutine = null;
             SyncTimeSystemPauseState();
+
+            // 5. 화면이 완전히 밝아진 뒤 약간의 여운을 두고 인게임 BGM을 크레센도(점점 커지게)로 재생
+            if (hasDayBanner && activeAudioPlayer != null)
+            {
+                StoreBgmTrack targetTrack = ResolveTargetBgmForCurrentState();
+                if (activeAudioPlayer is StoreAudioManager manager)
+                {
+                    manager.PlayBgmWithFadeIn(targetTrack, dayBgmCrescendoSeconds, dayBgmStartDelaySeconds);
+                }
+                else
+                {
+                    activeAudioPlayer.PlayBgm(targetTrack);
+                }
+            }
         }
 
         private CanvasGroup EnsureTransitionFadeOverlay()
@@ -1645,6 +1753,7 @@ namespace OpenSourceTeam6.UI.Unity
             }
 
             isTransitionFading = false;
+            isDayBannerAudioHold = false;
             if (transitionDayTitleGroup != null)
             {
                 transitionDayTitleGroup.alpha = 0f;
@@ -1667,6 +1776,7 @@ namespace OpenSourceTeam6.UI.Unity
             RestoreTimeScale();
 
             CurrentMode = UiScreenMode.Settlement;
+            isWaitingSettlementReceiptPrint = false;
 
             if (lobbyPanel != null) lobbyPanel.SetVisible(false);
             if (personaSetupPanel != null) personaSetupPanel.SetVisible(false);
@@ -1824,6 +1934,7 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void HandleOverlayCommandSubmitted(string commandText)
         {
+            inGameHud?.AppendChatLog("사장", commandText, isEmployee: false);
             CloseCommandOverlay();
             TextCommandSubmitted?.Invoke(commandText);
         }
