@@ -11,6 +11,30 @@ namespace OpenSourceTeam6.Customers.Demo
         private readonly List<CheckoutWaitSnapshot> queue = new();
         private Vector2 scroll;
         private GUIStyle title;
+        private GUIStyle questionLabel;
+        private string latestQuestion;
+
+        private void OnEnable()
+        {
+            if (population != null)
+                population.CustomerAskedForProduct += ShowQuestion;
+        }
+
+        private void OnDisable()
+        {
+            if (population != null)
+                population.CustomerAskedForProduct -= ShowQuestion;
+
+            latestQuestion = null;
+        }
+
+        private void ShowQuestion(int customerId, string productName, Transform target)
+        {
+            if (target == null)
+                return;
+
+            latestQuestion = $"Customer {customerId} → {target.name}\nWhere is {productName}?";
+        }
 
         private void OnGUI()
         {
@@ -21,8 +45,9 @@ namespace OpenSourceTeam6.Customers.Demo
             {
                 title = new GUIStyle(GUI.skin.label) { fontSize = 17, fontStyle = FontStyle.Bold };
                 title.normal.textColor = Color.white;
+                questionLabel = new GUIStyle(GUI.skin.label) { wordWrap = true };
             }
-            float height = Mathf.Max(100, Mathf.Min(340, Screen.height - 24));
+            float height = Mathf.Max(100, Mathf.Min(410, Screen.height - 24));
             GUILayout.BeginArea(new Rect(12, 12, Mathf.Min(310, Screen.width - 24), height), GUI.skin.box);
             scroll = GUILayout.BeginScrollView(scroll);
             GUILayout.Label("NPC sandbox", title);
@@ -38,6 +63,18 @@ namespace OpenSourceTeam6.Customers.Demo
 
             DrawCount("Customers (red)", population.ActiveCustomers, population.CustomerTarget, true);
             DrawCount("Pedestrians (blue)", population.ActivePedestrians, population.PedestrianTarget, false);
+
+            GUILayout.Space(5);
+            GUILayout.Label("Movement speed (m/s)");
+            DrawSpeed("Customers", population.CustomerSpeed, true);
+            DrawSpeed("Pedestrians", population.PedestrianSpeed, false);
+
+            if (!string.IsNullOrEmpty(latestQuestion))
+            {
+                GUILayout.Space(5);
+                GUILayout.Label("Latest product question", title);
+                GUILayout.Label(latestQuestion, questionLabel);
+            }
 
             GUILayout.Space(5);
             GUILayout.Label("Checkout queue", title);
@@ -74,6 +111,23 @@ namespace OpenSourceTeam6.Customers.Demo
                 population.AdjustCustomerTarget(delta);
             else
                 population.AdjustPedestrianTarget(delta);
+        }
+
+        private void DrawSpeed(string label, float current, bool isCustomer)
+        {
+            GUILayout.BeginHorizontal();
+            GUILayout.Label(label, GUILayout.Width(82));
+            float value = GUILayout.HorizontalSlider(current, NpcPopulationController.MinimumMoveSpeed,
+                NpcPopulationController.MaximumMoveSpeed, GUILayout.ExpandWidth(true));
+            GUILayout.Label(current.ToString("F1"), GUILayout.Width(28));
+            GUILayout.EndHorizontal();
+            if (!Mathf.Approximately(value, current))
+            {
+                if (isCustomer)
+                    population.SetCustomerSpeed(value);
+                else
+                    population.SetPedestrianSpeed(value);
+            }
         }
 
         private readonly struct GuiEnabledScope : System.IDisposable
