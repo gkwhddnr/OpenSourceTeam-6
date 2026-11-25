@@ -18,7 +18,7 @@ namespace OpenSourceTeam6.Customers.Unity
         private readonly Rigidbody[] bodies;
         private readonly bool[] bodyStates;
 
-        private NpcCarriedProduct(GameObject item, bool returnToDisplay, Transform carrier)
+        private NpcCarriedProduct(GameObject item, bool returnToDisplay, Transform carrier, Transform hand)
         {
             this.item = item;
             this.returnToDisplay = returnToDisplay;
@@ -35,20 +35,28 @@ namespace OpenSourceTeam6.Customers.Unity
                 bodyStates = Array.ConvertAll(bodies, body => body.isKinematic);
             }
 
-            itemTransform.SetParent(carrier, false);
-            itemTransform.SetLocalPositionAndRotation(HoldPosition, Quaternion.identity);
+            if (hand != null)
+            {
+                itemTransform.SetParent(hand, true);
+                itemTransform.SetPositionAndRotation(hand.position, carrier.rotation);
+            }
+            else
+            {
+                itemTransform.SetParent(carrier, false);
+                itemTransform.SetLocalPositionAndRotation(HoldPosition, Quaternion.identity);
+            }
             foreach (var collider in colliders)
                 collider.enabled = false;
             foreach (var body in bodies)
                 body.isKinematic = true;
         }
 
-        public static NpcCarriedProduct Attach(GameObject shelfItem, GameObject fallbackPrefab, Transform carrier)
+        public static NpcCarriedProduct Attach(GameObject shelfItem, GameObject fallbackPrefab, Transform carrier, Transform hand)
         {
             if (shelfItem != null)
-                return new NpcCarriedProduct(shelfItem, true, carrier);
+                return new NpcCarriedProduct(shelfItem, true, carrier, hand);
             return fallbackPrefab != null
-                ? new NpcCarriedProduct(UnityEngine.Object.Instantiate(fallbackPrefab), false, carrier)
+                ? new NpcCarriedProduct(UnityEngine.Object.Instantiate(fallbackPrefab), false, carrier, hand)
                 : null;
         }
 

@@ -61,6 +61,8 @@ namespace OpenSourceTeam6.Customers.Unity
             public readonly Step[] Sequence;
             public readonly Vector3 SidewalkDestination;
             public readonly NpcNavigation Navigation = new NpcNavigation();
+            public readonly NpcCharacterAnimation Animation;
+            public readonly bool IsRunner;
             public int StepIndex;
             public float BrowseSeconds;
             public ShoppingStyle ShoppingStyle;
@@ -78,9 +80,11 @@ namespace OpenSourceTeam6.Customers.Unity
             public ProductOption Product;
             public NpcCarriedProduct CarriedProduct;
 
-            public AgentRun(NavMeshAgent agent, Role role, int id, Vector3 sidewalkDestination)
+            public AgentRun(NavMeshAgent agent, Role role, int id, Vector3 sidewalkDestination, bool isRunner)
             {
                 Agent = agent;
+                IsRunner = isRunner;
+                Animation = agent.GetComponentInChildren<NpcCharacterAnimation>();
                 Role = role;
                 Id = id;
                 SidewalkDestination = sidewalkDestination;
@@ -111,6 +115,9 @@ namespace OpenSourceTeam6.Customers.Unity
         [Header("테스트 프리팹")]
         [SerializeField] private GameObject customerPrefab;
         [SerializeField] private GameObject pedestrianPrefab;
+        [SerializeField] private NpcCharacterRoster characterRoster;
+        [SerializeField, Range(0f, 1f)] private float customerRunChance = 0.3f;
+        [SerializeField, Range(0f, 1f)] private float pedestrianRunChance = 0.3f;
         [SerializeField] private GameObject productPrefab;
         [Header("판매 상품 후보")]
         [SerializeField] private ProductOption[] products =
@@ -165,6 +172,9 @@ namespace OpenSourceTeam6.Customers.Unity
         public const float MaximumMoveSpeed = 3f;
         private const float MinimumCustomerRespawnDelay = 1f;
         private const float MaximumCustomerRespawnDelay = 5f;
+        private const float RunnerSpeedMultiplier = 1.65f;
+        private const float PickupAnimationSeconds = 0.85f;
+        private const float QuestionAnimationSeconds = 0.9f;
 
         public int Day { get; private set; } = 1;
         public int CustomerTarget { get; private set; }
@@ -243,7 +253,7 @@ namespace OpenSourceTeam6.Customers.Unity
             currentSpeed = Mathf.Clamp(value, MinimumMoveSpeed, MaximumMoveSpeed);
             foreach (AgentRun run in group)
                 if (run.Agent != null)
-                    run.Agent.speed = currentSpeed;
+                    run.Agent.speed = GetTravelSpeed(currentSpeed, run.IsRunner);
         }
 
         public void SetDay(int day)
@@ -360,8 +370,13 @@ namespace OpenSourceTeam6.Customers.Unity
             instance.name = role == Role.Customer ? $"손님 {id}" : $"행인 {id}";
             agent.avoidancePriority = 35 + id % 26;
             agent.stoppingDistance = Mathf.Min(agent.stoppingDistance, 0.1f);
-            agent.speed = role == Role.Customer ? customerSpeed : pedestrianSpeed;
-            var run = new AgentRun(agent, role, id, destination);
+            float runChance = role == Role.Customer ? customerRunChance : pedestrianRunChance;
+            bool isRunner = runChance > 0f && (runChance >= 1f || UnityEngine.Random.value < runChance);
+            agent.speed = GetTravelSpeed(role == Role.Customer ? customerSpeed : pedestrianSpeed, isRunner);
+            instance.name += isRunner ? " (뛰기)" : " (걷기)";
+            if (characterRoster != null)
+                characterRoster.ApplyRandom(instance.transform, instance.GetComponentInChildren<NpcCharacterAnimation>());
+            var run = new AgentRun(agent, role, id, destination, isRunner);
             if (role == Role.Customer)
             {
                 AssignShoppingStyle(run);
@@ -449,7 +464,10 @@ namespace OpenSourceTeam6.Customers.Unity
 
         private Result TickSequence(AgentRun run, float elapsed)
         {
-            Result result = TickStep(run, run.Sequence[run.StepIndex], elapsed);
+            Step step = run.Sequence[run.StepIndex];
+            Result result = TickStep(run, step, elapsed);
+            if (result != Result.Failure)
+                UpdateAnimation(run, step, result);
             if (result != Result.Success)
                 return result;
 
@@ -457,6 +475,44 @@ namespace OpenSourceTeam6.Customers.Unity
             run.BrowseSeconds = 0f;
             run.StepIndex++;
             return run.StepIndex == run.Sequence.Length ? Result.Success : Result.Running;
+        }
+
+        private static void UpdateAnimation(AgentRun run, Step step, Result result)
+        {
+            var presentation = run.Animation;
+            if (presentation == null)
+                return;
+
+            if (result == Result.Running)
+            {
+                if (step == Step.Browse && run.BrowseSeconds > 0f)
+                    return; // The pickup step updates the reach target and progress.
+                if (step == Step.Consider && run.SeekingHelp && run.QuestionAsked)
+                {
+                    presentation.Show(NpcAnimationState.Ask);
+                    return;
+                }
+            }
+
+            Vector3 velocity = run.Agent.velocity;
+            velocity.y = 0f;
+            float speed = velocity.magnitude;
+            if (speed > 0.08f)
+                presentation.Show(run.IsRunner ? NpcAnimationState.Run : NpcAnimationState.Walk);
+            else
+                presentation.Show(run.Role == Role.Customer ? NpcAnimationState.Wait : NpcAnimationState.Idle);
+        }
+
+        private static float GetTravelSpeed(float walkSpeed, bool isRunner) =>
+            isRunner ? walkSpeed * RunnerSpeedMultiplier : walkSpeed;
+
+        private static void FaceInteraction(NavMeshAgent agent, Vector3 target, float elapsed)
+        {
+            Vector3 direction = target - agent.transform.position;
+            direction.y = 0f;
+            if (direction.sqrMagnitude > 0.0025f)
+                agent.transform.rotation = Quaternion.RotateTowards(agent.transform.rotation,
+                    Quaternion.LookRotation(direction), 540f * elapsed);
         }
 
         private Result TickStep(AgentRun run, Step step, float elapsed)
@@ -637,7 +693,11 @@ namespace OpenSourceTeam6.Customers.Unity
                 CustomerAskedForProduct?.Invoke(customer.Id, products[customer.DesiredProductIndex].productName,
                     customer.QuestionTarget);
             }
-            if (customer.AnswerLocation != null && IsProductInStock(products[customer.DesiredProductIndex]) &&
+            float minimumQuestionTime = customer.Animation != null ? Mathf.Min(questionTimeout, QuestionAnimationSeconds) : 0f;
+            if (customer.Animation != null && customer.QuestionTarget != null)
+                FaceInteraction(customer.Agent, customer.QuestionTarget.position, elapsed);
+            if (customer.QuestionSeconds >= minimumQuestionTime &&
+                customer.AnswerLocation != null && IsProductInStock(products[customer.DesiredProductIndex]) &&
                 TryReserveSpecificProduct(customer, customer.DesiredProductIndex))
             {
                 ProductOption product = customer.Product;
@@ -673,8 +733,18 @@ namespace OpenSourceTeam6.Customers.Unity
             if (movement != Result.Success)
                 return movement;
 
+            float duration = customer.Animation != null ? Mathf.Max(browseDuration, PickupAnimationSeconds) : browseDuration;
             customer.BrowseSeconds += elapsed;
-            if (customer.BrowseSeconds < browseDuration)
+            if (customer.Animation != null)
+            {
+                Vector3? target = customer.Product.shelfItem != null
+                    ? (Vector3?)customer.Product.shelfItem.transform.position : null;
+                if (target.HasValue)
+                    FaceInteraction(customer.Agent, target.Value, elapsed);
+                customer.Animation.Show(NpcAnimationState.Pickup, target,
+                    Mathf.Clamp01(customer.BrowseSeconds / duration) * 0.6f);
+            }
+            if (customer.BrowseSeconds < duration)
                 return Result.Running;
 
             if (!IsProductInStock(customer.Product))
@@ -690,7 +760,8 @@ namespace OpenSourceTeam6.Customers.Unity
             }
 
             GameObject visual = customer.Product.visualPrefab != null ? customer.Product.visualPrefab : productPrefab;
-            customer.CarriedProduct = NpcCarriedProduct.Attach(customer.Product.shelfItem, visual, customer.Agent.transform);
+            customer.CarriedProduct = NpcCarriedProduct.Attach(customer.Product.shelfItem, visual,
+                customer.Agent.transform, customer.Animation != null ? customer.Animation.RightHand : null);
 
             ProductPickedUp?.Invoke(customer.Id, GetProductTag(customer.Product.category));
             return Result.Success;
@@ -783,6 +854,8 @@ namespace OpenSourceTeam6.Customers.Unity
             {
                 if (run.Agent != null && run.Agent.isOnNavMesh)
                     run.Agent.isStopped = stopped;
+                if (run.Animation != null)
+                    run.Animation.SetPaused(stopped);
             }
         }
 

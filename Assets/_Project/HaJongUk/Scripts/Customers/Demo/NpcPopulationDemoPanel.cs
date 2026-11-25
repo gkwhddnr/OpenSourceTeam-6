@@ -7,6 +7,8 @@ namespace OpenSourceTeam6.Customers.Demo
     public sealed class NpcPopulationDemoPanel : MonoBehaviour
     {
         [SerializeField] private NpcPopulationController population;
+        [SerializeField] private NpcEmployeeAnimation employee;
+        [SerializeField] private bool autoPointOnQuestion;
 
         private readonly List<CheckoutWaitSnapshot> queue = new();
         private Vector2 scroll;
@@ -34,6 +36,8 @@ namespace OpenSourceTeam6.Customers.Demo
                 return;
 
             latestQuestion = $"Customer {customerId} → {target.name}\nWhere is {productName}?";
+            if (autoPointOnQuestion && employee != null && target == employee.transform)
+                employee.Play(NpcAnimationState.Point);
         }
 
         private void OnGUI()
@@ -61,13 +65,16 @@ namespace OpenSourceTeam6.Customers.Demo
                     population.SetDay(population.Day + 1);
             GUILayout.EndHorizontal();
 
-            DrawCount("Customers (red)", population.ActiveCustomers, population.CustomerTarget, true);
-            DrawCount("Pedestrians (blue)", population.ActivePedestrians, population.PedestrianTarget, false);
+            DrawCount("Customers", population.ActiveCustomers, population.CustomerTarget, true);
+            DrawCount("Pedestrians", population.ActivePedestrians, population.PedestrianTarget, false);
 
             GUILayout.Space(5);
             GUILayout.Label("Movement speed (m/s)");
             DrawSpeed("Customers", population.CustomerSpeed, true);
             DrawSpeed("Pedestrians", population.PedestrianSpeed, false);
+
+            if (employee != null)
+                DrawEmployeeControls();
 
             if (!string.IsNullOrEmpty(latestQuestion))
             {
@@ -89,6 +96,30 @@ namespace OpenSourceTeam6.Customers.Demo
             }
             GUILayout.EndScrollView();
             GUILayout.EndArea();
+        }
+
+        private void DrawEmployeeControls()
+        {
+            GUILayout.Space(5);
+            GUILayout.Label("Employee animation", title);
+            GUILayout.Label($"Current: {employee.CurrentState}");
+            GUILayout.BeginHorizontal();
+            DrawEmployeeButton("Idle", NpcAnimationState.Idle);
+            DrawEmployeeButton("Stock", NpcAnimationState.Stock);
+            DrawEmployeeButton("Clean", NpcAnimationState.Clean);
+            GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            DrawEmployeeButton("Rest", NpcAnimationState.Rest);
+            DrawEmployeeButton("Point", NpcAnimationState.Point);
+            DrawEmployeeButton("Anger", NpcAnimationState.Anger);
+            GUILayout.EndHorizontal();
+            autoPointOnQuestion = GUILayout.Toggle(autoPointOnQuestion, "Point when asked about a product");
+        }
+
+        private void DrawEmployeeButton(string label, NpcAnimationState state)
+        {
+            if (GUILayout.Button(label))
+                employee.Play(state);
         }
 
         private void DrawCount(string label, int active, int target, bool isCustomer)
