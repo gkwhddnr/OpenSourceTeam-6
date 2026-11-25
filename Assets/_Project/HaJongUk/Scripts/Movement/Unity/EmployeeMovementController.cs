@@ -20,6 +20,7 @@ namespace OpenSourceTeam6.Movement.Unity
         private bool closing;
         private bool dispatching;
         private bool pathResolved;
+        private bool reactionPaused;
         private int mainThread;
         public event Action<MoveOutcome> Finished;
         public MovementSnapshot Snapshot
@@ -60,7 +61,23 @@ namespace OpenSourceTeam6.Movement.Unity
             pathResolved = false;
             requestedFrame = Time.frameCount;
             if (!driver.Begin(destination)) Finish(MoveState.Failed, MoveFailure.NoPath);
+            else if (reactionPaused)
+            {
+                driver.HaltWithoutClearingPath();
+                tracker.SetPhase(MoveState.Suspended);
+            }
             return receipt;
+        }
+
+        public void SetReactionPaused(bool paused)
+        {
+            RequireMainThread();
+            reactionPaused = paused;
+            if (paused && tracker.ActiveId != 0 && driver.IsReady)
+            {
+                driver.HaltWithoutClearingPath();
+                tracker.SetPhase(MoveState.Suspended);
+            }
         }
 
         public bool Cancel(long requestId)
@@ -75,7 +92,7 @@ namespace OpenSourceTeam6.Movement.Unity
         {
             if (tracker.ActiveId == 0) return;
             if (!driver.IsReady) { Finish(MoveState.Failed, MoveFailure.TargetUnavailable); return; }
-            if (Time.deltaTime <= 0f)
+            if (reactionPaused || Time.deltaTime <= 0f)
             { driver.Pause(true); tracker.SetPhase(MoveState.Suspended); return; }
             driver.Pause(false);
             elapsed += Time.deltaTime;
@@ -167,6 +184,7 @@ namespace OpenSourceTeam6.Movement.Unity
         private void OnDisable()
         {
             closing = true;
+            reactionPaused = false;
             tracker.Cancel(tracker.ActiveId, Point(transform.position), CancelReason.Disabled);
             if (driver != null) driver.Stop();
             Dispatch();

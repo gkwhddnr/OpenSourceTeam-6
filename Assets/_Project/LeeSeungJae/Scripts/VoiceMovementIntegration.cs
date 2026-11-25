@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using LLMUnity;
+using OpenSourceTeam6.Customers.Unity;
 using OpenSourceTeam6.Movement.Core;
 using OpenSourceTeam6.Movement.Unity;
 using OpenSourceTeam6.UI.Core;
@@ -22,6 +23,8 @@ namespace EmployeeVoice
     {
         [SerializeField] private GameObject uiPrefab = null;
         [SerializeField] private EmployeeMovementController employee = null;
+        [SerializeField, Min(0.1f)] private float angerReactionSeconds = 2f;
+        [SerializeField] private Collider angerStrikeSurface;
         [SerializeField] private Transform restockDestination = null;
         [SerializeField] private string whisperModelPath = "Assets/_Project/LeeSeungJae/Assets/ggml-small-q5_1.bin";
         [SerializeField] private string llmModelPath = "Assets/_Project/LeeSeungJae/Assets/Qwen3.5-2B-Q4_K_M.gguf";
@@ -39,6 +42,12 @@ namespace EmployeeVoice
 
         private StoreUiSessionController ui;
         private IAgentMovement movement;
+        private NpcEmployeeAnimation employeeAnimation;
+        private float angerTimeRemaining;
+        private float angerDuration;
+        private int nextAngerGesture;
+        private AngerGesture angerGesture;
+        private Vector3 angerStrikeTarget;
         private MicrophoneRecord microphone;
         private WhisperManager whisper;
         private LLMAgent classifier;
@@ -102,6 +111,7 @@ namespace EmployeeVoice
             }
             else Debug.LogWarning("[VoiceIntegration] Player input gate unavailable; UI fallback remains active.", this);
             movement = employee;
+            employeeAnimation = employee.GetComponentInChildren<NpcEmployeeAnimation>();
             Subscribe();
             SetupWhisper();
             SetupLlm();
@@ -209,8 +219,10 @@ namespace EmployeeVoice
             if (ui.CurrentMode != UiScreenMode.InGame)
             {
                 if (processing || recording || activeMove != 0) CancelWork();
+                if (angerTimeRemaining > 0f) EndAngerReaction();
                 return;
             }
+            UpdateEmployeeAnimation();
             if (recording && !Application.isFocused)
             {
                 recording = false;
@@ -349,7 +361,7 @@ namespace EmployeeVoice
                 Debug.Log("[VoiceIntegration] Recognized: " + transcript);
                 ui.PushVoiceStage(VoiceProcessStage.Processing, transcript);
                 processing = false;
-                await ProcessText(transcript, utteranceDestination);
+                await ProcessText(transcript, utteranceDestination, fromVoice: true);
             }
             catch (Exception ex) { if (IsCurrent(request)) Fail(CommandFeedbackKind.SystemOrMoveError, "음성 인식 실패: " + ex.Message); }
             finally { if (ownsTranscription) transcriptionInFlight = false; }
@@ -362,7 +374,7 @@ namespace EmployeeVoice
             _ = ProcessText(transcript, selectedDestination);
         }
 
-        private async Task ProcessText(string text, Vector3? destination)
+        private async Task ProcessText(string text, Vector3? destination, bool fromVoice = false)
         {
             if (ui == null || ui.CurrentMode != UiScreenMode.InGame) return;
             if (string.IsNullOrWhiteSpace(text)) { Fail(CommandFeedbackKind.RecognitionFailed, "명령을 다시 말씀해 주세요."); return; }
@@ -443,6 +455,7 @@ namespace EmployeeVoice
                 Debug.Log("[VoiceIntegration] command=" + text + " | intent=" + intent + " | target=" + taskTarget + " | proposal=" + proposal + " | action=" + action);
                 if (action != EmployeeAction.RESTOCK)
                 {
+                    if (fromVoice) ApplyVoiceStress(action);
                     badge = StaffMoveBadge.Idle;
                     UpdateHud();
                     Feedback(CommandFeedbackKind.RefusedByEmotion, "직원이 " + action + " 행동을 선택했습니다.");
@@ -457,12 +470,93 @@ namespace EmployeeVoice
                 lastArrivedMove = 0;
                 activeMoveIsRestock = true;
                 badge = StaffMoveBadge.Moving;
+                if (fromVoice) ApplyVoiceStress(action);
                 UpdateHud();
                 Feedback(CommandFeedbackKind.Accepted, "직원이 진열 업무 테스트 목적지로 이동합니다. 재고 변경은 아직 구현되지 않았습니다.");
                 await ShowDialogue(text, action, request, receipt.RequestId);
             }
             catch (Exception ex) { if (IsCurrent(request)) Fail(CommandFeedbackKind.SystemOrMoveError, "명령 처리 실패: " + ex.Message); }
             finally { inferenceInFlight = false; if (IsCurrent(request)) processing = false; }
+        }
+
+        private void ApplyVoiceStress(EmployeeAction action)
+        {
+            int change = action switch
+            {
+                EmployeeAction.COMPLAIN => 10,
+                EmployeeAction.IGNORE_COMMAND => 5,
+                EmployeeAction.RESTOCK => 5,
+                EmployeeAction.REST => -10,
+                _ => 0
+            };
+            int previousStress = personality.stress;
+            personality.stress = Mathf.Clamp(previousStress + change, 0, 100);
+            if (previousStress >= StressRules.AngerThreshold || personality.stress < StressRules.AngerThreshold ||
+                employeeAnimation == null || !employeeAnimation.CanPlay(NpcAnimationState.Anger))
+                return;
+
+            employee.SetReactionPaused(true);
+            angerGesture = (AngerGesture)(nextAngerGesture++ % 4);
+            if (angerGesture == AngerGesture.CounterStrike && !TryGetCounterStrikeTarget())
+                angerGesture = AngerGesture.Shout;
+            employeeAnimation.Play(angerGesture == AngerGesture.Shout ? NpcAnimationState.Anger : NpcAnimationState.Idle);
+            employeeAnimation.SetAngerGesture(angerGesture, 0f, AngerReactionTarget());
+            angerTimeRemaining = angerDuration = Mathf.Max(0.1f, angerReactionSeconds);
+        }
+
+        private bool TryGetCounterStrikeTarget()
+        {
+            if (angerStrikeSurface == null || !angerStrikeSurface.enabled ||
+                !angerStrikeSurface.gameObject.activeInHierarchy) return false;
+
+            var bounds = angerStrikeSurface.bounds;
+            var position = employee.transform.position;
+            var edge = bounds.ClosestPoint(new Vector3(position.x, bounds.max.y, position.z));
+            var toward = edge - new Vector3(position.x, edge.y, position.z);
+            if (toward.sqrMagnitude < 0.001f || toward.sqrMagnitude > 0.42f ||
+                edge.y - position.y < 0.65f || edge.y - position.y > 1.25f)
+                return false;
+
+            employee.transform.rotation = Quaternion.LookRotation(toward);
+            angerStrikeTarget = edge + toward.normalized * 0.08f;
+            return true;
+        }
+
+        private void UpdateEmployeeAnimation()
+        {
+            if (angerTimeRemaining > 0f)
+            {
+                angerTimeRemaining -= Time.deltaTime;
+                if (angerTimeRemaining > 0f && employeeAnimation != null && employeeAnimation.isActiveAndEnabled)
+                {
+                    employeeAnimation.SetAngerGesture(angerGesture, 1f - angerTimeRemaining / angerDuration, AngerReactionTarget());
+                    return;
+                }
+                EndAngerReaction();
+            }
+
+            if (employeeAnimation == null || !employeeAnimation.isActiveAndEnabled || !employee.isActiveAndEnabled)
+                return;
+
+            var velocity = employee.Snapshot.ActualVelocity;
+            float horizontalSpeedSquared = velocity.X * velocity.X + velocity.Z * velocity.Z;
+            var locomotion = horizontalSpeedSquared > 0.01f ? NpcAnimationState.Walk : NpcAnimationState.Idle;
+            if (employeeAnimation.CurrentState != locomotion) employeeAnimation.Play(locomotion);
+        }
+
+        private Vector3 AngerReactionTarget() => angerGesture == AngerGesture.Finger
+            ? (playerRig != null ? playerRig.transform.position : employee.transform.position + employee.transform.forward)
+            : angerStrikeTarget;
+
+        private void EndAngerReaction()
+        {
+            angerTimeRemaining = 0f;
+            if (employee != null) employee.SetReactionPaused(false);
+            if (employeeAnimation != null)
+            {
+                employeeAnimation.SetAngerGesture(AngerGesture.Shout, 0f, Vector3.zero);
+                employeeAnimation.Play(NpcAnimationState.Idle);
+            }
         }
 
         private async Task ShowDialogue(string command, EmployeeAction action, int request, long moveId)
@@ -799,6 +893,7 @@ namespace EmployeeVoice
 
         private void OnDisable()
         {
+            if (angerTimeRemaining > 0f) EndAngerReaction();
             generation++;
             diagnosticAudio = null;
             selectedDestination = null;

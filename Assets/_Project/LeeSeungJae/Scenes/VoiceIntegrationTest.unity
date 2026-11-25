@@ -596,6 +596,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   uiPrefab: {fileID: 3114504723083653380, guid: b4099a71786691e4a86e3f2e1b9ee6f5, type: 3}
   employee: {fileID: 1199412360}
+  angerReactionSeconds: 2
+  angerStrikeSurface: {fileID: 1219320789}
   restockDestination: {fileID: 1221721627}
   whisperModelPath: Assets/_Project/LeeSeungJae/Assets/ggml-small-q5_1.bin
   llmModelPath: Assets/_Project/LeeSeungJae/Assets/Qwen3.5-2B-Q4_K_M.gguf
@@ -1004,19 +1006,53 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 4864828073026994060, guid: 45d4fb380df39e548a3d9f7e934015ff, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1199412363}
   m_SourcePrefab: {fileID: 100100000, guid: 45d4fb380df39e548a3d9f7e934015ff, type: 3}
 --- !u!114 &1199412360 stripped
 MonoBehaviour:
   m_CorrespondingSourceObject: {fileID: 5413106920357502462, guid: 45d4fb380df39e548a3d9f7e934015ff, type: 3}
   m_PrefabInstance: {fileID: 1199412359}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 0}
+  m_GameObject: {fileID: 1199412362}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 680c37e6b4bfa8542ac50383a3973135, type: 3}
   m_Name: 
   m_EditorClassIdentifier: OpenSourceTeam6.Movement.Unity::OpenSourceTeam6.Movement.Unity.EmployeeMovementController
+--- !u!23 &1199412361 stripped
+MeshRenderer:
+  m_CorrespondingSourceObject: {fileID: 5448570171530217758, guid: 45d4fb380df39e548a3d9f7e934015ff, type: 3}
+  m_PrefabInstance: {fileID: 1199412359}
+  m_PrefabAsset: {fileID: 0}
+--- !u!1 &1199412362 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 4864828073026994060, guid: 45d4fb380df39e548a3d9f7e934015ff, type: 3}
+  m_PrefabInstance: {fileID: 1199412359}
+  m_PrefabAsset: {fileID: 0}
+--- !u!114 &1199412363
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1199412362}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c2812c248986bae4189982a3694e4c48, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: OpenSourceTeam6.Customers.Unity::OpenSourceTeam6.Customers.Unity.NpcEmployeeAnimation
+  presenter: {fileID: 0}
+  characterRoster: {fileID: 11400000, guid: fe51ce3cf03fcdd43a0a09fdfda7bc6d, type: 2}
+  employeeIdentifierPrefab: {fileID: 786081529079092735, guid: 1b8d494762f32954e94977b5afe41144, type: 3}
+  placeholderRenderer: {fileID: 1199412361}
+  stockTarget: {fileID: 0}
+  pointTarget: {fileID: 0}
+  stockPreview: {fileID: 0}
+  broomPreview: {fileID: 0}
+  workCycleSeconds: 2
 --- !u!1 &1219320786
 GameObject:
   m_ObjectHideFlags: 0

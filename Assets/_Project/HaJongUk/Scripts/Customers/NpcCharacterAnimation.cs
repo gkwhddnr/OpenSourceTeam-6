@@ -17,6 +17,8 @@ namespace OpenSourceTeam6.Customers.Unity
         Anger
     }
 
+    public enum AngerGesture { Shout, Finger, Frown, CounterStrike }
+
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Animator))]
     public sealed class NpcCharacterAnimation : MonoBehaviour
@@ -36,6 +38,46 @@ namespace OpenSourceTeam6.Customers.Unity
         private bool hasSmoothedTarget;
         private Vector3 smoothedTarget;
         private float smoothedWeight;
+        private AngerGesture angerGesture;
+        private Vector3 strikeTarget;
+        private float angerProgress;
+        private readonly Transform[] brows = new Transform[2];
+        private readonly Vector3[] browPositions = new Vector3[2];
+
+        public void SetAngerGesture(AngerGesture gesture, float progress, Vector3 target)
+        {
+            if (angerGesture != gesture)
+            {
+                for (int i = 0; i < brows.Length; i++)
+                    if (brows[i] != null) brows[i].localPosition = browPositions[i];
+
+                if (gesture == AngerGesture.Frown)
+                {
+                    foreach (Transform bone in GetComponentsInChildren<Transform>(true))
+                    {
+                        int index = bone.name == "EyebrowInner_L" ? 0 : bone.name == "EyebrowInner_R" ? 1 : -1;
+                        if (index < 0) continue;
+                        brows[index] = bone;
+                        browPositions[index] = bone.localPosition;
+                    }
+                }
+            }
+            angerGesture = gesture;
+            angerProgress = progress;
+            strikeTarget = target;
+        }
+
+        private void LateUpdate()
+        {
+            if (angerGesture != AngerGesture.Frown) return;
+            float amount = ReachEnvelope(angerProgress) * 0.025f;
+            for (int i = 0; i < brows.Length; i++)
+            {
+                Transform brow = brows[i];
+                if (brow != null)
+                    brow.localPosition = browPositions[i] + brow.parent.InverseTransformVector(-transform.up * amount);
+            }
+        }
 
         public Transform RightHand
         {
@@ -49,6 +91,13 @@ namespace OpenSourceTeam6.Customers.Unity
         public NpcAnimationState CurrentState => shownState ?? NpcAnimationState.Idle;
 
         private void Awake() => CacheRig();
+
+        public bool CanShow(NpcAnimationState state)
+        {
+            CacheRig();
+            return animator.isActiveAndEnabled && animator.layerCount > BaseLayer &&
+                animator.HasState(BaseLayer, Animator.StringToHash(animator.GetLayerName(BaseLayer) + "." + state));
+        }
 
         public void Show(NpcAnimationState state, Vector3? target = null, float progress = 0f)
         {
@@ -103,6 +152,39 @@ namespace OpenSourceTeam6.Customers.Unity
             float reach = (Vector3.Distance(upperArm.position, forearm.position) +
                            Vector3.Distance(forearm.position, rightHand.position)) * 0.94f;
             Vector3 requested = CalculateTarget(reach, out float weight);
+            animator.SetIKRotationWeight(AvatarIKGoal.RightHand, 0f);
+            animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, 0f);
+            if (angerGesture == AngerGesture.Finger || angerGesture == AngerGesture.CounterStrike)
+            {
+                bool finger = angerGesture == AngerGesture.Finger;
+                Vector3 up = transform.up;
+                Vector3 toward = Vector3.ProjectOnPlane(strikeTarget - transform.position, up).normalized;
+                if (toward == Vector3.zero) toward = transform.forward;
+                Vector3 outward = transform.right;
+                Vector3 elbow = upperArm.position + reach * (outward * 0.65f - up * 0.65f + toward * 0.12f);
+                weight = ReachEnvelope(angerProgress);
+                if (finger)
+                {
+                    requested = upperArm.position + reach * (toward * 0.45f + outward * 0.15f - up * 0.04f);
+                }
+                else
+                {
+                    Vector3 contact = strikeTarget - toward * 0.07f + up * 0.045f;
+                    Vector3 raised = contact + up * 0.34f;
+                    float down = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.28f, 0.45f, angerProgress));
+                    float recover = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.53f, 0.86f, angerProgress));
+                    requested = Vector3.Lerp(Vector3.Lerp(raised, contact, down), raised, recover);
+                    elbow = upperArm.position + reach * (outward * 0.45f - up * 0.23f - toward * 0.35f);
+                }
+                animator.SetIKPositionWeight(AvatarIKGoal.RightHand, weight);
+                animator.SetIKPosition(AvatarIKGoal.RightHand, ClampReach(requested, reach));
+                animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, weight);
+                animator.SetIKHintPosition(AvatarIKHint.RightElbow, elbow);
+                OrientAngerHand(finger, toward, weight);
+                hasSmoothedTarget = false;
+                smoothedWeight = 0f;
+                return;
+            }
             float blend = paused ? 0f : 1f - Mathf.Exp(-16f * Time.deltaTime);
             Vector3 localTarget = transform.InverseTransformPoint(requested);
             if (!hasSmoothedTarget)
@@ -125,6 +207,43 @@ namespace OpenSourceTeam6.Customers.Unity
             {
                 Vector3 worldTarget = transform.TransformPoint(smoothedTarget);
                 animator.SetIKPosition(AvatarIKGoal.RightHand, ClampReach(worldTarget, reach));
+            }
+        }
+
+        private void OrientAngerHand(bool extendMiddle, Vector3 toward, float weight)
+        {
+            Transform index = animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
+            Transform little = animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
+            Transform middleBase = animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
+            if (index == null || little == null || middleBase == null) return;
+
+            Vector3 fingers = (middleBase.position - rightHand.position).normalized;
+            Vector3 back = Vector3.Cross(fingers, little.position - index.position).normalized;
+            if (back == Vector3.zero) return;
+            Quaternion currentAxes = Quaternion.LookRotation(fingers, back);
+            Quaternion desiredAxes = extendMiddle
+                ? Quaternion.LookRotation(transform.up, toward)
+                : Quaternion.LookRotation((toward + Vector3.down * 0.33f).normalized, transform.right);
+            // The humanoid goal and imported wrist bone can have different local axes.
+            Quaternion goal = animator.GetIKRotation(AvatarIKGoal.RightHand);
+            animator.SetIKRotationWeight(AvatarIKGoal.RightHand, weight);
+            animator.SetIKRotation(AvatarIKGoal.RightHand, desiredAxes * Quaternion.Inverse(currentAxes) * goal);
+
+            for (int i = (int)HumanBodyBones.RightIndexProximal; i <= (int)HumanBodyBones.RightLittleDistal; i++)
+            {
+                var joint = (HumanBodyBones)i;
+                bool middle = i >= (int)HumanBodyBones.RightMiddleProximal && i <= (int)HumanBodyBones.RightMiddleDistal;
+                Transform bone = animator.GetBoneTransform(joint);
+                if (bone == null) continue;
+                Vector3 segment = bone.childCount > 0 ? bone.GetChild(0).position - bone.position : bone.position - bone.parent.position;
+                Vector3 axis = Vector3.Cross(segment, -back);
+                if (axis.sqrMagnitude < 0.000001f) continue;
+                int jointIndex = (i - (int)HumanBodyBones.RightIndexProximal) % 3;
+                float currentCurl = Vector3.SignedAngle(jointIndex == 0 ? fingers : bone.position - bone.parent.position, segment, axis);
+                float desiredCurl = extendMiddle && middle ? 0f : jointIndex == 2 ? 35f : 65f;
+                float curl = Mathf.Clamp(desiredCurl - currentCurl, -65f, 65f);
+                animator.SetBoneLocalRotation(joint, bone.localRotation *
+                    Quaternion.AngleAxis(curl * weight, bone.InverseTransformDirection(axis.normalized)));
             }
         }
 

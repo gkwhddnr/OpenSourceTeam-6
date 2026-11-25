@@ -8,6 +8,7 @@ namespace OpenSourceTeam6.Customers.Unity
         [SerializeField] private NpcCharacterAnimation presenter;
         [SerializeField] private NpcCharacterRoster characterRoster;
         [SerializeField] private GameObject employeeIdentifierPrefab;
+        [SerializeField] private Renderer placeholderRenderer;
         [SerializeField] private Transform stockTarget;
         [SerializeField] private Transform pointTarget;
         [SerializeField] private GameObject stockPreview;
@@ -25,6 +26,8 @@ namespace OpenSourceTeam6.Customers.Unity
                 presenter = GetComponentInChildren<NpcCharacterAnimation>();
             if (characterRoster != null)
                 presenter = characterRoster.ApplyRandom(transform, presenter);
+            if (presenter != null && placeholderRenderer != null)
+                placeholderRenderer.enabled = false;
             AttachEmployeeIdentifier();
         }
 
@@ -111,6 +114,7 @@ namespace OpenSourceTeam6.Customers.Unity
             switch (state)
             {
                 case NpcAnimationState.Idle:
+                case NpcAnimationState.Walk:
                 case NpcAnimationState.Stock:
                 case NpcAnimationState.Clean:
                 case NpcAnimationState.Rest:
@@ -130,6 +134,12 @@ namespace OpenSourceTeam6.Customers.Unity
             ShowCurrentState();
             return true;
         }
+
+        public bool CanPlay(NpcAnimationState state) =>
+            isActiveAndEnabled && presenter != null && presenter.CanShow(state);
+
+        public void SetAngerGesture(AngerGesture gesture, float progress, Vector3 target) =>
+            presenter?.SetAngerGesture(gesture, progress, target);
 
         public void SetPaused(bool value)
         {
