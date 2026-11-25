@@ -47,6 +47,8 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Text feedbackBannerText;
 
         private const string FoldedNoteResourcePath = "UI/Spr_FoldedNote";
+        private const string MapBlueprintResourcePath = "UI/Spr_StoreMapBlueprint";
+        private const string MapFoldedIconResourcePath = "UI/Spr_MapFoldedIcon";
         private const int MaxChatHistoryEntries = 80;
 
         private VoiceProcessStage currentVoiceStage = VoiceProcessStage.Idle;
@@ -55,6 +57,14 @@ namespace OpenSourceTeam6.UI.Unity
         private GameObject expandedCollapseHintRoot;
         private GameObject collapsedNoteRoot;
         private Sprite runtimeCreatedFoldedSprite;
+
+        private bool isStoreMapCollapsed = true;
+        private GameObject expandedStoreMapRoot;
+        private GameObject collapsedStoreMapRoot;
+        private Sprite mapBlueprintSprite;
+        private Sprite mapFoldedIconSprite;
+        private Sprite runtimeCreatedMapBlueprintSprite;
+        private Sprite runtimeCreatedMapIconSprite;
 
         private readonly List<string> chatHistoryEntries = new List<string>(MaxChatHistoryEntries);
         private bool isChatHistoryExpanded;
@@ -65,10 +75,12 @@ namespace OpenSourceTeam6.UI.Unity
         private Text chatHistoryBodyText;
 
         public bool IsEmployeeCardCollapsed => isEmployeeCardCollapsed;
+        public bool IsStoreMapCollapsed => isStoreMapCollapsed;
         public bool IsChatHistoryExpanded => isChatHistoryExpanded;
 
         public event Action OpenCommandOverlayClicked;
         public event Action EmployeeCardFoldToggleClicked;
+        public event Action StoreMapFoldToggleClicked;
         public event Action ChatHistoryToggleClicked;
 
         private static readonly Color StressStableColor = new Color(0.20f, 0.78f, 0.52f, 1f);
@@ -139,7 +151,9 @@ namespace OpenSourceTeam6.UI.Unity
             if (visible)
             {
                 EnsureCollapsibleNoteWidgets();
+                EnsureCollapsibleStoreMapWidgets();
                 ApplyEmployeeCardFoldState();
+                ApplyStoreMapFoldState();
                 EnsureDockChatHistoryWidgets();
                 ApplyChatHistoryExpandedState();
                 RefreshChatHistoryView();
@@ -197,12 +211,26 @@ namespace OpenSourceTeam6.UI.Unity
         {
             isEmployeeCardCollapsed = collapsed;
             EnsureCollapsibleNoteWidgets();
+            EnsureCollapsibleStoreMapWidgets();
             ApplyEmployeeCardFoldState();
+            SyncStoreMapPosition();
         }
 
         public void ToggleEmployeeCardCollapsed()
         {
             SetEmployeeCardCollapsed(!isEmployeeCardCollapsed);
+        }
+
+        public void SetStoreMapCollapsed(bool collapsed)
+        {
+            isStoreMapCollapsed = collapsed;
+            EnsureCollapsibleStoreMapWidgets();
+            ApplyStoreMapFoldState();
+        }
+
+        public void ToggleStoreMapCollapsed()
+        {
+            SetStoreMapCollapsed(!isStoreMapCollapsed);
         }
 
         private void OnDestroy()
@@ -211,6 +239,16 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 Destroy(runtimeCreatedFoldedSprite);
                 runtimeCreatedFoldedSprite = null;
+            }
+            if (runtimeCreatedMapBlueprintSprite != null)
+            {
+                Destroy(runtimeCreatedMapBlueprintSprite);
+                runtimeCreatedMapBlueprintSprite = null;
+            }
+            if (runtimeCreatedMapIconSprite != null)
+            {
+                Destroy(runtimeCreatedMapIconSprite);
+                runtimeCreatedMapIconSprite = null;
             }
         }
 
@@ -771,6 +809,326 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 collapsedNoteRoot.SetActive(isEmployeeCardCollapsed);
             }
+
+            SyncStoreMapPosition();
+        }
+
+        private void HandleMapFoldToggleButtonClicked()
+        {
+            if (StoreMapFoldToggleClicked != null)
+            {
+                StoreMapFoldToggleClicked.Invoke();
+            }
+            else
+            {
+                ToggleStoreMapCollapsed();
+            }
+        }
+
+        private void EnsureCollapsibleStoreMapWidgets()
+        {
+            Transform root = hudRoot != null ? hudRoot.transform : transform;
+            Font uiFont = ResolveUiFont();
+
+            // 1. 축소 상태: 화면 좌측 상단 투명 배경 지도 아이콘 + '지도(M)'
+            if (collapsedStoreMapRoot == null)
+            {
+                Transform existingCollapsed = root.Find("CollapsedStoreMapWidget");
+                if (existingCollapsed != null)
+                {
+                    collapsedStoreMapRoot = existingCollapsed.gameObject;
+                }
+                else
+                {
+                    collapsedStoreMapRoot = new GameObject("CollapsedStoreMapWidget", typeof(RectTransform));
+                    collapsedStoreMapRoot.transform.SetParent(root, false);
+
+                    RectTransform containerRt = collapsedStoreMapRoot.GetComponent<RectTransform>();
+                    containerRt.anchorMin = new Vector2(0f, 1f);
+                    containerRt.anchorMax = new Vector2(0f, 1f);
+                    containerRt.pivot = new Vector2(0f, 1f);
+                    containerRt.anchoredPosition = new Vector2(28f, -18f);
+                    containerRt.sizeDelta = new Vector2(124f, 146f);
+
+                    GameObject iconObj = new GameObject("FoldedMapIcon", typeof(RectTransform), typeof(Image), typeof(Button), typeof(Shadow));
+                    iconObj.transform.SetParent(collapsedStoreMapRoot.transform, false);
+                    RectTransform iconRt = iconObj.GetComponent<RectTransform>();
+                    iconRt.anchorMin = new Vector2(0.5f, 1f);
+                    iconRt.anchorMax = new Vector2(0.5f, 1f);
+                    iconRt.pivot = new Vector2(0.5f, 1f);
+                    iconRt.anchoredPosition = new Vector2(0f, 4f);
+                    iconRt.sizeDelta = new Vector2(118f, 118f);
+
+                    Image iconImg = iconObj.GetComponent<Image>();
+                    iconImg.sprite = ResolveMapFoldedIconSprite();
+                    iconImg.preserveAspect = true;
+                    iconImg.color = Color.white;
+                    iconImg.raycastTarget = true;
+
+                    Shadow iconShadow = iconObj.GetComponent<Shadow>();
+                    iconShadow.effectColor = new Color(0f, 0f, 0f, 0.38f);
+                    iconShadow.effectDistance = new Vector2(3f, -4f);
+
+                    Button iconBtn = iconObj.GetComponent<Button>();
+                    iconBtn.targetGraphic = iconImg;
+                    iconBtn.onClick.AddListener(HandleMapFoldToggleButtonClicked);
+
+                    GameObject expandObj = new GameObject("ExpandMapHintLabel", typeof(RectTransform), typeof(Text), typeof(Outline), typeof(Shadow), typeof(Button));
+                    expandObj.transform.SetParent(collapsedStoreMapRoot.transform, false);
+
+                    RectTransform expandRt = expandObj.GetComponent<RectTransform>();
+                    expandRt.anchorMin = new Vector2(0.5f, 0f);
+                    expandRt.anchorMax = new Vector2(0.5f, 0f);
+                    expandRt.pivot = new Vector2(0.5f, 0f);
+                    expandRt.anchoredPosition = new Vector2(0f, 2f);
+                    expandRt.sizeDelta = new Vector2(260f, 56f);
+                    expandRt.localScale = new Vector3(0.5f, 0.5f, 1f);
+
+                    Text expandText = expandObj.GetComponent<Text>();
+                    expandText.font = uiFont;
+                    expandText.fontSize = 36;
+                    expandText.fontStyle = FontStyle.Bold;
+                    expandText.color = Color.white;
+                    expandText.alignment = TextAnchor.MiddleCenter;
+                    expandText.horizontalOverflow = HorizontalWrapMode.Overflow;
+                    expandText.verticalOverflow = VerticalWrapMode.Overflow;
+                    expandText.raycastTarget = true;
+                    expandText.text = "지도(M)";
+
+                    Outline expandOutline = expandObj.GetComponent<Outline>();
+                    expandOutline.effectColor = new Color(0f, 0f, 0f, 0.98f);
+                    expandOutline.effectDistance = new Vector2(2.6f, -2.6f);
+
+                    Shadow expandShadow = expandObj.GetComponent<Shadow>();
+                    expandShadow.effectColor = new Color(0f, 0f, 0f, 0.85f);
+                    expandShadow.effectDistance = new Vector2(0f, -3f);
+
+                    Button expandBtn = expandObj.GetComponent<Button>();
+                    expandBtn.targetGraphic = expandText;
+                    expandBtn.onClick.AddListener(HandleMapFoldToggleButtonClicked);
+                }
+            }
+
+            if (collapsedStoreMapRoot != null)
+            {
+                Transform iconTr = collapsedStoreMapRoot.transform.Find("FoldedMapIcon");
+                if (iconTr != null)
+                {
+                    if (iconTr is RectTransform existingIconRt)
+                    {
+                        existingIconRt.anchoredPosition = new Vector2(0f, 4f);
+                        existingIconRt.sizeDelta = new Vector2(118f, 118f);
+                    }
+                    if (iconTr.TryGetComponent(out Image existingIconImg))
+                    {
+                        existingIconImg.sprite = ResolveMapFoldedIconSprite();
+                    }
+                }
+            }
+
+            // 2. 확장 상태: 화면 좌측 상단 매장 설계도(맵설계도.png) 카드 + '접기(M)' 버튼
+            if (expandedStoreMapRoot == null)
+            {
+                Transform existingExpanded = root.Find("ExpandedStoreMapCard");
+                if (existingExpanded != null)
+                {
+                    expandedStoreMapRoot = existingExpanded.gameObject;
+                }
+                else
+                {
+                    expandedStoreMapRoot = new GameObject("ExpandedStoreMapCard", typeof(RectTransform), typeof(Image), typeof(Outline), typeof(Shadow));
+                    expandedStoreMapRoot.transform.SetParent(root, false);
+
+                    RectTransform cardRt = expandedStoreMapRoot.GetComponent<RectTransform>();
+                    cardRt.anchorMin = new Vector2(0f, 1f);
+                    cardRt.anchorMax = new Vector2(0f, 1f);
+                    cardRt.pivot = new Vector2(0f, 1f);
+                    cardRt.anchoredPosition = new Vector2(24f, -16f);
+                    cardRt.sizeDelta = new Vector2(616f, 382f);
+
+                    Image cardBg = expandedStoreMapRoot.GetComponent<Image>();
+                    cardBg.color = new Color(0.08f, 0.12f, 0.18f, 0.95f);
+                    cardBg.raycastTarget = true;
+
+                    Outline cardOutline = expandedStoreMapRoot.GetComponent<Outline>();
+                    cardOutline.effectColor = new Color(0.42f, 0.68f, 0.88f, 0.72f);
+                    cardOutline.effectDistance = new Vector2(1.5f, -1.5f);
+
+                    Shadow cardShadow = expandedStoreMapRoot.GetComponent<Shadow>();
+                    cardShadow.effectColor = new Color(0f, 0f, 0f, 0.45f);
+                    cardShadow.effectDistance = new Vector2(4f, -6f);
+
+                    // 상단 바: 제목 + 접기(M) 버튼 (2x 슈퍼샘플링)
+                    GameObject headerBar = new GameObject("MapHeaderBar", typeof(RectTransform));
+                    headerBar.transform.SetParent(expandedStoreMapRoot.transform, false);
+                    RectTransform headerRt = headerBar.GetComponent<RectTransform>();
+                    headerRt.anchorMin = new Vector2(0f, 1f);
+                    headerRt.anchorMax = new Vector2(1f, 1f);
+                    headerRt.pivot = new Vector2(0.5f, 1f);
+                    headerRt.anchoredPosition = new Vector2(0f, -4f);
+                    headerRt.sizeDelta = new Vector2(-24f, 32f);
+
+                    GameObject titleObj = new GameObject("MapTitleLabel", typeof(RectTransform), typeof(Text));
+                    titleObj.transform.SetParent(headerBar.transform, false);
+                    RectTransform titleRt = titleObj.GetComponent<RectTransform>();
+                    titleRt.anchorMin = new Vector2(0f, 0.5f);
+                    titleRt.anchorMax = new Vector2(0f, 0.5f);
+                    titleRt.pivot = new Vector2(0f, 0.5f);
+                    titleRt.anchoredPosition = Vector2.zero;
+                    titleRt.sizeDelta = new Vector2(680f, 56f);
+                    titleRt.localScale = new Vector3(0.5f, 0.5f, 1f);
+
+                    Text titleTxt = titleObj.GetComponent<Text>();
+                    titleTxt.font = uiFont;
+                    titleTxt.fontSize = 32;
+                    titleTxt.fontStyle = FontStyle.Bold;
+                    titleTxt.color = new Color(0.86f, 0.94f, 1f, 1f);
+                    titleTxt.alignment = TextAnchor.MiddleLeft;
+                    titleTxt.raycastTarget = false;
+                    titleTxt.text = "편의점 매장 구역 설계도";
+
+                    GameObject foldBtnObj = new GameObject("MapCollapseHintBtn", typeof(RectTransform), typeof(Text), typeof(Button));
+                    foldBtnObj.transform.SetParent(headerBar.transform, false);
+                    RectTransform foldRt = foldBtnObj.GetComponent<RectTransform>();
+                    foldRt.anchorMin = new Vector2(1f, 0.5f);
+                    foldRt.anchorMax = new Vector2(1f, 0.5f);
+                    foldRt.pivot = new Vector2(1f, 0.5f);
+                    foldRt.anchoredPosition = Vector2.zero;
+                    foldRt.sizeDelta = new Vector2(240f, 56f);
+                    foldRt.localScale = new Vector3(0.5f, 0.5f, 1f);
+
+                    Text foldTxt = foldBtnObj.GetComponent<Text>();
+                    foldTxt.font = uiFont;
+                    foldTxt.fontSize = 32;
+                    foldTxt.fontStyle = FontStyle.Bold;
+                    foldTxt.color = new Color(0.38f, 0.96f, 0.84f, 1f);
+                    foldTxt.alignment = TextAnchor.MiddleRight;
+                    foldTxt.raycastTarget = true;
+                    foldTxt.text = "접기(M)";
+
+                    Button foldBtn = foldBtnObj.GetComponent<Button>();
+                    foldBtn.targetGraphic = foldTxt;
+                    foldBtn.onClick.AddListener(HandleMapFoldToggleButtonClicked);
+
+                    // 설계도 본문 이미지
+                    GameObject imgObj = new GameObject("MapBlueprintImage", typeof(RectTransform), typeof(Image), typeof(Button));
+                    imgObj.transform.SetParent(expandedStoreMapRoot.transform, false);
+                    RectTransform imgRt = imgObj.GetComponent<RectTransform>();
+                    imgRt.anchorMin = Vector2.zero;
+                    imgRt.anchorMax = Vector2.one;
+                    imgRt.offsetMin = new Vector2(10f, 10f);
+                    imgRt.offsetMax = new Vector2(-10f, -38f);
+
+                    Image bpImg = imgObj.GetComponent<Image>();
+                    bpImg.sprite = ResolveMapBlueprintSprite();
+                    bpImg.preserveAspect = true;
+                    bpImg.color = Color.white;
+                    bpImg.raycastTarget = true;
+
+                    Button imgBtn = imgObj.GetComponent<Button>();
+                    imgBtn.targetGraphic = bpImg;
+                    imgBtn.onClick.AddListener(HandleMapFoldToggleButtonClicked);
+                }
+            }
+
+            SyncStoreMapPosition();
+        }
+
+        private void ApplyStoreMapFoldState()
+        {
+            if (expandedStoreMapRoot != null && expandedStoreMapRoot.activeSelf == isStoreMapCollapsed)
+            {
+                expandedStoreMapRoot.SetActive(!isStoreMapCollapsed);
+            }
+
+            if (collapsedStoreMapRoot != null && collapsedStoreMapRoot.activeSelf != isStoreMapCollapsed)
+            {
+                collapsedStoreMapRoot.SetActive(isStoreMapCollapsed);
+            }
+
+            SyncStoreMapPosition();
+        }
+
+        private void SyncStoreMapPosition()
+        {
+            if (collapsedStoreMapRoot != null)
+            {
+                RectTransform rt = collapsedStoreMapRoot.GetComponent<RectTransform>();
+                if (rt != null)
+                {
+                    rt.anchorMin = new Vector2(0f, 1f);
+                    rt.anchorMax = new Vector2(0f, 1f);
+                    rt.pivot = new Vector2(0f, 1f);
+                    rt.anchoredPosition = new Vector2(28f, -18f);
+                    rt.sizeDelta = new Vector2(124f, 146f);
+                }
+            }
+
+            if (expandedStoreMapRoot != null)
+            {
+                RectTransform rt = expandedStoreMapRoot.GetComponent<RectTransform>();
+                if (rt != null)
+                {
+                    rt.anchorMin = new Vector2(0f, 1f);
+                    rt.anchorMax = new Vector2(0f, 1f);
+                    rt.pivot = new Vector2(0f, 1f);
+                    rt.anchoredPosition = new Vector2(24f, -16f);
+                }
+            }
+        }
+
+        private Sprite ResolveMapBlueprintSprite()
+        {
+            if (mapBlueprintSprite != null) return mapBlueprintSprite;
+
+            Sprite loaded = Resources.Load<Sprite>(MapBlueprintResourcePath);
+            if (loaded != null)
+            {
+                mapBlueprintSprite = loaded;
+                return mapBlueprintSprite;
+            }
+
+            if (runtimeCreatedMapBlueprintSprite != null) return runtimeCreatedMapBlueprintSprite;
+
+            Texture2D tex = Resources.Load<Texture2D>(MapBlueprintResourcePath);
+            if (tex != null)
+            {
+                runtimeCreatedMapBlueprintSprite = Sprite.Create(
+                    tex,
+                    new Rect(0f, 0f, tex.width, tex.height),
+                    new Vector2(0.5f, 0.5f),
+                    100f);
+                return runtimeCreatedMapBlueprintSprite;
+            }
+
+            return null;
+        }
+
+        private Sprite ResolveMapFoldedIconSprite()
+        {
+            if (mapFoldedIconSprite != null) return mapFoldedIconSprite;
+
+            Sprite loaded = Resources.Load<Sprite>(MapFoldedIconResourcePath);
+            if (loaded != null)
+            {
+                mapFoldedIconSprite = loaded;
+                return mapFoldedIconSprite;
+            }
+
+            if (runtimeCreatedMapIconSprite != null) return runtimeCreatedMapIconSprite;
+
+            Texture2D tex = Resources.Load<Texture2D>(MapFoldedIconResourcePath);
+            if (tex != null)
+            {
+                runtimeCreatedMapIconSprite = Sprite.Create(
+                    tex,
+                    new Rect(0f, 0f, tex.width, tex.height),
+                    new Vector2(0.5f, 0.5f),
+                    100f);
+                return runtimeCreatedMapIconSprite;
+            }
+
+            return ResolveFoldedNoteSprite();
         }
 
         private Sprite ResolveFoldedNoteSprite()

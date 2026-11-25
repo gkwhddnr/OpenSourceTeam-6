@@ -187,6 +187,7 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 inGameHud.OpenCommandOverlayClicked += ToggleCommandOverlay;
                 inGameHud.EmployeeCardFoldToggleClicked += ToggleEmployeeStatusCardFold;
+                inGameHud.StoreMapFoldToggleClicked += ToggleStoreMapFold;
                 inGameHud.ChatHistoryToggleClicked += ToggleChatHistoryDrawer;
             }
 
@@ -263,6 +264,7 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 inGameHud.OpenCommandOverlayClicked -= ToggleCommandOverlay;
                 inGameHud.EmployeeCardFoldToggleClicked -= ToggleEmployeeStatusCardFold;
+                inGameHud.StoreMapFoldToggleClicked -= ToggleStoreMapFold;
                 inGameHud.ChatHistoryToggleClicked -= ToggleChatHistoryDrawer;
             }
 
@@ -656,6 +658,7 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 inGameHud.SetVisible(true);
                 inGameHud.SetEmployeeCardCollapsed(false);
+                inGameHud.SetStoreMapCollapsed(true);
                 inGameHud.RenderEmployee(lastEmployeeSnapshot);
                 inGameHud.RenderVoiceStage(VoiceProcessStage.Idle, string.Empty);
                 inGameHud.RenderFeedback(new VoiceCommandFeedback(
@@ -1082,6 +1085,10 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 ToggleEmployeeStatusCardFold();
             }
+            else if (kb.mKey.wasPressedThisFrame && !IsCommandOverlayOpen)
+            {
+                ToggleStoreMapFold();
+            }
             else if (kb.hKey.wasPressedThisFrame && !IsCommandOverlayOpen)
             {
                 ToggleChatHistoryDrawer();
@@ -1092,6 +1099,13 @@ namespace OpenSourceTeam6.UI.Unity
         {
             if (inGameHud == null || CurrentMode != UiScreenMode.InGame) return;
             inGameHud.ToggleEmployeeCardCollapsed();
+            activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
+        }
+
+        public void ToggleStoreMapFold()
+        {
+            if (inGameHud == null || CurrentMode != UiScreenMode.InGame) return;
+            inGameHud.ToggleStoreMapCollapsed();
             activeAudioPlayer?.PlaySfx(StoreSfxId.PaperFlip);
         }
 

@@ -30,7 +30,6 @@ namespace OpenSourceTeam6.UI.Unity
         private DaySettlementResult currentDayResult;
         private EmployeeHudSnapshot currentEmployeeSnapshot;
         private WageAdjustmentOption selectedOption = WageAdjustmentOption.Freeze;
-        private bool isRuntimeUiBuilt;
 
         public bool IsVisible => (panelRoot != null ? panelRoot : gameObject).activeSelf;
         public WageAdjustmentOption SelectedOption => selectedOption;
@@ -95,12 +94,14 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (headerTitleText != null)
             {
-                headerTitleText.text = $"[ {dayResult.DayNumber}일차 마감  ·  알바 이력서 및 시급 정산 ]";
+                headerTitleText.text = $"[ {dayResult.DayNumber}일차 마감  ·  알바 이력서 및 일급 정산 ]";
             }
 
+            int baseDailyWage = EmployeePersonaPresets.ComputeDailyOperatingCostWon(
+                persona.HourlyWageWon > 0 ? persona.HourlyWageWon : EmployeePersonaPresets.DefaultHourlyWageWon);
             string evalSummary = !string.IsNullOrWhiteSpace(persona.EvaluationSummary)
                 ? persona.EvaluationSummary
-                : $"기본 시급 {persona.HourlyWageWon:N0}원 적용 프로필";
+                : $"표준 채용 프로필 적용 · 확정 일급 {baseDailyWage:N0}원";
 
             if (resumeInfoBodyText != null)
             {
@@ -229,9 +230,10 @@ namespace OpenSourceTeam6.UI.Unity
                 p.WorkFatigueMultiplier);
 
             string optionKor = option == WageAdjustmentOption.Raise
-                ? "시급 인상"
-                : (option == WageAdjustmentOption.Cut ? "시급 삭감" : "시급 동결");
-            string summary = $"{optionKor} 적용 → 시급 {nextHourlyWage:N0}원 (초기 스트레스 {Mathf.RoundToInt(nextStress)} · 충성도 {Mathf.RoundToInt(nextLoyalty)})";
+                ? "일급 인상"
+                : (option == WageAdjustmentOption.Cut ? "일급 삭감" : "일급 동결");
+            int nextDailyWage = EmployeePersonaPresets.ComputeDailyOperatingCostWon(nextHourlyWage);
+            string summary = $"{optionKor} 적용 → 일급 {nextDailyWage:N0}원 (초기 스트레스 {Mathf.RoundToInt(nextStress)} · 충성도 {Mathf.RoundToInt(nextLoyalty)})";
 
             return new EmployeePersonaSetupData(
                 persona.EmployeeName,
@@ -331,16 +333,29 @@ namespace OpenSourceTeam6.UI.Unity
 
         public void EnsureRuntimeUiBuilt(Font fallbackFont = null, Sprite clipboardSprite = null)
         {
-            if (isRuntimeUiBuilt || (headerTitleText != null && resumeInfoBodyText != null && wageFreezeButton != null))
-            {
-                isRuntimeUiBuilt = true;
-                return;
-            }
-
-            isRuntimeUiBuilt = true;
             if (panelRoot == null)
             {
                 panelRoot = gameObject;
+            }
+
+            Transform upgradedContent = panelRoot.transform.Find("EmployeeSettlementPaper/PaperContentArea/PaperContent2x");
+            if (upgradedContent != null && headerTitleText != null && resumeInfoBodyText != null && wageFreezeButton != null)
+            {
+                return;
+            }
+
+            // 구버전 레이아웃(클립보드 금속 집게·가죽 테두리 침범 버전)이 남아 있으면 정리 후 정확한 종이 규격으로 재구성
+            for (int i = panelRoot.transform.childCount - 1; i >= 0; i--)
+            {
+                GameObject oldChild = panelRoot.transform.GetChild(i).gameObject;
+                if (Application.isPlaying)
+                {
+                    Destroy(oldChild);
+                }
+                else
+                {
+                    DestroyImmediate(oldChild);
+                }
             }
 
             Font font = fallbackFont != null ? fallbackFont : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
@@ -355,9 +370,9 @@ namespace OpenSourceTeam6.UI.Unity
 
             Image dimImg = panelRoot.GetComponent<Image>();
             if (dimImg == null) dimImg = panelRoot.AddComponent<Image>();
-            dimImg.color = new Color(0.02f, 0.03f, 0.05f, 0.72f);
+            dimImg.color = new Color(0.02f, 0.03f, 0.05f, 0.66f);
 
-            // 이력서 클립보드 종이 시트
+            // 0일차 채용 이력서(PersonaSetupPanel)와 100% 동일한 클립보드 규격 (906x1326 비율 -> 697x1020)
             GameObject sheetObj = new GameObject("EmployeeSettlementPaper", typeof(RectTransform), typeof(Image));
             sheetObj.transform.SetParent(panelRoot.transform, false);
             RectTransform sheetRt = sheetObj.GetComponent<RectTransform>();
@@ -365,7 +380,7 @@ namespace OpenSourceTeam6.UI.Unity
             sheetRt.anchorMax = new Vector2(0.5f, 0.5f);
             sheetRt.pivot = new Vector2(0.5f, 0.5f);
             sheetRt.anchoredPosition = Vector2.zero;
-            sheetRt.sizeDelta = new Vector2(760f, 980f);
+            sheetRt.sizeDelta = new Vector2(697f, 1020f);
 
             Image sheetImg = sheetObj.GetComponent<Image>();
             if (clipboardSprite != null)
@@ -380,68 +395,124 @@ namespace OpenSourceTeam6.UI.Unity
                 sheetImg.color = new Color(0.96f, 0.94f, 0.88f, 0.99f);
             }
 
+            // 클립보드 내부 실제 흰 종이 영역 (좌우 84px, 상단 금속 클립 아래 172px, 하단 88px -> 529 x 760)
             GameObject contentArea = new GameObject("PaperContentArea", typeof(RectTransform));
             contentArea.transform.SetParent(sheetObj.transform, false);
             RectTransform contentRt = contentArea.GetComponent<RectTransform>();
-            contentRt.anchorMin = new Vector2(0.5f, 0.5f);
-            contentRt.anchorMax = new Vector2(0.5f, 0.5f);
+            contentRt.anchorMin = Vector2.zero;
+            contentRt.anchorMax = Vector2.one;
             contentRt.pivot = new Vector2(0.5f, 0.5f);
-            contentRt.anchoredPosition = new Vector2(0f, -38f);
-            contentRt.sizeDelta = new Vector2(616f, 790f);
+            contentRt.offsetMin = new Vector2(84f, 88f);
+            contentRt.offsetMax = new Vector2(-84f, -172f);
+
+            // 2배 슈퍼샘플링 컨테이너 (1058 x 1520 -> 0.5배 축소로 작은 창에서도 글자 선명도 유지)
+            GameObject content2x = new GameObject("PaperContent2x", typeof(RectTransform));
+            content2x.transform.SetParent(contentArea.transform, false);
+            RectTransform c2xRt = content2x.GetComponent<RectTransform>();
+            c2xRt.anchorMin = new Vector2(0.5f, 0.5f);
+            c2xRt.anchorMax = new Vector2(0.5f, 0.5f);
+            c2xRt.pivot = new Vector2(0.5f, 0.5f);
+            c2xRt.anchoredPosition = Vector2.zero;
+            c2xRt.sizeDelta = new Vector2(1058f, 1520f);
+            c2xRt.localScale = new Vector3(0.5f, 0.5f, 1f);
 
             Color inkPrimary = new Color(0.14f, 0.13f, 0.12f, 1f);
+            Color inkSecondary = new Color(0.36f, 0.34f, 0.30f, 1f);
             Color inkAccent = new Color(0.12f, 0.42f, 0.36f, 1f);
+            Color inkRule = new Color(0.24f, 0.22f, 0.20f, 0.46f);
             Color boxBg = new Color(0.99f, 0.98f, 0.94f, 0.78f);
 
-            headerTitleText = CreateRuntimeText("HeaderTitleText", contentArea.transform, font, "[ 1일차 마감 · 알바 이력서 및 시급 정산 ]", 28, FontStyle.Bold, inkPrimary, TextAnchor.MiddleCenter);
-            SetRect(headerTitleText.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(0f, 44f));
+            Text subHeader = CreateRuntimeText(
+                "SettlementSubHeader",
+                content2x.transform,
+                font,
+                "일일 마감  ·  스태프 근무 평가 및 급여 정산표",
+                26,
+                FontStyle.Normal,
+                inkSecondary,
+                TextAnchor.MiddleCenter);
+            SetRect(subHeader.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -4f), new Vector2(0f, 38f));
+
+            headerTitleText = CreateRuntimeText(
+                "HeaderTitleText",
+                content2x.transform,
+                font,
+                "[ 1일차 마감  ·  알바 이력서 및 일급 정산 ]",
+                42,
+                FontStyle.Normal,
+                inkPrimary,
+                TextAnchor.MiddleCenter);
+            SetRect(headerTitleText.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -44f), new Vector2(0f, 68f));
+
+            CreateRuntimeRule("HeaderRuleBold", content2x.transform, -120f, 4.5f, new Color(0.18f, 0.16f, 0.15f, 0.78f));
+            CreateRuntimeRule("HeaderRuleThin", content2x.transform, -128f, 2f, inkRule);
 
             // 1. 이력서 기재 내용 박스
-            GameObject resumeBox = CreateRuntimeBox("ResumeInfoBox", contentArea.transform, boxBg);
-            SetRect(resumeBox.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -56f), new Vector2(0f, 162f));
-            resumeInfoBodyText = CreateRuntimeText("ResumeInfoBodyText", resumeBox.transform, font, "", 20, FontStyle.Normal, inkPrimary, TextAnchor.UpperLeft);
-            resumeInfoBodyText.lineSpacing = 1.25f;
-            SetRect(resumeInfoBodyText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-28f, -20f));
+            GameObject resumeBox = CreateRuntimeBox("ResumeInfoBox", content2x.transform, boxBg);
+            SetRect(resumeBox.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -148f), new Vector2(0f, 296f));
+            resumeInfoBodyText = CreateRuntimeText("ResumeInfoBodyText", resumeBox.transform, font, "", 30, FontStyle.Normal, inkPrimary, TextAnchor.UpperLeft);
+            resumeInfoBodyText.lineSpacing = 1.22f;
+            SetRect(resumeInfoBodyText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-44f, -32f));
 
             // 2. 당일 정산 자산 & 알바 감정/능력 수치 박스
-            GameObject statusBox = CreateRuntimeBox("StatusAndAssetBox", contentArea.transform, boxBg);
-            SetRect(statusBox.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -228f), new Vector2(0f, 188f));
-            statusAndAssetBodyText = CreateRuntimeText("StatusAndAssetBodyText", statusBox.transform, font, "", 19, FontStyle.Normal, inkPrimary, TextAnchor.UpperLeft);
-            statusAndAssetBodyText.lineSpacing = 1.28f;
-            SetRect(statusAndAssetBodyText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-28f, -20f));
+            GameObject statusBox = CreateRuntimeBox("StatusAndAssetBox", content2x.transform, boxBg);
+            SetRect(statusBox.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -462f), new Vector2(0f, 368f));
+            statusAndAssetBodyText = CreateRuntimeText("StatusAndAssetBodyText", statusBox.transform, font, "", 29, FontStyle.Normal, inkPrimary, TextAnchor.UpperLeft);
+            statusAndAssetBodyText.lineSpacing = 1.24f;
+            SetRect(statusAndAssetBodyText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-44f, -32f));
 
             // 3. 컨디션 권고 문구
-            conditionAdviceText = CreateRuntimeText("ConditionAdviceText", contentArea.transform, font, "", 19, FontStyle.Bold, inkAccent, TextAnchor.MiddleLeft);
-            conditionAdviceText.lineSpacing = 1.2f;
-            SetRect(conditionAdviceText.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -424f), new Vector2(-12f, 58f));
+            conditionAdviceText = CreateRuntimeText("ConditionAdviceText", content2x.transform, font, "", 28, FontStyle.Normal, inkAccent, TextAnchor.MiddleLeft);
+            conditionAdviceText.lineSpacing = 1.18f;
+            SetRect(conditionAdviceText.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -844f), new Vector2(-12f, 96f));
+
+            CreateRuntimeRule("MidSectionRule", content2x.transform, -952f, 2f, inkRule);
 
             // 4. 하단 일급 조정 선택 타이틀 & 3버튼 (일급 내리기 / 일급 유지 / 일급 올리기)
-            Text wageSectionTitle = CreateRuntimeText("WageSectionTitle", contentArea.transform, font, "내일 적용할 알바 일급 조정 선택 (스트레스 · 충성도 · 하루 인건비 연동)", 20, FontStyle.Normal, inkPrimary, TextAnchor.MiddleLeft);
-            SetRect(wageSectionTitle.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -490f), new Vector2(0f, 32f));
+            Text wageSectionTitle = CreateRuntimeText(
+                "WageSectionTitle",
+                content2x.transform,
+                font,
+                "내일 적용할 알바 일급 선택  (스트레스 · 충성도 · 하루 인건비 연동)",
+                30,
+                FontStyle.Normal,
+                inkPrimary,
+                TextAnchor.MiddleLeft);
+            SetRect(wageSectionTitle.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -968f), new Vector2(0f, 48f));
 
-            wageCutButton = CreateRuntimeButton("WageCutButton", contentArea.transform, font, "일급 내리기 (-10%)", 21);
-            SetRect(wageCutButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -530f), new Vector2(194f, 58f));
+            wageCutButton = CreateRuntimeButton("WageCutButton", content2x.transform, font, "일급 내리기 (-10%)", 31);
+            SetRect(wageCutButton.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(0f, -1030f), new Vector2(338f, 104f));
 
-            wageFreezeButton = CreateRuntimeButton("WageFreezeButton", contentArea.transform, font, "일급 유지 (동결)", 21);
-            SetRect(wageFreezeButton.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -530f), new Vector2(194f, 58f));
+            wageFreezeButton = CreateRuntimeButton("WageFreezeButton", content2x.transform, font, "일급 유지 (동결)", 31);
+            SetRect(wageFreezeButton.GetComponent<RectTransform>(), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -1030f), new Vector2(338f, 104f));
 
-            wageRaiseButton = CreateRuntimeButton("WageRaiseButton", contentArea.transform, font, "일급 올리기 (+10%)", 21);
-            SetRect(wageRaiseButton.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(0f, -530f), new Vector2(194f, 58f));
+            wageRaiseButton = CreateRuntimeButton("WageRaiseButton", content2x.transform, font, "일급 올리기 (+10%)", 31);
+            SetRect(wageRaiseButton.GetComponent<RectTransform>(), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(0f, -1030f), new Vector2(338f, 104f));
 
             // 5. 선택 결과 미리보기 박스
-            GameObject previewBox = CreateRuntimeBox("WagePreviewBox", contentArea.transform, new Color(0.92f, 0.95f, 0.92f, 0.92f));
-            SetRect(previewBox.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -600f), new Vector2(0f, 82f));
-            wagePreviewText = CreateRuntimeText("WagePreviewText", previewBox.transform, font, "", 19, FontStyle.Bold, inkAccent, TextAnchor.MiddleCenter);
-            wagePreviewText.lineSpacing = 1.25f;
-            SetRect(wagePreviewText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-20f, -12f));
+            GameObject previewBox = CreateRuntimeBox("WagePreviewBox", content2x.transform, new Color(0.92f, 0.95f, 0.92f, 0.92f));
+            SetRect(previewBox.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -1152f), new Vector2(0f, 156f));
+            wagePreviewText = CreateRuntimeText("WagePreviewText", previewBox.transform, font, "", 29, FontStyle.Normal, inkAccent, TextAnchor.MiddleCenter);
+            wagePreviewText.lineSpacing = 1.24f;
+            SetRect(wagePreviewText.rectTransform, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(-32f, -20f));
 
             // 6. 최하단 정산 확정 및 다음 일차 시작 버튼
-            confirmNextDayButton = CreateRuntimeButton("ConfirmWageNextDayButton", contentArea.transform, font, "시급 정산 확정  ·  다음 날 영업 시작  →", 24);
+            confirmNextDayButton = CreateRuntimeButton("ConfirmWageNextDayButton", content2x.transform, font, "일급 정산 확정  ·  2일차 영업 시작  →", 37);
             Image confirmImg = confirmNextDayButton.GetComponent<Image>();
-            if (confirmImg != null) confirmImg.color = new Color(0.14f, 0.46f, 0.40f, 1f);
+            if (confirmImg != null) confirmImg.color = new Color(0.14f, 0.42f, 0.37f, 0.98f);
             confirmNextDayButtonLabel = confirmNextDayButton.GetComponentInChildren<Text>(true);
             if (confirmNextDayButtonLabel != null) confirmNextDayButtonLabel.color = Color.white;
-            SetRect(confirmNextDayButton.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 12f), new Vector2(0f, 68f));
+            SetRect(confirmNextDayButton.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 18f), new Vector2(0f, 124f));
+        }
+
+        private static void CreateRuntimeRule(string name, Transform parent, float topOffsetY, float thickness, Color color)
+        {
+            GameObject go = new GameObject(name, typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(parent, false);
+            Image img = go.GetComponent<Image>();
+            img.color = color;
+            img.raycastTarget = false;
+            SetRect(go.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, topOffsetY), new Vector2(0f, thickness));
         }
 
         private static GameObject CreateRuntimeBox(string name, Transform parent, Color bgColor)

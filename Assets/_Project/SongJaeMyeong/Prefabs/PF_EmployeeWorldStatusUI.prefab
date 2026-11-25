@@ -248,6 +248,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: OpenSourceTeam6.UI.Unity::OpenSourceTeam6.UI.Unity.EmployeeWorldStatusPresenter
   followTarget: {fileID: 0}
   headOffset: {x: 0, y: 2.38, z: 0}
+  minHeadClearanceMeters: 0.42
   statusHeaderBg: {fileID: 3436193786046659080}
   statusHeaderText: {fileID: 2323907108994307745}
   speechBubbleRoot: {fileID: 7489746184651773206}
