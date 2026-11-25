@@ -1,5 +1,14 @@
 # 손님 NPC와 직원·플레이어 업무 연동 인수인계서
 
+## 캐릭터 애니메이션 연결
+
+- 공용 캐릭터 목록은 `HJU_StoreCharacterRoster.asset`에 있다. 테스트 씬의 손님·행인은 생성할 때마다 목록에서 스킨을 무작위로 선택하며, 직원은 플레이 시작마다 선택한다. Inspector의 `Character Roster` 및 목록의 `Character Prefabs`에서 후보를 편집할 수 있다.
+
+- `Assets/_Project/HaJongUk/Assets/CharacterAnimation/HJU_StoreCharacter.controller`는 캐릭터별 Humanoid Avatar를 유지한 채 공용으로 사용한다. `NpcCharacterAnimation`을 Animator와 같은 오브젝트에 둔다. 루트 모션은 끄고, 이동은 기존 NavMeshAgent가 담당한다.
+- 손님은 이동 속도에 따라 걷거나 뛴다. 집기 동작 후 상품이 오른손에 붙고, 계산이 완료되면 테스트 상품은 진열대로 돌아간다. 자리에서 대기할 때와 상품 위치를 질문할 때 각각의 상태를 재생한다. 행인은 대기·걷기·뛰기를 사용한다.
+- 직원 업무에서는 `NpcEmployeeAnimation.Play(NpcAnimationState.Stock/Clean/Rest/Point/Anger)`를 해당 상태가 시작될 때 호출하고, 끝날 때 `Idle`로 돌린다. 진열 및 가리키기 위치는 Inspector의 `Stock Target`, `Point Target`에 지정한다. 실제 재고 보충, 오염 제거, 휴식 처리와 감정 계산은 각 업무 시스템이 담당한다.
+- `HJU_CustomerNpc_Test` 테스트 패널의 직원 애니메이션 버튼으로 각 동작을 재생한다. 손님과 행인은 생성 시 각각 Inspector의 `Customer Run Chance`, `Pedestrian Run Chance`로 뛰는 유형이 될 확률을 설정한다(기본 30%). 속도 슬라이더는 걷는 유형의 기준 속도이며 뛰는 유형은 그 값의 1.65배로 이동한다. 질문 대상이 테스트 직원일 때 자동 가리키기가 켜져 있으면 해당 상태가 재생된다. 테스트 트레이와 빗자루는 동작 확인용이다.
+
 2026-11-23 · 전달 하종욱 · 인수 송재명 · WBS EXT-10
 
 최근 회의에서 정한 역할 분담에 따라 하종욱은 손님 행동, 상품 선택과 선반 집기, 계산대 대기, 퇴장을 담당한다. 송재명은 직원과 플레이어의 업무, 상품 위치 안내, 포스기 결제, 재고와 매출 정산을 연결한다. 손님이 상품을 집을 때 재고를 차감하고, 포스기나 직원이 결제를 확정할 때 판매 내역과 매출을 한 번 반영한다.
