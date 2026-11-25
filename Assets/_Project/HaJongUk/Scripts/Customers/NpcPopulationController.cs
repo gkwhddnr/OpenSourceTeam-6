@@ -70,6 +70,8 @@ namespace OpenSourceTeam6.Customers.Unity
             public int AisleIndex;
             public float ConsiderSeconds;
             public float RequiredConsiderSeconds;
+            public float ShelfWaitSeconds;
+            public float ShelfWaitDuration;
             public int DesiredProductIndex = -1;
             public NpcSearchOrder SearchOrder;
             public bool SeekingHelp;
@@ -567,14 +569,58 @@ namespace OpenSourceTeam6.Customers.Unity
                     customer.Agent.isStopped = false;
                     return LeaveWithoutPurchase(customer);
                 case ShoppingStyle.Deliberating:
-                case ShoppingStyle.Indecisive:
                     return PauseAndChooseProduct(customer, elapsed);
+                case ShoppingStyle.Indecisive:
+                    return ConsiderMultipleProducts(customer, elapsed);
                 case ShoppingStyle.AskWhenMissing:
                 case ShoppingStyle.LeaveWhenMissing:
                     return SearchShelves(customer, elapsed);
                 default:
                     return LeaveWithoutPurchase(customer);
             }
+        }
+
+        private Result ConsiderMultipleProducts(AgentRun customer, float elapsed)
+        {
+            if (customer.SearchOrder == null)
+                customer.SearchOrder = CreateSearchOrder(products.Length);
+            if (!customer.SearchOrder.TryGetCurrent(out int index))
+                return ChooseDisplayedProduct(customer);
+
+            var product = products[index];
+            Transform location = product.pickupLocation != null ? product.pickupLocation : shelf;
+            Result movement = customer.Navigation.MoveTo(customer.Agent, location, elapsed);
+            if (movement == Result.Failure)
+            {
+                customer.SearchOrder.Advance();
+                customer.Navigation.ClearTarget();
+                return Result.Running;
+            }
+            if (movement != Result.Success)
+                return Result.Running;
+
+            if (customer.ShelfWaitDuration <= 0f)
+            {
+                customer.ShelfWaitDuration = UnityEngine.Random.Range(1f, 5f);
+                if (customer.Agent.isOnNavMesh)
+                {
+                    customer.Agent.isStopped = true;
+                    customer.Agent.velocity = Vector3.zero;
+                }
+            }
+            customer.ShelfWaitSeconds += elapsed;
+            if (customer.ShelfWaitSeconds < customer.ShelfWaitDuration)
+                return Result.Running;
+
+            if (customer.Agent.isOnNavMesh)
+                customer.Agent.isStopped = false;
+            customer.SearchOrder.Advance();
+            customer.Navigation.ClearTarget();
+            customer.ShelfWaitSeconds = 0f;
+            customer.ShelfWaitDuration = 0f;
+            if (customer.SearchOrder.VisitedCount >= Mathf.Min(3, products.Length))
+                return ChooseDisplayedProduct(customer);
+            return Result.Running;
         }
 
         private Result ChooseDisplayedProduct(AgentRun customer)
@@ -630,6 +676,26 @@ namespace OpenSourceTeam6.Customers.Unity
             Result movement = customer.Navigation.MoveTo(customer.Agent, location, elapsed);
             if (movement == Result.Running)
                 return Result.Running;
+
+            if (movement == Result.Success && customer.ShoppingStyle == ShoppingStyle.LeaveWhenMissing)
+            {
+                if (customer.ShelfWaitDuration <= 0f)
+                {
+                    customer.ShelfWaitDuration = UnityEngine.Random.Range(1f, 5f);
+                    if (customer.Agent.isOnNavMesh)
+                    {
+                        customer.Agent.isStopped = true;
+                        customer.Agent.velocity = Vector3.zero;
+                    }
+                }
+                customer.ShelfWaitSeconds += elapsed;
+                if (customer.ShelfWaitSeconds < customer.ShelfWaitDuration)
+                    return Result.Running;
+                if (customer.Agent.isOnNavMesh)
+                    customer.Agent.isStopped = false;
+                customer.ShelfWaitSeconds = 0f;
+                customer.ShelfWaitDuration = 0f;
+            }
 
             customer.SearchOrder.Advance();
             customer.Navigation.ClearTarget();
