@@ -18,8 +18,7 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private GameObject promptRoot;
         [SerializeField] private GameObject manualPanelRoot;
         [SerializeField] private Button closeButton;
-        [SerializeField] private float maxInteractDistance = 3.2f;
-        [SerializeField] private float sphereCastRadius = 0.16f;
+        [SerializeField] private float maxInteractDistance = 1.85f;
 
         private bool isManualOpen;
         private IDisposable modalLockLease;
@@ -32,11 +31,148 @@ namespace OpenSourceTeam6.UI.Unity
                 closeButton.onClick.AddListener(CloseManual);
             }
 
+            EnsureBookVisualAttached();
+            if (TryGetComponent(out BoxCollider existingBox))
+            {
+                existingBox.center = new Vector3(0f, 0.035f, 0f);
+                existingBox.size = new Vector3(0.34f, 0.085f, 0.24f);
+            }
             NormalizeManualModalLayout();
             SetPromptVisible(false);
             if (manualPanelRoot != null)
             {
                 manualPanelRoot.SetActive(false);
+            }
+        }
+
+        private void EnsureBookVisualAttached()
+        {
+            if (transform.Find("Counter_ManualBookModel") != null) return;
+
+#if UNITY_EDITOR
+            GameObject bookPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
+                "Assets/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting_1.prefab");
+            if (bookPrefab == null)
+            {
+                bookPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
+                    "Assets/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting.prefab");
+            }
+
+            if (bookPrefab == null) return;
+
+            MeshRenderer rootRenderer = GetComponent<MeshRenderer>();
+            if (rootRenderer != null) rootRenderer.enabled = false;
+            Transform oldSpine = transform.Find("ManualSpineAccent");
+            if (oldSpine != null) oldSpine.gameObject.SetActive(false);
+
+            transform.position = new Vector3(-3.60f, 1.042f, -2.42f);
+            transform.localScale = Vector3.one;
+            transform.localEulerAngles = new Vector3(0f, -14f, 0f);
+
+            BoxCollider boxCol = GetComponent<BoxCollider>();
+            if (boxCol == null) boxCol = gameObject.AddComponent<BoxCollider>();
+            boxCol.center = new Vector3(0f, 0.035f, 0f);
+            boxCol.size = new Vector3(0.34f, 0.085f, 0.24f);
+
+            GameObject bookModel = Instantiate(bookPrefab, transform);
+            bookModel.name = "Counter_ManualBookModel";
+            Collider[] childCols = bookModel.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < childCols.Length; i++)
+            {
+                if (childCols[i] != null) childCols[i].enabled = false;
+            }
+
+            MeshFilter mf = bookModel.GetComponentInChildren<MeshFilter>();
+            Mesh mesh = mf != null ? mf.sharedMesh : null;
+            Vector3 meshSize = mesh != null ? mesh.bounds.size : new Vector3(6.45f, 4.43f, 0.66f);
+            float uniformScale = 0.34f / Mathf.Max(0.001f, meshSize.x);
+            float zSign = GetOpenPagesLocalZSign(mesh);
+
+            bookModel.transform.localPosition = Vector3.zero;
+            bookModel.transform.localRotation = Quaternion.LookRotation(
+                zSign >= 0f ? Vector3.up : Vector3.down,
+                Vector3.forward);
+            bookModel.transform.localScale = Vector3.one * uniformScale;
+
+            ApplyRuntimeBookUrpMaterials(bookModel);
+
+            Renderer bookRenderer = bookModel.GetComponentInChildren<Renderer>();
+            if (bookRenderer != null)
+            {
+                float liftY = transform.position.y - bookRenderer.bounds.min.y;
+                bookModel.transform.position += new Vector3(0f, liftY, 0f);
+            }
+#endif
+        }
+
+        private static float GetOpenPagesLocalZSign(Mesh mesh)
+        {
+            if (mesh == null || mesh.subMeshCount < 2) return 1f;
+            Vector3[] verts = mesh.vertices;
+            if (verts == null || verts.Length == 0) return 1f;
+
+            int textSubmesh = mesh.subMeshCount >= 3 ? 2 : 1;
+            int[] tris = mesh.GetTriangles(textSubmesh);
+            if (tris == null || tris.Length == 0) return 1f;
+
+            float sumZ = 0f;
+            for (int i = 0; i < tris.Length; i++)
+            {
+                int vi = tris[i];
+                if (vi >= 0 && vi < verts.Length) sumZ += verts[vi].z;
+            }
+
+            return ((sumZ / tris.Length) - mesh.bounds.center.z) >= 0f ? 1f : -1f;
+        }
+
+        private static void ApplyRuntimeBookUrpMaterials(GameObject instance)
+        {
+            Shader urpLit = Shader.Find("Universal Render Pipeline/Lit");
+            if (urpLit == null || instance == null) return;
+
+            Renderer[] renderers = instance.GetComponentsInChildren<Renderer>(true);
+            for (int r = 0; r < renderers.Length; r++)
+            {
+                Material[] srcMats = renderers[r].sharedMaterials;
+                if (srcMats == null) continue;
+                Material[] dstMats = new Material[srcMats.Length];
+                for (int m = 0; m < srcMats.Length; m++)
+                {
+                    Material src = srcMats[m];
+                    string matName = src != null ? (src.name ?? string.Empty) : string.Empty;
+                    Material mat = new Material(urpLit);
+                    mat.name = "RuntimeURP_" + matName;
+
+                    Color targetColor;
+                    float smoothness;
+                    if (matName.IndexOf("Text", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        matName.IndexOf("Black", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        targetColor = new Color(0.13f, 0.12f, 0.11f, 1f);
+                        smoothness = 0.15f;
+                    }
+                    else if (matName.IndexOf("Paper", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             matName.IndexOf("Page", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        targetColor = new Color(0.95f, 0.91f, 0.82f, 1f);
+                        smoothness = 0.20f;
+                    }
+                    else if (matName.IndexOf("CoverEdge", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        targetColor = new Color(0.86f, 0.68f, 0.26f, 1f);
+                        smoothness = 0.55f;
+                    }
+                    else
+                    {
+                        targetColor = new Color(0.24f, 0.15f, 0.10f, 1f);
+                        smoothness = 0.35f;
+                    }
+
+                    mat.SetColor("_BaseColor", targetColor);
+                    mat.SetFloat("_Smoothness", smoothness);
+                    dstMats[m] = mat;
+                }
+                renderers[r].sharedMaterials = dstMats;
             }
         }
 
@@ -115,30 +251,29 @@ namespace OpenSourceTeam6.UI.Unity
         {
             if (playerCamera == null) return false;
 
-            Transform camTr = playerCamera.transform;
-            Vector3 toTarget = transform.position - camTr.position;
-            float distance = toTarget.magnitude;
-            if (distance > maxInteractDistance) return false;
+            float effectiveMaxDist = Mathf.Clamp(maxInteractDistance, 0.8f, 1.85f);
+            Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            RaycastHit[] hits = Physics.RaycastAll(ray, effectiveMaxDist, ~0, QueryTriggerInteraction.Ignore);
+            if (hits == null || hits.Length == 0) return false;
 
-            Ray ray = new Ray(camTr.position, camTr.forward);
-            if (Physics.SphereCast(ray, sphereCastRadius, out RaycastHit hit, maxInteractDistance, ~0, QueryTriggerInteraction.Ignore))
+            Transform playerRoot = playerCamera.transform.root;
+            float nearestDist = float.MaxValue;
+            Transform nearestTr = null;
+
+            for (int i = 0; i < hits.Length; i++)
             {
-                if (hit.transform == transform || hit.transform.IsChildOf(transform))
+                Transform hitTr = hits[i].transform;
+                if (hitTr == null) continue;
+                if (playerRoot != null && (hitTr == playerRoot || hitTr.IsChildOf(playerRoot))) continue;
+
+                if (hits[i].distance < nearestDist)
                 {
-                    return true;
+                    nearestDist = hits[i].distance;
+                    nearestTr = hitTr;
                 }
             }
 
-            if (distance <= 2.2f && distance > 0.001f)
-            {
-                float alignment = Vector3.Dot(camTr.forward, toTarget / distance);
-                if (alignment >= 0.80f)
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            return nearestTr != null && (nearestTr == transform || nearestTr.IsChildOf(transform));
         }
 
         public void OpenManual()
@@ -222,7 +357,7 @@ namespace OpenSourceTeam6.UI.Unity
                         "   • 부드러운 말투로 칭찬하거나 '잠깐 쉬어' 지시로 스트레스를 낮추세요.\n\n" +
                         "4. 영업 목표 및 시연 단축키\n" +
                         "   • 영업 시간(08:00 ~ 익일 08:00) 동안 목표 매출을 달성해 정산에 통과하세요.\n" +
-                        "   • F6 : 즉시 마감 정산  /  F7 : +4시간 진행  /  F8 : 비 날씨 토글  /  G : 포스트잇 접기";
+                        "   • M : 매장 지도 열기·접기  /  G : 포스트잇 접기  /  F6 : 즉시 마감  /  F7 : +4시간";
                 }
 
                 Transform footerTr = contentTr.Find("ManualFooterText");
@@ -230,6 +365,7 @@ namespace OpenSourceTeam6.UI.Unity
                 {
                     footerText.fontStyle = FontStyle.Normal;
                     footerText.fontSize = 32;
+                    footerText.text = "※ 카운터 위 운영 설명서 책을 화면 중앙 포인터로 조준하고 [E]를 누르면 언제든 다시 확인할 수 있습니다.";
                     footerText.rectTransform.anchoredPosition = new Vector2(0f, 14f);
                     footerText.rectTransform.sizeDelta = new Vector2(0f, 60f);
                 }

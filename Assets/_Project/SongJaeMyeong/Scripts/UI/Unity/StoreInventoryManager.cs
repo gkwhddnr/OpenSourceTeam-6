@@ -37,7 +37,7 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private NpcPopulationController npcPopulation;
 
         [Header("포스기 상호작용 · 알바 자동 계산 설정")]
-        [SerializeField] private float playerPosInteractDistance = 3.2f;
+        [SerializeField] private float playerPosInteractDistance = 2.0f;
         [SerializeField] private float staffAutoCheckoutSeconds = 1.4f;
 
         [Header("초기 진열 재고 (맵 배치 개수 자동 기록)")]
@@ -762,94 +762,47 @@ namespace OpenSourceTeam6.UI.Unity
             if (playerCamera == null) return false;
             if (registerTr == null && monitorTr == null) return false;
 
-            Transform camTr = playerCamera.transform;
-            float maxDist = Mathf.Max(3.4f, playerPosInteractDistance);
-            Ray ray = new Ray(camTr.position, camTr.forward);
+            float maxDist = Mathf.Clamp(playerPosInteractDistance, 0.8f, 2.05f);
+            Ray ray = playerCamera.ViewportPointToRay(new Vector3(0.5f, 0.5f, 0f));
+            RaycastHit[] hits = Physics.RaycastAll(ray, maxDist, ~0, QueryTriggerInteraction.Ignore);
+            if (hits == null || hits.Length == 0) return false;
 
-            // 설명서 큐브(Counter_ManualCube)를 직접 조준 중이면 설명서 [E]가 우선하도록 양보한다.
-            if (manualCubeTransform != null)
-            {
-                Vector3 toManual = manualCubeTransform.position - camTr.position;
-                float manualDist = toManual.magnitude;
-                if (manualDist <= maxDist && manualDist > 0.001f)
-                {
-                    if (Physics.SphereCast(ray, 0.16f, out RaycastHit manualHit, maxDist, ~0, QueryTriggerInteraction.Ignore) &&
-                        (manualHit.transform == manualCubeTransform || manualHit.transform.IsChildOf(manualCubeTransform)))
-                    {
-                        return false;
-                    }
-                }
-            }
+            Transform playerRoot = playerCamera.transform.root;
+            float nearestDist = float.MaxValue;
+            Transform nearestTr = null;
 
-            RaycastHit[] hits = Physics.SphereCastAll(ray, 0.22f, maxDist, ~0, QueryTriggerInteraction.Ignore);
             for (int i = 0; i < hits.Length; i++)
             {
                 Transform hitTr = hits[i].transform;
                 if (hitTr == null) continue;
+                if (playerRoot != null && (hitTr == playerRoot || hitTr.IsChildOf(playerRoot))) continue;
 
-                if (registerTr != null && (hitTr == registerTr || hitTr.IsChildOf(registerTr)))
+                if (hits[i].distance < nearestDist)
                 {
-                    return true;
-                }
-
-                if (monitorTr != null && (hitTr == monitorTr || hitTr.IsChildOf(monitorTr)))
-                {
-                    return true;
+                    nearestDist = hits[i].distance;
+                    nearestTr = hitTr;
                 }
             }
 
-            float bestDot = -1f;
-            float bestDist = float.MaxValue;
+            if (nearestTr == null) return false;
 
-            if (registerTr != null)
+            if (manualCubeTransform != null &&
+                (nearestTr == manualCubeTransform || nearestTr.IsChildOf(manualCubeTransform)))
             {
-                Vector3 toReg = (registerTr.position + Vector3.up * 0.16f) - camTr.position;
-                float d = toReg.magnitude;
-                if (d <= maxDist && d > 0.001f)
-                {
-                    float dot = Vector3.Dot(camTr.forward, toReg / d);
-                    if (dot > bestDot)
-                    {
-                        bestDot = dot;
-                        bestDist = d;
-                    }
-                }
+                return false;
             }
 
-            if (monitorTr != null)
+            if (registerTr != null && (nearestTr == registerTr || nearestTr.IsChildOf(registerTr)))
             {
-                Vector3 toMon = (monitorTr.position + Vector3.up * 0.22f) - camTr.position;
-                float d = toMon.magnitude;
-                if (d <= maxDist && d > 0.001f)
-                {
-                    float dot = Vector3.Dot(camTr.forward, toMon / d);
-                    if (dot > bestDot)
-                    {
-                        bestDot = dot;
-                        bestDist = d;
-                    }
-                }
+                return true;
             }
 
-            if (bestDist > maxDist) return false;
-
-            float requiredDot = (hasWaitingCustomer && bestDist <= 2.40f) ? 0.45f : 0.65f;
-            if (bestDot < requiredDot) return false;
-
-            if (manualCubeTransform != null)
+            if (monitorTr != null && (nearestTr == monitorTr || nearestTr.IsChildOf(monitorTr)))
             {
-                Vector3 toManual = manualCubeTransform.position - camTr.position;
-                if (toManual.magnitude > 0.001f && toManual.magnitude <= 2.3f)
-                {
-                    float manualDot = Vector3.Dot(camTr.forward, toManual.normalized);
-                    if (manualDot >= 0.84f && manualDot > bestDot + 0.06f)
-                    {
-                        return false;
-                    }
-                }
+                return true;
             }
 
-            return true;
+            return false;
         }
 
         private void EnsurePosPromptBadge()

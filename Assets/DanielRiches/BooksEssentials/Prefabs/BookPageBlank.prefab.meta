@@ -1,0 +1,14 @@
+fileFormatVersion: 2
+guid: 46320b74b2732b04da770dd899880947
+PrefabImporter:
+  externalObjects: {}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
+AssetOrigin:
+  serializedVersion: 1
+  productId: 362582
+  packageName: Books Essentials
+  packageVersion: 1.0
+  assetPath: Assets/DanielRiches/BooksEssentials/Prefabs/BookPageBlank.prefab
+  uploadId: 875466

@@ -34,6 +34,10 @@ namespace OpenSourceTeam6.UI.Editor
         private const string PortraitSpritePath = UiAssetDir + "/Spr_PortraitSilhouette.png";
         private const string ResumeClipboardSpritePath = UiAssetDir + "/Spr_ResumeClipboard.png";
         private const string PostItSpritePath = UiAssetDir + "/Spr_PostItNote.png";
+        private const string StoreMapBlueprintSpritePath = UiAssetDir + "/Spr_StoreMapBlueprint.png";
+        private const string MapFoldedIconSpritePath = UiAssetDir + "/Spr_MapFoldedIcon.png";
+        private const string ResourcesMapBlueprintSpritePath = "Assets/_Project/SongJaeMyeong/Resources/UI/Spr_StoreMapBlueprint.png";
+        private const string ResourcesMapFoldedIconSpritePath = "Assets/_Project/SongJaeMyeong/Resources/UI/Spr_MapFoldedIcon.png";
         private const string SmoothRectSpritePath = UiAssetDir + "/Spr_UiSmoothRect.png";
         private const string PanelCardSpritePath = UiAssetDir + "/Spr_UiPanelCard.png";
         private const string ButtonDepthSpritePath = UiAssetDir + "/Spr_UiButtonDepth.png";
@@ -63,6 +67,12 @@ namespace OpenSourceTeam6.UI.Editor
         private const string CounterSecondaryMonitorPrefabGuid = "a7c8d5abfd365bc49914ef428ffdc098";
         private const string CounterCashRegisterPrefabPath = "Assets/RetroStyleGames/GasStation/Prefabs/P_RSG_CashRegister.prefab";
         private const string CounterCashRegisterPrefabGuid = "b0cfac3eebc9cc14aab6be8839e98798";
+        private const string CounterManualBookPrefabPath = "Assets/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting_1.prefab";
+        private const string CounterManualBookPrefabGuid = "c61827d91f5a9c44ea72b18d305cf783";
+        private const string CounterManualBookFallbackPrefabPath = "Assets/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting.prefab";
+        private const string CounterManualBookFallbackPrefabGuid = "dbfd22a19f49eeb4f90b69c31511ae3c";
+        private const string PosReceiptPagePrefabPath = "Assets/DanielRiches/BooksEssentials/Prefabs/BookPageWriting.prefab";
+        private const string PosReceiptPagePrefabGuid = "4421dcd12f4a79f4597a43cb1179da2d";
 
         private static readonly HashSet<string> ConvenienceStoreEnvironmentRoots = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -142,6 +152,7 @@ namespace OpenSourceTeam6.UI.Editor
 
                 EnsurePrefabTimerTextWidth(prefab);
                 SyncAudioClipsOnPrefabAndActiveScene(prefab);
+                SyncBookAndReceiptModelsOnActiveScene();
             };
         }
 
@@ -164,6 +175,20 @@ namespace OpenSourceTeam6.UI.Editor
                 uiPrefab.transform.Find("PersonaSetupPanel/ResumeClipboard") == null)
             {
                 return true;
+            }
+
+            if (uiPrefab.transform.Find("EmployeeSettlementPanel/EmployeeSettlementPaper/PaperContentArea/PaperContent2x") == null)
+            {
+                return true;
+            }
+
+            if (File.Exists(ResourcesMapBlueprintSpritePath))
+            {
+                TextureImporter mapImporter = AssetImporter.GetAtPath(ResourcesMapBlueprintSpritePath) as TextureImporter;
+                if (mapImporter == null || mapImporter.textureType != TextureImporterType.Sprite)
+                {
+                    return true;
+                }
             }
 
             Transform topStoreBar = uiPrefab.transform.Find("InGameHud/TopStoreBar");
@@ -375,6 +400,292 @@ namespace OpenSourceTeam6.UI.Editor
                     sessionSo.ApplyModifiedPropertiesWithoutUndo();
                     PrefabUtility.SavePrefabAsset(prefabAsset);
                     AssetDatabase.SaveAssets();
+                }
+            }
+        }
+
+        private static void SyncBookAndReceiptModelsOnActiveScene()
+        {
+            Scene activeScene = SceneManager.GetActiveScene();
+            if (!activeScene.IsValid() || activeScene.path != WorkScenePath) return;
+
+            bool sceneModified = false;
+
+            GameObject manualCube = GameObject.Find("Counter_ManualCube");
+            if (manualCube != null && manualCube.transform.Find("Counter_ManualBookModel") == null)
+            {
+                GameObject bookPrefab = LoadPrefabByPathOrGuid(CounterManualBookPrefabPath, CounterManualBookPrefabGuid)
+                                        ?? LoadPrefabByPathOrGuid(CounterManualBookFallbackPrefabPath, CounterManualBookFallbackPrefabGuid);
+                if (bookPrefab != null)
+                {
+                    ConfigureCounterManualBookVisual(manualCube);
+                    sceneModified = true;
+                }
+            }
+
+            PosSettlementStageController posStage = Object.FindAnyObjectByType<PosSettlementStageController>(FindObjectsInactive.Include);
+            if (posStage != null)
+            {
+                Transform receiptPivot = posStage.transform.Find("PosStageVisualRoot/PosMachinePivot/PosReceiptPaperPivot");
+                if (receiptPivot != null)
+                {
+                    if (Vector3.Distance(receiptPivot.localPosition, new Vector3(0.098f, 0.20f, 0.03f)) > 0.01f &&
+                        posStage.transform.Find("PosStageVisualRoot/PosMachinePivot/Register_Model") != null)
+                    {
+                        receiptPivot.localPosition = new Vector3(0.098f, 0.20f, 0.03f);
+                        Material whiteMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/White.mat");
+                        Material darkMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Dark.mat");
+                        ConfigurePosReceiptPageVisual(receiptPivot.gameObject, whiteMat, darkMat);
+                        sceneModified = true;
+                    }
+                    else if (receiptPivot.Find("PosReceiptBookPageModel") == null)
+                    {
+                        GameObject pagePrefab = LoadPrefabByPathOrGuid(PosReceiptPagePrefabPath, PosReceiptPagePrefabGuid);
+                        if (pagePrefab != null)
+                        {
+                            Material whiteMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/White.mat");
+                            Material darkMat = AssetDatabase.LoadAssetAtPath<Material>("Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Dark.mat");
+                            ConfigurePosReceiptPageVisual(receiptPivot.gameObject, whiteMat, darkMat);
+                            sceneModified = true;
+                        }
+                    }
+                }
+            }
+
+            if (sceneModified)
+            {
+                EditorSceneManager.MarkSceneDirty(activeScene);
+                EditorSceneManager.SaveScene(activeScene);
+                AssetDatabase.SaveAssets();
+                Debug.Log("[OpenSourceTeam6.UI] BooksEssentials 에셋(계산대 설명서 오픈북 + 정산 씬 영수증 출력 페이지) 씬 동기화 완료!");
+            }
+        }
+
+        private static void ConfigureCounterManualBookVisual(GameObject manualCube)
+        {
+            if (manualCube == null) return;
+
+            GameObject bookPrefab = LoadPrefabByPathOrGuid(CounterManualBookPrefabPath, CounterManualBookPrefabGuid)
+                                    ?? LoadPrefabByPathOrGuid(CounterManualBookFallbackPrefabPath, CounterManualBookFallbackPrefabGuid);
+
+            if (bookPrefab != null)
+            {
+                // 기존 큐브 렌더러 및 책등 자식 제거
+                MeshRenderer rootRenderer = manualCube.GetComponent<MeshRenderer>();
+                if (rootRenderer != null) Object.DestroyImmediate(rootRenderer);
+                MeshFilter rootFilter = manualCube.GetComponent<MeshFilter>();
+                if (rootFilter != null) Object.DestroyImmediate(rootFilter);
+
+                Transform oldSpine = manualCube.transform.Find("ManualSpineAccent");
+                if (oldSpine != null) Object.DestroyImmediate(oldSpine.gameObject);
+                Transform oldBook = manualCube.transform.Find("Counter_ManualBookModel");
+                if (oldBook != null) Object.DestroyImmediate(oldBook.gameObject);
+
+                manualCube.transform.position = new Vector3(-3.60f, 1.042f, -2.42f);
+                manualCube.transform.localScale = Vector3.one;
+                manualCube.transform.localEulerAngles = new Vector3(0f, -14f, 0f);
+
+                BoxCollider boxCol = manualCube.GetComponent<BoxCollider>();
+                if (boxCol == null) boxCol = manualCube.AddComponent<BoxCollider>();
+                boxCol.center = new Vector3(0f, 0.035f, 0f);
+                boxCol.size = new Vector3(0.34f, 0.085f, 0.24f);
+
+                GameObject bookModel = (GameObject)PrefabUtility.InstantiatePrefab(bookPrefab, manualCube.transform);
+                bookModel.name = "Counter_ManualBookModel";
+                Collider[] childCols = bookModel.GetComponentsInChildren<Collider>(true);
+                for (int i = 0; i < childCols.Length; i++)
+                {
+                    if (childCols[i] != null) Object.DestroyImmediate(childCols[i]);
+                }
+
+                MeshFilter mf = bookModel.GetComponentInChildren<MeshFilter>();
+                Mesh mesh = mf != null ? mf.sharedMesh : null;
+                Vector3 meshSize = mesh != null ? mesh.bounds.size : new Vector3(6.45f, 4.43f, 0.66f);
+                float uniformScale = 0.34f / Mathf.Max(0.001f, meshSize.x);
+                float zSign = GetOpenPagesLocalZSign(mesh);
+
+                bookModel.transform.localPosition = Vector3.zero;
+                bookModel.transform.localRotation = Quaternion.LookRotation(
+                    zSign >= 0f ? Vector3.up : Vector3.down,
+                    Vector3.forward);
+                bookModel.transform.localScale = Vector3.one * uniformScale;
+
+                ApplyBookUrpColors(bookModel, isReceiptPage: false);
+
+                Renderer bookRenderer = bookModel.GetComponentInChildren<Renderer>();
+                if (bookRenderer != null)
+                {
+                    float liftY = manualCube.transform.position.y - bookRenderer.bounds.min.y;
+                    bookModel.transform.position += new Vector3(0f, liftY, 0f);
+                }
+
+                return;
+            }
+
+            // 폴백: 에셋이 없을 경우 기존 큐브 형태 생성
+            if (manualCube.GetComponent<MeshFilter>() == null)
+            {
+                GameObject fallbackCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                Mesh fallbackMesh = fallbackCube.GetComponent<MeshFilter>().sharedMesh;
+                Object.DestroyImmediate(fallbackCube);
+                manualCube.AddComponent<MeshFilter>().sharedMesh = fallbackMesh;
+                MeshRenderer mr = manualCube.AddComponent<MeshRenderer>();
+                Material coverMat = AssetDatabase.LoadAssetAtPath<Material>(ManualCubeMatPath);
+                if (coverMat != null) mr.sharedMaterial = coverMat;
+            }
+            manualCube.transform.position = new Vector3(-3.60f, 1.11f, -2.42f);
+            manualCube.transform.localScale = new Vector3(0.28f, 0.14f, 0.22f);
+        }
+
+        private static void ConfigurePosReceiptPageVisual(
+            GameObject receiptPivot,
+            Material whiteMat,
+            Material darkMat)
+        {
+            if (receiptPivot == null) return;
+
+            for (int i = receiptPivot.transform.childCount - 1; i >= 0; i--)
+            {
+                Object.DestroyImmediate(receiptPivot.transform.GetChild(i).gameObject);
+            }
+
+            GameObject pagePrefab = LoadPrefabByPathOrGuid(PosReceiptPagePrefabPath, PosReceiptPagePrefabGuid);
+            if (pagePrefab != null)
+            {
+                GameObject pageModel = (GameObject)PrefabUtility.InstantiatePrefab(pagePrefab, receiptPivot.transform);
+                pageModel.name = "PosReceiptBookPageModel";
+                Collider[] cols = pageModel.GetComponentsInChildren<Collider>(true);
+                for (int i = 0; i < cols.Length; i++)
+                {
+                    if (cols[i] != null) Object.DestroyImmediate(cols[i]);
+                }
+
+                MeshFilter mf = pageModel.GetComponentInChildren<MeshFilter>();
+                Mesh mesh = mf != null ? mf.sharedMesh : null;
+                Bounds mb = mesh != null ? mesh.bounds : new Bounds(Vector3.zero, new Vector3(2.55f, 3.98f, 0.044f));
+                float sx = 0.145f / Mathf.Max(0.001f, mb.size.x);
+                float sy = 1.00f / Mathf.Max(0.001f, mb.size.y);
+                float sz = sx;
+                float zSign = GetOpenPagesLocalZSign(mesh);
+
+                pageModel.transform.localRotation = zSign >= 0f
+                    ? Quaternion.identity
+                    : Quaternion.Euler(0f, 180f, 0f);
+                pageModel.transform.localScale = new Vector3(sx, sy, sz);
+                pageModel.transform.localPosition = new Vector3(
+                    -mb.center.x * sx,
+                    0.5f - mb.center.y * sy,
+                    -mb.center.z * sz);
+
+                ApplyBookUrpColors(pageModel, isReceiptPage: true);
+                return;
+            }
+
+            // 폴백: 에셋이 없을 경우 기존 큐브 영수증 생성
+            GameObject paperMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            paperMesh.name = "PosReceiptPaperMesh";
+            paperMesh.transform.SetParent(receiptPivot.transform, false);
+            paperMesh.transform.localPosition = new Vector3(0f, 0.5f, 0f);
+            paperMesh.transform.localScale = new Vector3(0.16f, 1.0f, 0.008f);
+            Collider paperCol = paperMesh.GetComponent<Collider>();
+            if (paperCol != null) Object.DestroyImmediate(paperCol);
+            if (whiteMat != null) paperMesh.GetComponent<Renderer>().sharedMaterial = whiteMat;
+
+            for (int line = 0; line < 4; line++)
+            {
+                GameObject inkLine = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                inkLine.name = $"ReceiptInkLine_{line + 1}";
+                inkLine.transform.SetParent(receiptPivot.transform, false);
+                inkLine.transform.localPosition = new Vector3(0f, 0.22f + line * 0.18f, 0.006f);
+                inkLine.transform.localScale = new Vector3(0.11f, 0.032f, 0.004f);
+                Collider lc = inkLine.GetComponent<Collider>();
+                if (lc != null) Object.DestroyImmediate(lc);
+                if (darkMat != null) inkLine.GetComponent<Renderer>().sharedMaterial = darkMat;
+            }
+        }
+
+        private static float GetOpenPagesLocalZSign(Mesh mesh)
+        {
+            if (mesh == null || mesh.subMeshCount < 2) return 1f;
+            Vector3[] verts = mesh.vertices;
+            if (verts == null || verts.Length == 0) return 1f;
+
+            int textSubmesh = mesh.subMeshCount >= 3 ? 2 : 1;
+            int[] tris = mesh.GetTriangles(textSubmesh);
+            if (tris == null || tris.Length == 0) return 1f;
+
+            float sumZ = 0f;
+            for (int i = 0; i < tris.Length; i++)
+            {
+                int vi = tris[i];
+                if (vi >= 0 && vi < verts.Length)
+                {
+                    sumZ += verts[vi].z;
+                }
+            }
+
+            float avgZ = sumZ / tris.Length;
+            return (avgZ - mesh.bounds.center.z) >= 0f ? 1f : -1f;
+        }
+
+        private static void ApplyBookUrpColors(GameObject instance, bool isReceiptPage)
+        {
+            if (instance == null) return;
+            ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(instance);
+
+            Renderer[] renderers = instance.GetComponentsInChildren<Renderer>(true);
+            for (int r = 0; r < renderers.Length; r++)
+            {
+                Material[] mats = renderers[r].sharedMaterials;
+                if (mats == null) continue;
+
+                for (int m = 0; m < mats.Length; m++)
+                {
+                    Material mat = mats[m];
+                    if (mat == null) continue;
+
+                    string matName = mat.name ?? string.Empty;
+                    Color targetColor;
+                    float smoothness;
+
+                    if (matName.IndexOf("Text", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        matName.IndexOf("Black", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        targetColor = new Color(0.13f, 0.12f, 0.11f, 1f);
+                        smoothness = 0.15f;
+                    }
+                    else if (matName.IndexOf("Paper", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                             matName.IndexOf("Page", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        targetColor = isReceiptPage
+                            ? new Color(0.96f, 0.95f, 0.90f, 1f)
+                            : new Color(0.95f, 0.91f, 0.82f, 1f);
+                        smoothness = 0.20f;
+                    }
+                    else if (matName.IndexOf("CoverEdge", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        targetColor = new Color(0.86f, 0.68f, 0.26f, 1f);
+                        smoothness = 0.55f;
+                    }
+                    else
+                    {
+                        targetColor = new Color(0.24f, 0.15f, 0.10f, 1f);
+                        smoothness = 0.35f;
+                    }
+
+                    if (mat.HasProperty("_BaseColor"))
+                    {
+                        mat.SetColor("_BaseColor", targetColor);
+                    }
+                    if (mat.HasProperty("_Color"))
+                    {
+                        mat.SetColor("_Color", targetColor);
+                    }
+                    if (mat.HasProperty("_Smoothness"))
+                    {
+                        mat.SetFloat("_Smoothness", smoothness);
+                    }
+                    EditorUtility.SetDirty(mat);
                 }
             }
         }
@@ -866,6 +1177,38 @@ namespace OpenSourceTeam6.UI.Editor
             _resumeClipboardSprite = ConfigureUiSpriteAsset(ResumeClipboardSpritePath, Vector4.zero, maxTextureSize: 2048);
             _postItNoteSprite = ConfigureUiSpriteAsset(
                 PostItSpritePath,
+                Vector4.zero,
+                maxTextureSize: 1024,
+                enableMipmaps: true,
+                uncompressed: true,
+                filterMode: FilterMode.Trilinear,
+                anisoLevel: 8);
+            ConfigureUiSpriteAsset(
+                StoreMapBlueprintSpritePath,
+                Vector4.zero,
+                maxTextureSize: 2048,
+                enableMipmaps: true,
+                uncompressed: true,
+                filterMode: FilterMode.Trilinear,
+                anisoLevel: 8);
+            ConfigureUiSpriteAsset(
+                ResourcesMapBlueprintSpritePath,
+                Vector4.zero,
+                maxTextureSize: 2048,
+                enableMipmaps: true,
+                uncompressed: true,
+                filterMode: FilterMode.Trilinear,
+                anisoLevel: 8);
+            ConfigureUiSpriteAsset(
+                MapFoldedIconSpritePath,
+                Vector4.zero,
+                maxTextureSize: 1024,
+                enableMipmaps: true,
+                uncompressed: true,
+                filterMode: FilterMode.Trilinear,
+                anisoLevel: 8);
+            ConfigureUiSpriteAsset(
+                ResourcesMapFoldedIconSpritePath,
                 Vector4.zero,
                 maxTextureSize: 1024,
                 enableMipmaps: true,
@@ -2754,8 +3097,8 @@ namespace OpenSourceTeam6.UI.Editor
                 paperFont,
                 "[조작 가이드 · 음성/LLM 연동]\n" +
                 "• WASD : 이동 · E : 포스기 결제 / 설명서\n" +
-                "• R(홀드)/V : 실제 음성 지시 (Whisper)\n" +
-                "• Tab : 텍스트 명령창 (LLM 중계)\n" +
+                "• R(홀드)/V : 실제 음성 지시 · Tab : 명령창\n" +
+                "• M : 매장 지도 · G : 상태창 · H : 대화기록\n" +
                 "• 좌클릭 : 이동 위치 지정 · P/Esc : 정지\n" +
                 "• F6 : 정산 · F7 : +4시간 · F8 : 비 날씨",
                 32,
@@ -2777,36 +3120,18 @@ namespace OpenSourceTeam6.UI.Editor
             Font paperFont,
             Sprite whiteSprite)
         {
-            // 1. 계산대 상판(y = 1.04) 왼쪽에 올려둔 작은 설명서 큐브 (중앙 모니터·우측 포스기와 겹치지 않게 배치)
-            GameObject manualCube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            manualCube.name = "Counter_ManualCube";
+            // 1. 계산대 상판(y = 1.04) 왼쪽에 올려둔 점장 설명서 오브젝트 (BooksEssentials 오픈북 에셋 우선 사용)
+            GameObject manualCube = new GameObject("Counter_ManualCube");
             manualCube.transform.SetParent(stageRoot, false);
-            manualCube.transform.position = new Vector3(-3.60f, 1.11f, -2.42f);
-            manualCube.transform.localScale = new Vector3(0.28f, 0.14f, 0.22f);
+            manualCube.transform.position = new Vector3(-3.60f, 1.042f, -2.42f);
+            manualCube.transform.localScale = Vector3.one;
             manualCube.transform.localEulerAngles = new Vector3(0f, -14f, 0f);
 
-            Material coverMat = AssetDatabase.LoadAssetAtPath<Material>(ManualCubeMatPath);
-            if (coverMat != null)
-            {
-                Renderer r = manualCube.GetComponent<Renderer>();
-                if (r != null) r.sharedMaterial = coverMat;
-            }
+            BoxCollider manualBox = manualCube.AddComponent<BoxCollider>();
+            manualBox.center = new Vector3(0f, 0.035f, 0f);
+            manualBox.size = new Vector3(0.34f, 0.085f, 0.24f);
 
-            // 책등(바인더) 디테일 장식 (충돌체 제거)
-            GameObject spine = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            spine.name = "ManualSpineAccent";
-            spine.transform.SetParent(manualCube.transform, false);
-            spine.transform.localPosition = new Vector3(-0.46f, 0.04f, 0f);
-            spine.transform.localScale = new Vector3(0.12f, 1.04f, 1.02f);
-            Collider spineCol = spine.GetComponent<Collider>();
-            if (spineCol != null) Object.DestroyImmediate(spineCol);
-
-            Material spineMat = AssetDatabase.LoadAssetAtPath<Material>(ManualSpineMatPath);
-            if (spineMat != null)
-            {
-                Renderer sr = spine.GetComponent<Renderer>();
-                if (sr != null) sr.sharedMaterial = spineMat;
-            }
+            ConfigureCounterManualBookVisual(manualCube);
 
             // 2. 상호작용 안내 프롬프트 + 설명서 모달 UI (sortingOrder 65)
             GameObject canvasObj = new GameObject("ManualInteractCanvas");
@@ -2900,7 +3225,7 @@ namespace OpenSourceTeam6.UI.Editor
             bodyTxt.lineSpacing = 1.20f;
             SetRect(bodyTxt.rectTransform, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -138f), new Vector2(0f, 1050f));
 
-            Text footerTxt = CreatePaperText("ManualFooterText", manualContent.transform, paperFont, "※ 카운터 앞 노란 바인더를 바라보고 [E]를 누르면 언제든 다시 확인할 수 있습니다.", 32, FontStyle.Normal, inkAccent, TextAnchor.MiddleCenter);
+            Text footerTxt = CreatePaperText("ManualFooterText", manualContent.transform, paperFont, "※ 카운터 위 운영 설명서 책을 화면 중앙 포인터로 조준하고 [E]를 누르면 언제든 다시 확인할 수 있습니다.", 32, FontStyle.Normal, inkAccent, TextAnchor.MiddleCenter);
             SetRect(footerTxt.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 14f), new Vector2(0f, 60f));
 
             dimBg.SetActive(false);
@@ -3282,36 +3607,16 @@ namespace OpenSourceTeam6.UI.Editor
                 if (blackMat != null) printerSlot.GetComponent<Renderer>().sharedMaterial = blackMat;
             }
 
-            // 클릭 시 슬롯에서 위로 출력되는 3D 영수증 종이 스트립 (피벗을 아래쪽 끝에 맞춰 위로 자라게 구성)
+            // 클릭 시 슬롯에서 위로 출력되는 3D 영수증 종이 (BooksEssentials BookPageWriting 에셋 우선 사용)
             GameObject receiptPivot = new GameObject("PosReceiptPaperPivot");
             receiptPivot.transform.SetParent(posPivot.transform, false);
             receiptPivot.transform.localPosition = cashRegisterPrefab != null
-                ? new Vector3(-0.08f, 0.23f, 0.05f)
+                ? new Vector3(0.098f, 0.20f, 0.03f)
                 : new Vector3(0f, 0.12f, 0.105f);
             receiptPivot.transform.localRotation = Quaternion.Euler(22f, 0f, 0f);
             receiptPivot.transform.localScale = new Vector3(1f, 0.01f, 1f);
 
-            GameObject paperMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            paperMesh.name = "PosReceiptPaperMesh";
-            paperMesh.transform.SetParent(receiptPivot.transform, false);
-            paperMesh.transform.localPosition = new Vector3(0f, 0.5f, 0f);
-            paperMesh.transform.localScale = new Vector3(0.16f, 1.0f, 0.008f);
-            Collider paperCol = paperMesh.GetComponent<Collider>();
-            if (paperCol != null) Object.DestroyImmediate(paperCol);
-            if (whiteMat != null) paperMesh.GetComponent<Renderer>().sharedMaterial = whiteMat;
-
-            // 영수증 위 인쇄 줄 디테일 4줄
-            for (int line = 0; line < 4; line++)
-            {
-                GameObject inkLine = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                inkLine.name = $"ReceiptInkLine_{line + 1}";
-                inkLine.transform.SetParent(receiptPivot.transform, false);
-                inkLine.transform.localPosition = new Vector3(0f, 0.22f + line * 0.18f, 0.006f);
-                inkLine.transform.localScale = new Vector3(0.11f, 0.032f, 0.004f);
-                Collider lc = inkLine.GetComponent<Collider>();
-                if (lc != null) Object.DestroyImmediate(lc);
-                if (darkMat != null) inkLine.GetComponent<Renderer>().sharedMaterial = darkMat;
-            }
+            ConfigurePosReceiptPageVisual(receiptPivot, whiteMat, darkMat);
 
             receiptPivot.SetActive(false);
 
@@ -3478,9 +3783,10 @@ namespace OpenSourceTeam6.UI.Editor
                         clonedMap.name = "ConvenienceStore_Map";
                         SceneManager.MoveGameObjectToScene(clonedMap, targetScene);
 
-                        bool hasRebuiltItems = clonedMap.transform.Find("Layout_Rebuilt_2026") != null &&
-                                               clonedMap.transform.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName) != null;
-                        spawnedItemCounts = hasRebuiltItems
+                        Transform existingPopulated = clonedMap.transform.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName);
+                        bool hasGroupedItems = existingPopulated != null &&
+                                               !ConvenienceStoreProductPopulator.NeedsProductShelfRefresh(existingPopulated.gameObject);
+                        spawnedItemCounts = hasGroupedItems
                             ? ConvenienceStoreProductPopulator.CollectExistingStockCounts(clonedMap)
                             : ConvenienceStoreProductPopulator.PopulateMap(clonedMap);
                         importedMapRoot = clonedMap;
