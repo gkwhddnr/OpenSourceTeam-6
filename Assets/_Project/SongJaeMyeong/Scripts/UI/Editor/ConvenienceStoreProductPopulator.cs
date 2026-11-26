@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using UnityEditor;
@@ -19,7 +19,7 @@ namespace OpenSourceTeam6.UI.Editor
         public const string GroupedZonesMarkerName = "GroupedShelfZones_V3";
 
         private const string SoldRoot = "Assets/SellableItems/01_CurrentlySold";
-        private const string AsianStreetFoodPalettePath = "Assets/AsianStreetFoodPack/Textures/palette_1024.png";
+        private const string AsianStreetFoodPalettePath = "Assets/ThirdParty/Shared/AsianStreetFoodPack/Textures/palette_1024.png";
         private const string PackageMatPath = "Assets/_Project/SongJaeMyeong/Assets/UI/Mat_FoodClearPackage.mat";
         private const string ShowcaseGlassMatPath = "Assets/_Project/SongJaeMyeong/Assets/UI/Mat_HotFoodShowcaseGlass.mat";
         private const string ShelfBoardMatPath = "Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/White.mat";
@@ -1187,7 +1187,7 @@ namespace OpenSourceTeam6.UI.Editor
         }
 
         private const string HqpColorGridTexturePath =
-            "Assets/HQP STUDIOS/Food Pack - Low Poly Sweets/Textures/ColorGrid.png";
+            "Assets/ThirdParty/Shared/HQP STUDIOS/Food Pack - Low Poly Sweets/Textures/ColorGrid.png";
 
         private static readonly string[] AlbedoTexturePropertyCandidates =
         {

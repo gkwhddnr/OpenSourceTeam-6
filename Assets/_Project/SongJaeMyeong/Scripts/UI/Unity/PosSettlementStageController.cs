@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -73,7 +73,7 @@ namespace OpenSourceTeam6.UI.Unity
 
 #if UNITY_EDITOR
             GameObject pagePrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
-                "Assets/DanielRiches/BooksEssentials/Prefabs/BookPageWriting.prefab");
+                "Assets/ThirdParty/Shared/DanielRiches/BooksEssentials/Prefabs/BookPageWriting.prefab");
             if (pagePrefab == null) return;
 
             for (int i = 0; i < receiptPaperStrip.childCount; i++)

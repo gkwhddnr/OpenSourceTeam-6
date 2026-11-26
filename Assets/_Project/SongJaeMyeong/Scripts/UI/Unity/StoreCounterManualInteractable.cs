@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -51,11 +51,11 @@ namespace OpenSourceTeam6.UI.Unity
 
 #if UNITY_EDITOR
             GameObject bookPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
-                "Assets/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting_1.prefab");
+                "Assets/ThirdParty/Shared/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting_1.prefab");
             if (bookPrefab == null)
             {
                 bookPrefab = UnityEditor.AssetDatabase.LoadAssetAtPath<GameObject>(
-                    "Assets/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting.prefab");
+                    "Assets/ThirdParty/Shared/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting.prefab");
             }
 
             if (bookPrefab == null) return;

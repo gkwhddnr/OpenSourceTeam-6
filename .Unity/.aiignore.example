@@ -1,0 +1,44 @@
+# Rename to .aiignore only after reviewing it for the project.
+# JetBrains AI Assistant and Junie use this file. Other agents may not.
+
+# Secrets and private local configuration
+.env
+.env.*
+!.env.example
+!.env.template
+**/secrets/**
+**/credentials/**
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.keystore
+
+# Generated Unity data
+Library/**
+Temp/**
+Logs/**
+UserSettings/**
+obj/**
+Build/**
+Builds/**
+MemoryCaptures/**
+Recordings/**
+
+# IDE-local and generated project data
+.idea/**/workspace.xml
+.idea/**/shelf/**
+.idea/**/httpRequests/**
+.vs/**
+.vscode/*.log
+**/*.sln
+**/*.csproj
+**/*.csproj.user
+**/*.sln.DotSettings.user
+
+# Test/runtime output
+TestResults/**
+**/coverage/**
+**/*.log
+
+# Add project-specific production exports, private fixtures, and local credentials.
+# Do not ignore Assets, Packages, ProjectSettings, or .meta files wholesale.

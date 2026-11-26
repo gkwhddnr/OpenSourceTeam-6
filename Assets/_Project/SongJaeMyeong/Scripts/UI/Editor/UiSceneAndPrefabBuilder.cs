@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using OpenSourceTeam6.Customers.Unity;
@@ -61,17 +61,17 @@ namespace OpenSourceTeam6.UI.Editor
         private const string CustomerCapsulePrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/CustomerCapsule.prefab";
         private const string PedestrianCapsulePrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/PedestrianCapsule.prefab";
         private const string CustomerProductPrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/ProductBox.prefab";
-        private const string CounterMonitorPrefabPath = "Assets/JustPlay/\u0421omputer devices/Prefabs/Monitor.prefab";
+        private const string CounterMonitorPrefabPath = "Assets/ThirdParty/Shared/JustPlay/\u0421omputer devices/Prefabs/Monitor.prefab";
         private const string CounterMonitorPrefabGuid = "eb070747f0511a24aad45f57de2b6f51";
-        private const string CounterSecondaryMonitorPrefabPath = "Assets/JustPlay/\u0421omputer devices/Prefabs/Monitor 2.prefab";
+        private const string CounterSecondaryMonitorPrefabPath = "Assets/ThirdParty/Shared/JustPlay/\u0421omputer devices/Prefabs/Monitor 2.prefab";
         private const string CounterSecondaryMonitorPrefabGuid = "a7c8d5abfd365bc49914ef428ffdc098";
-        private const string CounterCashRegisterPrefabPath = "Assets/RetroStyleGames/GasStation/Prefabs/P_RSG_CashRegister.prefab";
+        private const string CounterCashRegisterPrefabPath = "Assets/ThirdParty/Shared/RetroStyleGames/GasStation/Prefabs/P_RSG_CashRegister.prefab";
         private const string CounterCashRegisterPrefabGuid = "b0cfac3eebc9cc14aab6be8839e98798";
-        private const string CounterManualBookPrefabPath = "Assets/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting_1.prefab";
+        private const string CounterManualBookPrefabPath = "Assets/ThirdParty/Shared/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting_1.prefab";
         private const string CounterManualBookPrefabGuid = "c61827d91f5a9c44ea72b18d305cf783";
-        private const string CounterManualBookFallbackPrefabPath = "Assets/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting.prefab";
+        private const string CounterManualBookFallbackPrefabPath = "Assets/ThirdParty/Shared/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting.prefab";
         private const string CounterManualBookFallbackPrefabGuid = "dbfd22a19f49eeb4f90b69c31511ae3c";
-        private const string PosReceiptPagePrefabPath = "Assets/DanielRiches/BooksEssentials/Prefabs/BookPageWriting.prefab";
+        private const string PosReceiptPagePrefabPath = "Assets/ThirdParty/Shared/DanielRiches/BooksEssentials/Prefabs/BookPageWriting.prefab";
         private const string PosReceiptPagePrefabGuid = "4421dcd12f4a79f4597a43cb1179da2d";
 
         private static readonly HashSet<string> ConvenienceStoreEnvironmentRoots = new HashSet<string>(StringComparer.Ordinal)
