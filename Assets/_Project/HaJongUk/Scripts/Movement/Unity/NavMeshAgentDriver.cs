@@ -40,6 +40,14 @@ namespace OpenSourceTeam6.Movement.Unity
         }
 
         public void Pause(bool paused) { if (IsReady) Agent.isStopped = paused; }
+
+        public void HaltWithoutClearingPath()
+        {
+            if (!IsReady) return;
+            Agent.isStopped = true;
+            Agent.velocity = Vector3.zero;
+        }
+
         public void Stop()
         {
             if (!IsReady) return;

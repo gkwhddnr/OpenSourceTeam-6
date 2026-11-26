@@ -1,5 +1,15 @@
 # 손님 NPC와 직원·플레이어 업무 연동 인수인계서
 
+## 캐릭터 애니메이션 연결
+
+- 공용 캐릭터 목록은 `HJU_StoreCharacterRoster.asset`에 있다. 테스트 씬의 손님·행인은 생성할 때마다 목록에서 스킨을 무작위로 선택하며, 직원은 플레이 시작마다 선택한다. Inspector의 `Character Roster` 및 목록의 `Character Prefabs`에서 후보를 편집할 수 있다.
+
+- `Assets/_Project/HaJongUk/Assets/CharacterAnimation/HJU_StoreCharacter.controller`는 캐릭터별 Humanoid Avatar를 유지한 채 공용으로 사용한다. `NpcCharacterAnimation`을 Animator와 같은 오브젝트에 둔다. 루트 모션은 끄고, 이동은 기존 NavMeshAgent가 담당한다.
+- 손님은 이동 속도에 따라 걷거나 뛴다. 집기 동작 후 상품이 오른손에 붙고, 계산이 완료되면 테스트 상품은 진열대로 돌아간다. 자리에서 대기할 때와 상품 위치를 질문할 때 각각의 상태를 재생한다. 행인은 대기·걷기·뛰기를 사용한다.
+- 직원 업무에서는 `NpcEmployeeAnimation.Play(NpcAnimationState.Stock/Clean/Rest/Point/Anger)`를 해당 상태가 시작될 때 호출하고, 끝날 때 `Idle`로 돌린다. 진열 및 가리키기 위치는 Inspector의 `Stock Target`, `Point Target`에 지정한다. 실제 재고 보충, 오염 제거, 휴식 처리와 감정 계산은 각 업무 시스템이 담당한다.
+- `HJU_CustomerNpc_Test` 테스트 패널의 직원 애니메이션 버튼으로 각 동작을 재생한다. 손님과 행인은 생성 시 각각 Inspector의 `Customer Run Chance`, `Pedestrian Run Chance`로 뛰는 유형이 될 확률을 설정한다(기본 30%). 속도 슬라이더는 걷는 유형의 기준 속도이며 뛰는 유형은 그 값의 1.65배로 이동한다. 질문 대상이 테스트 직원일 때 자동 가리키기가 켜져 있으면 해당 상태가 재생된다. 테스트 트레이와 빗자루는 동작 확인용이다.
+- 직원 업무만 확인할 때는 `HJU_EmployeeWork_Test`에서 포스기, 앉기, 진열, 쓰레기 내려놓기를 실행한다. `HJU_EmployeeAnger_Test`에서는 고함과 찡그림의 얼굴 관절 및 머리 위 `!`와 `...` 표시를 확인한다. 캐릭터와 Humanoid 클립은 Polyperfect Low Poly Animated People에 대한 참조를 사용한다. 해당 패키지는 라이선스가 있는 Unity 환경에 원래 GUID를 유지하여 임포트한다.
+
 2026-11-23 · 전달 하종욱 · 인수 송재명 · WBS EXT-10
 
 최근 회의에서 정한 역할 분담에 따라 하종욱은 손님 행동, 상품 선택과 선반 집기, 계산대 대기, 퇴장을 담당한다. 송재명은 직원과 플레이어의 업무, 상품 위치 안내, 포스기 결제, 재고와 매출 정산을 연결한다. 손님이 상품을 집을 때 재고를 차감하고, 포스기나 직원이 결제를 확정할 때 판매 내역과 매출을 한 번 반영한다.
@@ -25,9 +35,10 @@
 | --- | --- |
 | `CanTakeFromShelf` · `Func<string, bool>` | 상품을 선택하거나 집기 직전에 카테고리 태그로 판매 가능 여부를 조회한다. 여러 번 호출될 수 있으므로 수량 차감, 판매 등록 등 부작용을 두지 않는다. |
 | `ProductPickedUp(int customerId, string productTag)` | 집기가 성공하면 알린다. 정산 담당 시스템에서 고객 ID를 기준으로 재고 한 개 차감과 구매 대기 기록을 처리한다. 매출은 결제 확정 단계에서 기록한다. |
-| `WaitForExternalCheckout` | 실제 연동 시 `true`로 켠다. 테스트 씬 기본값인 `false`에서는 `checkoutDuration`이 지나면 자동으로 계산한다. |
+| `WaitForExternalCheckout` | 손님 NPC 테스트 씬과 실제 결제 연동에서는 `true`로 사용한다. `false`로 설정한 씬은 `checkoutDuration`이 지나면 자동으로 계산한다. |
 | `TryGetCurrentCheckout(out int customerId, out string productTag)` | 반환값이 `true`이면 손님이 계산대에 실제로 도착해 승인 대기 중이다. 반환값이 `false`이면 출력값을 결제에 사용하지 않는다. |
 | `TryCompleteCurrentCheckout(out int customerId)` | 포스기나 직원이 현재 계산대 손님의 결제를 승인할 때 호출한다. 수락되면 다음 NPC 업데이트에서 퇴장과 대기열 전진을 처리한다. 같은 대기 건의 두 번째 호출이나 일시정지 중 호출은 거절한다. |
+| `TryCompleteCurrentCheckout(int expectedCustomerId)` | 비동기 결제나 직원 애니메이션을 시작할 때 조회해 둔 고객 ID를 전달한다. 해당 고객이 아직 계산대에 있을 때만 완료를 수락한다. |
 | `GetQueueSnapshot(List<CheckoutWaitSnapshot> output)` | UI에 고객 ID, 대기 시간, 위치를 표시할 때 사용한다. 위치 `0`은 계산대 자리이고 `1`부터 줄 위치다. 외부 결제 가능 여부는 `TryGetCurrentCheckout`으로 확인한다. |
 | `CustomerAskedForProduct(int customerId, string productName, Transform target)` | 손님이 지정된 직원·플레이어의 질문 위치에 도착하면 안내 요청을 알린다. 질문 가능 위치가 둘이면 손님에게 가까운 위치를 사용한다. |
 | `TryAnswerProductQuestion(int customerId, Transform productLocation)` | 질문한 고객 ID와 손님이 접근할 수 있는 상품 위치를 전달한다. 수락된 위치 안내 뒤에도 집기에는 재고 확보가 필요하다. 응답 기한이 지나거나 재고를 확보하지 못하면 손님이 퇴장한다. |
@@ -51,8 +62,8 @@
 ## 인수 검증 순서
 
 1. `Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test.unity`를 열고 Play 한다. NPC sandbox에서 일차·인원·속도를 조절한다. Hierarchy의 손님 이름 끝 유형으로 여섯 행동을 구분하고, 질문이 발생하면 패널의 Latest product question을 확인한다.
-2. 자동 계산 상태에서 구매 유형이 상품을 집고 계산대로 이동하는지, 질문형과 두 퇴장 유형이 구매 없이 나갈 수 있는지 확인한다. 테스트 씬은 실제 진열 오브젝트를 잠시 손님에게 붙이고 계산 후 진열대로 돌려놓는다. 물건을 든 모습은 상품 앞에서 집은 뒤 계산을 마치기 전까지 확인할 수 있다.
-3. 연동 씬에서 외부 계산 모드를 켠다. 첫 손님이 계산대에 도착할 때까지 결제할 수 없는지 확인하고, 포스기와 직원 업무에서 같은 손님을 동시에 처리해도 판매가 한 번만 기록되는지 확인한다. 결제 후 다음 손님이 이동해야 한다.
+2. 손님이 상품을 집어 계산대로 이동하는지, 질문형과 두 퇴장 유형이 구매 없이 나갈 수 있는지 확인한다. 테스트 씬은 진열 오브젝트를 잠시 손님에게 붙이고 결제 후 진열대로 돌려놓는다.
+3. 계산대에 손님이 도착하면 `Complete player checkout` 또는 `Start employee checkout`을 누른다. 직원 버튼은 계산대 직원의 포스기 동작이 끝날 때 승인한다. 결제 후 해당 손님이 매장 밖으로 나가고 다음 손님에게 계산대가 열리는지 확인한다.
 4. 질문 대상에 실제 직원 또는 플레이어 접근 위치를 연결한다. 품절 상태에서 질문과 무응답 퇴장을 확인하고, 재고가 있는 상품의 위치를 유효 시간 내 안내했을 때 집기와 계산으로 이어지는지 검증한다.
 
 Unity 시험에서 여섯 유형별 동선과 퇴장, 질문 위치 이동, 외부 승인과 차례 전환을 확인했다. NPC가 제공하는 재고 조회·집기 이벤트·승인 API를 실제 직원 업무, 포스기, 결제와 정산에 연결한 뒤 위 순서로 통합 검증한다.
