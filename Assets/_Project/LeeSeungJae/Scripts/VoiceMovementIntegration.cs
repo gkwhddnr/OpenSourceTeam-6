@@ -540,6 +540,9 @@ namespace EmployeeVoice
 
             var velocity = employee.Snapshot.ActualVelocity;
             float horizontalSpeedSquared = velocity.X * velocity.X + velocity.Z * velocity.Z;
+            if (horizontalSpeedSquared <= 0.01f && activeMove == 0 &&
+                employeeAnimation.CurrentState == NpcAnimationState.Stock)
+                return;
             var locomotion = horizontalSpeedSquared > 0.01f ? NpcAnimationState.Walk : NpcAnimationState.Idle;
             if (employeeAnimation.CurrentState != locomotion) employeeAnimation.Play(locomotion);
         }
@@ -844,7 +847,11 @@ namespace EmployeeVoice
             activeMove = 0;
             lastArrivedMove = outcome.Status == MoveState.Arrived ? outcome.RequestId : 0;
             if (outcome.Status == MoveState.Arrived)
-            { badge = StaffMoveBadge.Arrived; Feedback(CommandFeedbackKind.Info, activeMoveIsRestock ? "진열 테스트 목적지에 도착했습니다. 실제 재고 보충은 아직 연결되지 않았습니다." : "지정한 위치에 도착했습니다."); }
+            {
+                if (activeMoveIsRestock) employeeAnimation?.PlayStockOnce();
+                badge = StaffMoveBadge.Arrived;
+                Feedback(CommandFeedbackKind.Info, activeMoveIsRestock ? "진열 테스트 목적지에 도착했습니다. 실제 재고 보충은 아직 연결되지 않았습니다." : "지정한 위치에 도착했습니다.");
+            }
             else if (outcome.Status == MoveState.Cancelled)
             { badge = StaffMoveBadge.Cancelled; Feedback(CommandFeedbackKind.Info, "직원 이동이 취소되었습니다."); }
             else
@@ -856,6 +863,8 @@ namespace EmployeeVoice
 
         private void CancelWork()
         {
+            if (employeeAnimation != null && employeeAnimation.CurrentState == NpcAnimationState.Stock)
+                employeeAnimation.Play(NpcAnimationState.Idle);
             generation++;
             lastArrivedMove = 0;
             processing = false;

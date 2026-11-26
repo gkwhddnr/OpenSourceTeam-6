@@ -44,12 +44,17 @@ namespace OpenSourceTeam6.Customers.Unity
 
         private enum Role { Customer, Pedestrian }
         private enum ShoppingStyle { Direct, Deliberating, Indecisive, AskWhenMissing, LeaveWhenMissing, HesitateAndLeave }
-        private enum Step { Enter, Consider, Browse, Queue, Checkout, Exit, Outside, WalkSidewalk }
+        private enum Step { Enter, Consider, Browse, Queue, Checkout, Sit, Exit, Outside, WalkSidewalk }
 
         private static readonly Step[] CustomerSequence =
         {
-            Step.Enter, Step.Consider, Step.Browse, Step.Queue, Step.Checkout, Step.Exit, Step.Outside
+            Step.Enter, Step.Consider, Step.Browse, Step.Sit, Step.Queue, Step.Checkout, Step.Exit, Step.Outside
         };
+
+        [Header("손님 좌석")]
+        [SerializeField] private Transform customerSeat;
+        [SerializeField, Min(0f)] private float customerSeatedSeconds = 2f;
+        private AgentRun seatedCustomer;
 
         private static readonly Step[] PedestrianSequence = { Step.WalkSidewalk };
 
@@ -65,6 +70,7 @@ namespace OpenSourceTeam6.Customers.Unity
             public readonly bool IsRunner;
             public int StepIndex;
             public float BrowseSeconds;
+            public float SitSeconds;
             public ShoppingStyle ShoppingStyle;
             public int ProductIndex = -1;
             public int AisleIndex;
@@ -238,9 +244,16 @@ namespace OpenSourceTeam6.Customers.Unity
         public bool TryCompleteCurrentCheckout(out int customerId)
         {
             customerId = -1;
-            if (IsPaused || !waitForExternalCheckout || pendingCheckoutId < 0 || pendingCheckoutApproved)
-                return false;
+            if (!TryCompleteCurrentCheckout(pendingCheckoutId)) return false;
             customerId = pendingCheckoutId;
+            return true;
+        }
+
+        public bool TryCompleteCurrentCheckout(int expectedCustomerId)
+        {
+            if (IsPaused || !waitForExternalCheckout || expectedCustomerId < 0 ||
+                pendingCheckoutId != expectedCustomerId || pendingCheckoutApproved)
+                return false;
             pendingCheckoutApproved = true;
             return true;
         }
@@ -487,6 +500,8 @@ namespace OpenSourceTeam6.Customers.Unity
 
             if (result == Result.Running)
             {
+                if (step == Step.Sit)
+                    return;
                 if (step == Step.Browse && run.BrowseSeconds > 0f)
                     return; // The pickup step updates the reach target and progress.
                 if (step == Step.Consider && run.SeekingHelp && run.QuestionAsked)
@@ -537,6 +552,8 @@ namespace OpenSourceTeam6.Customers.Unity
                     return WaitInLine(run, elapsed);
                 case Step.Checkout:
                     return CheckOut(run, elapsed);
+                case Step.Sit:
+                    return SitBeforeCheckout(run, elapsed);
                 case Step.Exit:
                     return run.Navigation.MoveTo(run.Agent, exit, elapsed);
                 case Step.Outside:
@@ -545,6 +562,33 @@ namespace OpenSourceTeam6.Customers.Unity
                 default:
                     return Result.Failure;
             }
+        }
+
+        private Result SitBeforeCheckout(AgentRun run, float elapsed)
+        {
+            if (seatedCustomer != run)
+            {
+                if (seatedCustomer != null || customerSeat == null || customerSeatedSeconds <= 0f ||
+                    run.Animation == null || !run.Animation.CanShow(NpcAnimationState.SitDown) ||
+                    !run.Animation.CanShow(NpcAnimationState.Seated) || !run.Agent.isOnNavMesh ||
+                    !run.Agent.Warp(customerSeat.position))
+                    return Result.Success;
+
+                seatedCustomer = run;
+                run.Agent.ResetPath();
+                run.Agent.transform.rotation = customerSeat.rotation;
+            }
+
+            run.SitSeconds += elapsed;
+            float sitDownSeconds = NpcCharacterAnimation.SitDownSeconds;
+            if (run.SitSeconds >= sitDownSeconds + customerSeatedSeconds)
+            {
+                seatedCustomer = null;
+                return Result.Success;
+            }
+
+            run.Animation.Show(run.SitSeconds < sitDownSeconds ? NpcAnimationState.SitDown : NpcAnimationState.Seated);
+            return Result.Running;
         }
 
 
@@ -800,17 +844,27 @@ namespace OpenSourceTeam6.Customers.Unity
                 return movement;
 
             float duration = customer.Animation != null ? Mathf.Max(browseDuration, PickupAnimationSeconds) : browseDuration;
+            const float pointSeconds = 0.85f;
+            GameObject shelfItem = customer.Product.shelfItem;
+            bool pointBeforePickup = customer.Animation != null && shelfItem != null &&
+                customer.Product.category == ProductCategory.Cigarette;
             customer.BrowseSeconds += elapsed;
             if (customer.Animation != null)
             {
-                Vector3? target = customer.Product.shelfItem != null
-                    ? (Vector3?)customer.Product.shelfItem.transform.position : null;
+                Vector3? target = shelfItem != null ? (Vector3?)shelfItem.transform.position : null;
                 if (target.HasValue)
                     FaceInteraction(customer.Agent, target.Value, elapsed);
+                if (pointBeforePickup && customer.BrowseSeconds < pointSeconds)
+                {
+                    customer.Animation.Show(NpcAnimationState.Point, target);
+                    return Result.Running;
+                }
+
+                float pickupElapsed = customer.BrowseSeconds - (pointBeforePickup ? pointSeconds : 0f);
                 customer.Animation.Show(NpcAnimationState.Pickup, target,
-                    Mathf.Clamp01(customer.BrowseSeconds / duration) * 0.6f);
+                    Mathf.Clamp01(pickupElapsed / duration) * 0.6f);
             }
-            if (customer.BrowseSeconds < duration)
+            if (customer.BrowseSeconds < duration + (pointBeforePickup ? pointSeconds : 0f))
                 return Result.Running;
 
             if (!IsProductInStock(customer.Product))
@@ -881,6 +935,7 @@ namespace OpenSourceTeam6.Customers.Unity
         private void RemoveAgent(List<AgentRun> group, int index)
         {
             AgentRun run = group[index];
+            if (seatedCustomer == run) seatedCustomer = null;
             ClearCheckoutApproval(run.Id);
             ReleaseCarriedProduct(run);
             if (run.Role == Role.Customer)

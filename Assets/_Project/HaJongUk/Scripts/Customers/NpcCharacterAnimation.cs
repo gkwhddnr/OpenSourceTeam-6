@@ -14,7 +14,12 @@ namespace OpenSourceTeam6.Customers.Unity
         Clean,
         Rest,
         Point,
-        Anger
+        Anger,
+        Checkout,
+        SitDown,
+        Seated,
+        DiscardTrash,
+        CarryTrash
     }
 
     public enum AngerGesture { Shout, Finger, Frown, CounterStrike }
@@ -23,6 +28,7 @@ namespace OpenSourceTeam6.Customers.Unity
     [RequireComponent(typeof(Animator))]
     public sealed class NpcCharacterAnimation : MonoBehaviour
     {
+        internal const float SitDownSeconds = 1.15f;
         private const int BaseLayer = 0;
         private const float TransitionSeconds = 0.12f;
 
@@ -30,6 +36,9 @@ namespace OpenSourceTeam6.Customers.Unity
         private Transform upperArm;
         private Transform forearm;
         private Transform rightHand;
+        private Transform rightIndexBase;
+        private Transform rightMiddleBase;
+        private Transform rightLittleBase;
         private NpcAnimationState? shownState;
         private Vector3? interactionTarget;
         private float interactionProgress;
@@ -41,27 +50,10 @@ namespace OpenSourceTeam6.Customers.Unity
         private AngerGesture angerGesture;
         private Vector3 strikeTarget;
         private float angerProgress;
-        private readonly Transform[] brows = new Transform[2];
-        private readonly Vector3[] browPositions = new Vector3[2];
+        private NpcFacialExpression facialExpression;
 
         public void SetAngerGesture(AngerGesture gesture, float progress, Vector3 target)
         {
-            if (angerGesture != gesture)
-            {
-                for (int i = 0; i < brows.Length; i++)
-                    if (brows[i] != null) brows[i].localPosition = browPositions[i];
-
-                if (gesture == AngerGesture.Frown)
-                {
-                    foreach (Transform bone in GetComponentsInChildren<Transform>(true))
-                    {
-                        int index = bone.name == "EyebrowInner_L" ? 0 : bone.name == "EyebrowInner_R" ? 1 : -1;
-                        if (index < 0) continue;
-                        brows[index] = bone;
-                        browPositions[index] = bone.localPosition;
-                    }
-                }
-            }
             angerGesture = gesture;
             angerProgress = progress;
             strikeTarget = target;
@@ -69,15 +61,19 @@ namespace OpenSourceTeam6.Customers.Unity
 
         private void LateUpdate()
         {
-            if (angerGesture != AngerGesture.Frown) return;
-            float amount = ReachEnvelope(angerProgress) * 0.025f;
-            for (int i = 0; i < brows.Length; i++)
+            bool shouting = shownState == NpcAnimationState.Anger && angerGesture == AngerGesture.Shout;
+            if (!shouting && angerGesture != AngerGesture.Frown)
             {
-                Transform brow = brows[i];
-                if (brow != null)
-                    brow.localPosition = browPositions[i] + brow.parent.InverseTransformVector(-transform.up * amount);
+                facialExpression?.Clear();
+                return;
             }
+
+            facialExpression ??= new NpcFacialExpression(animator);
+            float progress = shouting && angerProgress == 0f ? interactionProgress : angerProgress;
+            facialExpression.Show(shouting, ReachEnvelope(progress));
         }
+
+        private void OnDisable() => facialExpression?.Clear();
 
         public Transform RightHand
         {
@@ -88,6 +84,24 @@ namespace OpenSourceTeam6.Customers.Unity
             }
         }
 
+        public bool TryGetRightHandGrip(float propHalfHeight, out Pose grip)
+        {
+            CacheRig();
+            grip = default;
+            if (rightHand == null) return false;
+
+            if (!TryGetPalmAxes(out Vector3 fingers, out Vector3 back))
+            {
+                grip = new Pose(rightHand.position + transform.forward * 0.045f -
+                    transform.up * (propHalfHeight + 0.008f), transform.rotation);
+                return true;
+            }
+
+            Vector3 palmCenter = Vector3.Lerp(rightHand.position, rightMiddleBase.position, 0.72f);
+            grip = new Pose(palmCenter - back * (propHalfHeight + 0.008f), Quaternion.LookRotation(fingers, back));
+            return true;
+        }
+
         public NpcAnimationState CurrentState => shownState ?? NpcAnimationState.Idle;
 
         private void Awake() => CacheRig();
@@ -96,7 +110,18 @@ namespace OpenSourceTeam6.Customers.Unity
         {
             CacheRig();
             return animator.isActiveAndEnabled && animator.layerCount > BaseLayer &&
-                animator.HasState(BaseLayer, Animator.StringToHash(animator.GetLayerName(BaseLayer) + "." + state));
+                animator.HasState(BaseLayer, StateHash(state));
+        }
+
+        private int StateHash(NpcAnimationState state)
+        {
+            var clip = state switch
+            {
+                NpcAnimationState.Checkout or NpcAnimationState.DiscardTrash => NpcAnimationState.Idle,
+                NpcAnimationState.CarryTrash => NpcAnimationState.Walk,
+                _ => state
+            };
+            return Animator.StringToHash(animator.GetLayerName(BaseLayer) + "." + clip);
         }
 
         public void Show(NpcAnimationState state, Vector3? target = null, float progress = 0f)
@@ -107,7 +132,7 @@ namespace OpenSourceTeam6.Customers.Unity
             if (shownState == state || !animator.isActiveAndEnabled || animator.layerCount <= BaseLayer)
                 return;
 
-            int stateHash = Animator.StringToHash(animator.GetLayerName(BaseLayer) + "." + state);
+            int stateHash = StateHash(state);
             if (!animator.HasState(BaseLayer, stateHash))
                 return;
 
@@ -142,6 +167,9 @@ namespace OpenSourceTeam6.Customers.Unity
             upperArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
             forearm = animator.GetBoneTransform(HumanBodyBones.RightLowerArm);
             rightHand = animator.GetBoneTransform(HumanBodyBones.RightHand);
+            rightIndexBase = animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
+            rightMiddleBase = animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
+            rightLittleBase = animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
         }
 
         private void OnAnimatorIK(int layerIndex)
@@ -175,12 +203,20 @@ namespace OpenSourceTeam6.Customers.Unity
                     float recover = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.53f, 0.86f, angerProgress));
                     requested = Vector3.Lerp(Vector3.Lerp(raised, contact, down), raised, recover);
                     elbow = upperArm.position + reach * (outward * 0.45f - up * 0.23f - toward * 0.35f);
+                    float windup = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.05f, 0.28f, angerProgress));
+                    float lean = Mathf.Lerp(-4f * windup, 15f, down) * (1f - recover);
+                    Vector3 leanAxis = Vector3.Cross(up, toward).normalized;
+                    BendTorso(HumanBodyBones.Spine, leanAxis, lean * 0.65f);
+                    BendTorso(HumanBodyBones.Chest, leanAxis, lean * 0.35f);
                 }
                 animator.SetIKPositionWeight(AvatarIKGoal.RightHand, weight);
                 animator.SetIKPosition(AvatarIKGoal.RightHand, ClampReach(requested, reach));
                 animator.SetIKHintPositionWeight(AvatarIKHint.RightElbow, weight);
                 animator.SetIKHintPosition(AvatarIKHint.RightElbow, elbow);
-                OrientAngerHand(finger, toward, weight);
+                Quaternion handAxes = finger
+                    ? Quaternion.LookRotation(up, toward)
+                    : Quaternion.LookRotation((toward + Vector3.down * 0.33f).normalized, outward);
+                PoseRightHand(handAxes, finger ? HumanBodyBones.RightMiddleProximal : HumanBodyBones.LastBone, weight);
                 hasSmoothedTarget = false;
                 smoothedWeight = 0f;
                 return;
@@ -207,23 +243,45 @@ namespace OpenSourceTeam6.Customers.Unity
             {
                 Vector3 worldTarget = transform.TransformPoint(smoothedTarget);
                 animator.SetIKPosition(AvatarIKGoal.RightHand, ClampReach(worldTarget, reach));
+                if (shownState == NpcAnimationState.Point)
+                {
+                    Vector3 aim = (requested - upperArm.position).normalized;
+                    Vector3 palmUp = Vector3.ProjectOnPlane(transform.up, aim);
+                    if (palmUp.sqrMagnitude < 0.01f)
+                        palmUp = Vector3.ProjectOnPlane(transform.forward, aim);
+                    PoseRightHand(Quaternion.LookRotation(aim, palmUp), HumanBodyBones.RightIndexProximal, smoothedWeight);
+                }
+                else if (shownState is NpcAnimationState.Stock or NpcAnimationState.CarryTrash or NpcAnimationState.DiscardTrash)
+                {
+                    float gripWeight = shownState == NpcAnimationState.CarryTrash
+                        ? smoothedWeight : smoothedWeight * (1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.56f, 0.8f, interactionProgress)));
+                    Quaternion gripAxes = Quaternion.LookRotation(transform.forward, transform.up);
+                    PoseRightHand(gripAxes, HumanBodyBones.LastBone, gripWeight, holdingProp: true);
+                }
             }
         }
 
-        private void OrientAngerHand(bool extendMiddle, Vector3 toward, float weight)
+        private void BendTorso(HumanBodyBones joint, Vector3 worldAxis, float angle)
         {
-            Transform index = animator.GetBoneTransform(HumanBodyBones.RightIndexProximal);
-            Transform little = animator.GetBoneTransform(HumanBodyBones.RightLittleProximal);
-            Transform middleBase = animator.GetBoneTransform(HumanBodyBones.RightMiddleProximal);
-            if (index == null || little == null || middleBase == null) return;
+            Transform bone = animator.GetBoneTransform(joint);
+            if (bone != null)
+                animator.SetBoneLocalRotation(joint,
+                    bone.localRotation * Quaternion.AngleAxis(angle, bone.InverseTransformDirection(worldAxis)));
+        }
 
-            Vector3 fingers = (middleBase.position - rightHand.position).normalized;
-            Vector3 back = Vector3.Cross(fingers, little.position - index.position).normalized;
-            if (back == Vector3.zero) return;
+        private bool TryGetPalmAxes(out Vector3 fingers, out Vector3 back)
+        {
+            fingers = back = Vector3.zero;
+            if (rightIndexBase == null || rightLittleBase == null || rightMiddleBase == null) return false;
+            fingers = (rightMiddleBase.position - rightHand.position).normalized;
+            back = Vector3.Cross(fingers, rightLittleBase.position - rightIndexBase.position).normalized;
+            return back != Vector3.zero;
+        }
+
+        private void PoseRightHand(Quaternion desiredAxes, HumanBodyBones extendedFinger, float weight, bool holdingProp = false)
+        {
+            if (!TryGetPalmAxes(out Vector3 fingers, out Vector3 back)) return;
             Quaternion currentAxes = Quaternion.LookRotation(fingers, back);
-            Quaternion desiredAxes = extendMiddle
-                ? Quaternion.LookRotation(transform.up, toward)
-                : Quaternion.LookRotation((toward + Vector3.down * 0.33f).normalized, transform.right);
             // The humanoid goal and imported wrist bone can have different local axes.
             Quaternion goal = animator.GetIKRotation(AvatarIKGoal.RightHand);
             animator.SetIKRotationWeight(AvatarIKGoal.RightHand, weight);
@@ -232,7 +290,7 @@ namespace OpenSourceTeam6.Customers.Unity
             for (int i = (int)HumanBodyBones.RightIndexProximal; i <= (int)HumanBodyBones.RightLittleDistal; i++)
             {
                 var joint = (HumanBodyBones)i;
-                bool middle = i >= (int)HumanBodyBones.RightMiddleProximal && i <= (int)HumanBodyBones.RightMiddleDistal;
+                bool extended = i >= (int)extendedFinger && i < (int)extendedFinger + 3;
                 Transform bone = animator.GetBoneTransform(joint);
                 if (bone == null) continue;
                 Vector3 segment = bone.childCount > 0 ? bone.GetChild(0).position - bone.position : bone.position - bone.parent.position;
@@ -240,7 +298,8 @@ namespace OpenSourceTeam6.Customers.Unity
                 if (axis.sqrMagnitude < 0.000001f) continue;
                 int jointIndex = (i - (int)HumanBodyBones.RightIndexProximal) % 3;
                 float currentCurl = Vector3.SignedAngle(jointIndex == 0 ? fingers : bone.position - bone.parent.position, segment, axis);
-                float desiredCurl = extendMiddle && middle ? 0f : jointIndex == 2 ? 35f : 65f;
+                float desiredCurl = extended ? 0f : jointIndex == 2 ? (holdingProp ? 18f : 35f)
+                    : (holdingProp ? 32f : 65f);
                 float curl = Mathf.Clamp(desiredCurl - currentCurl, -65f, 65f);
                 animator.SetBoneLocalRotation(joint, bone.localRotation *
                     Quaternion.AngleAxis(curl * weight, bone.InverseTransformDirection(axis.normalized)));
@@ -257,6 +316,18 @@ namespace OpenSourceTeam6.Customers.Unity
                 case NpcAnimationState.Pickup:
                     weight = ReachEnvelope(interactionProgress);
                     return interactionTarget ?? fallback;
+                case NpcAnimationState.Checkout:
+                    weight = ReachEnvelope(interactionProgress);
+                    float tap = 1f - Mathf.Abs(Mathf.Sin(interactionProgress * Mathf.PI * 4f));
+                    return (interactionTarget ?? fallback) + transform.up * (0.055f * tap);
+                case NpcAnimationState.CarryTrash:
+                    weight = 0.9f;
+                    return TrashCarryPosition(reach);
+                case NpcAnimationState.DiscardTrash:
+                    float lower = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.12f, 0.58f, interactionProgress));
+                    weight = Mathf.Lerp(0.9f, 1f, lower) *
+                        (1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.7f, 0.99f, interactionProgress)));
+                    return Vector3.Lerp(TrashCarryPosition(reach), interactionTarget ?? fallback, lower);
                 case NpcAnimationState.Stock:
                     float phase = interactionProgress > 0f
                         ? interactionProgress
@@ -273,6 +344,9 @@ namespace OpenSourceTeam6.Customers.Unity
                     return rightHand.position;
             }
         }
+
+        private Vector3 TrashCarryPosition(float reach) =>
+            upperArm.position + reach * (transform.forward * 0.38f - transform.up * 0.45f);
 
         private Vector3 ClampReach(Vector3 target, float reach)
         {
