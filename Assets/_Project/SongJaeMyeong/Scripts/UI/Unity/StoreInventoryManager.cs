@@ -24,6 +24,10 @@ namespace OpenSourceTeam6.UI.Unity
     public sealed class StoreInventoryManager : MonoBehaviour
     {
         public const string DefaultSalesLogFileName = "store_sales_log.txt";
+        private const float SharedCheckoutX = -6.20f;
+        private const float SharedCheckoutZ = -1.55f;
+        private const float SharedCheckoutItemSpotZ = -2.06f;
+        private const float SharedCounterTopY = 1.04f;
 
         [Serializable]
         public struct StockSeedEntry
@@ -58,6 +62,7 @@ namespace OpenSourceTeam6.UI.Unity
         private readonly Dictionary<string, List<GameObject>> shelfVisualsByItemId = new Dictionary<string, List<GameObject>>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<StoreItemCategory, List<GameObject>> shelfVisualsByCategory = new Dictionary<StoreItemCategory, List<GameObject>>();
         private readonly Dictionary<StoreItemCategory, Transform> runtimeShelfPickupPoints = new Dictionary<StoreItemCategory, Transform>();
+        private readonly Dictionary<StoreItemCategory, Transform> runtimeShelfLookTargets = new Dictionary<StoreItemCategory, Transform>();
         private bool isShelfVisualsIndexed;
         private bool isNpcProductsConfigured;
         private int saleRandomSeed = 101;
@@ -67,18 +72,18 @@ namespace OpenSourceTeam6.UI.Unity
         private Camera playerCamera;
         private Transform cashRegisterTransform;
         private Transform counterMonitorTransform;
-        private Transform secondaryCashRegisterTransform;
-        private Transform secondaryCounterMonitorTransform;
         private Transform manualCubeTransform;
-        private Text secondaryMonitorStatusText;
+        private NpcEmployeeAnimation employeeAnimation;
+        private Transform employeeRegisterTapTarget;
         private GameObject carriedTemplatesRoot;
         private readonly Dictionary<StoreItemCategory, GameObject> carriedTemplateByCategory = new Dictionary<StoreItemCategory, GameObject>();
-        private bool? lastQueueAssignedToEmployeeLane;
+        private bool isCheckoutLaneConfigured;
         private GameObject posPromptBadgeObj;
         private Text posPromptBadgeText;
         private int displayedTodayRevenueWon;
         private int displayedTodayUnitsSold;
         private Coroutine checkoutSoundAndRollCoroutine;
+        private bool isCheckoutSoundInProgress;
 
         public StoreInventoryLedger Ledger
         {
@@ -145,6 +150,12 @@ namespace OpenSourceTeam6.UI.Unity
 
         private void OnDisable()
         {
+            if (checkoutSoundAndRollCoroutine != null)
+            {
+                StopCoroutine(checkoutSoundAndRollCoroutine);
+                checkoutSoundAndRollCoroutine = null;
+            }
+            isCheckoutSoundInProgress = false;
             UnbindNpcPopulationEvents();
             SetPosPromptVisible(false, string.Empty);
         }
@@ -284,14 +295,20 @@ namespace OpenSourceTeam6.UI.Unity
                 staffCheckoutTimer = 0f;
             }
 
-            // 1. 알바생이 계산대(StaffWorkRole.Checkout)에 도착(Arrived)해 있으면 좌측(알바 전용) 계산대에서 자동 결제 처리
+            // 1. 공용 계산대 동선 고정 및 알바생(StaffWorkRole.Checkout) 도착 시 자동 결제 처리
             bool isStaffStationedAtCheckout =
                 uiController.CurrentEmployeeRole == StaffWorkRole.Checkout &&
                 uiController.CurrentEmployeeMoveBadge == StaffMoveBadge.Arrived;
 
-            SyncCheckoutCounterLane(isStaffStationedAtCheckout);
+            ResolveCounterObjects();
+            EnsureSharedCheckoutCounterLane();
 
-            if (hasWaitingCustomer && isStaffStationedAtCheckout)
+            if (isStaffStationedAtCheckout)
+            {
+                OrientStaffTowardCounter(deltaTime);
+            }
+
+            if (hasWaitingCustomer && isStaffStationedAtCheckout && !isCheckoutSoundInProgress)
             {
                 float efficiency = StressRules.GetEfficiencyMultiplier(uiController.CurrentEmployeeStress);
                 staffCheckoutTimer += deltaTime * Mathf.Max(0.35f, efficiency);
@@ -303,20 +320,19 @@ namespace OpenSourceTeam6.UI.Unity
                 }
             }
 
-            // 2. 플레이어가 우측(점장 전용) 또는 좌측(알바 전용) 포스기를 바라볼 때 안내 · [E] 직접 결제 처리
+            // 2. 플레이어가 공용 포스기를 바라볼 때 안내 · [E] 직접 결제 처리
             if (uiController.IsCommandOverlayOpen || uiController.IsExternalModalOpen)
             {
                 SetPosPromptVisible(false, string.Empty);
                 return;
             }
 
-            ResolveCounterObjects();
-            bool lookingAtPlayerPos = IsPlayerLookingAtCounter(cashRegisterTransform, counterMonitorTransform, hasWaitingCustomer);
-            if (lookingAtPlayerPos)
+            bool lookingAtSharedPos = IsPlayerLookingAtCounter(cashRegisterTransform, counterMonitorTransform, hasWaitingCustomer);
+            if (lookingAtSharedPos)
             {
-                if (isStaffStationedAtCheckout)
+                if (isCheckoutSoundInProgress)
                 {
-                    SetPosPromptVisible(true, "[점장 전용 계산대]  현재 좌측 알바 전용 계산대에서 알바가 응대 중입니다");
+                    SetPosPromptVisible(true, "[공용 계산대]  계산 처리 중...");
                     return;
                 }
 
@@ -326,7 +342,10 @@ namespace OpenSourceTeam6.UI.Unity
                     string itemLabel = previewItem != null
                         ? $"{previewItem.DisplayName} (+{previewItem.UnitPriceWon:N0}원)"
                         : $"{productTag}";
-                    SetPosPromptVisible(true, $"[E]  점장 전용 포스기 결제하기  ·  {itemLabel}");
+                    string prompt = isStaffStationedAtCheckout
+                        ? $"[E]  공용 포스기 직접 결제 (알바 응대 중)  ·  {itemLabel}"
+                        : $"[E]  공용 포스기 결제하기  ·  {itemLabel}";
+                    SetPosPromptVisible(true, prompt);
 
                     Keyboard kb = Keyboard.current;
                     if (kb != null && kb.eKey.wasPressedThisFrame)
@@ -336,21 +355,19 @@ namespace OpenSourceTeam6.UI.Unity
                 }
                 else
                 {
-                    string waitMsg = npcPopulation != null && npcPopulation.ActiveCustomers > 0
-                        ? "[점장 전용 계산대]  손님이 물건을 고르거나 이동 중입니다"
-                        : "[점장 전용 계산대]  현재 계산 대기 중인 손님이 없습니다";
+                    string waitMsg;
+                    if (isStaffStationedAtCheckout)
+                    {
+                        waitMsg = "[공용 계산대]  알바가 계산대를 보고 있습니다 (자동 결제)";
+                    }
+                    else
+                    {
+                        waitMsg = npcPopulation != null && npcPopulation.ActiveCustomers > 0
+                            ? "[공용 계산대]  손님이 물건을 고르거나 이동 중입니다"
+                            : "[공용 계산대]  현재 계산 대기 중인 손님이 없습니다";
+                    }
                     SetPosPromptVisible(true, waitMsg);
                 }
-                return;
-            }
-
-            bool lookingAtStaffPos = IsPlayerLookingAtCounter(secondaryCashRegisterTransform, secondaryCounterMonitorTransform, hasWaitingCustomer);
-            if (lookingAtStaffPos)
-            {
-                string staffPosMsg = isStaffStationedAtCheckout
-                    ? "[알바 전용 계산대]  알바가 손님을 자동 계산 중입니다"
-                    : "[알바 전용 계산대]  알바에게 '계산대 봐줘'를 지시하세요 (직접 계산은 우측 계산대)";
-                SetPosPromptVisible(true, staffPosMsg);
                 return;
             }
 
@@ -381,17 +398,13 @@ namespace OpenSourceTeam6.UI.Unity
         public bool TryProcessWaitingCheckout(bool isPlayerAction)
         {
             EnsureInitialized();
-            if (npcPopulation == null) return false;
-            if (!npcPopulation.TryGetCurrentCheckout(out int waitingId, out string productTag))
+            if (npcPopulation == null || npcPopulation.IsPaused || isCheckoutSoundInProgress) return false;
+            if (!npcPopulation.TryGetCurrentCheckout(out int waitingId, out string productTag) || waitingId < 0)
             {
                 return false;
             }
 
-            if (!npcPopulation.TryCompleteCurrentCheckout(out int approvedCustomerId) || approvedCustomerId < 0)
-            {
-                return false;
-            }
-
+            int approvedCustomerId = waitingId;
             string targetItemId = null;
             if (pendingCustomerPickedItemIds.TryGetValue(approvedCustomerId, out string reservedId))
             {
@@ -438,10 +451,6 @@ namespace OpenSourceTeam6.UI.Unity
             SaveSalesLogToDisk();
 
             ItemSold?.Invoke(soldItem, revenueWon);
-            TriggerCheckoutAudioAndRevenueRoll(
-                startDisplayedRevenueWon,
-                ledger.TodayRevenueWon,
-                ledger.TodayUnitsSold);
 
             string actorLabel = isPlayerAction ? "점장 직접 계산[E]" : "알바 계산 완료";
             uiController?.PushCommandFeedback(
@@ -454,8 +463,16 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (!isPlayerAction)
             {
-                uiController?.NotifyEmployeeTaskCompleted(StaffWorkRole.Checkout);
+                TriggerStaffCheckoutAnimation();
             }
+
+            // 삑 - 타자 - 코인 소리가 모두 끝난 뒤 손님이 계산대 위 물건을 다시 손에 들고 퇴장하도록 지연 완료
+            TriggerCheckoutAudioAndRevenueRoll(
+                startDisplayedRevenueWon,
+                ledger.TodayRevenueWon,
+                ledger.TodayUnitsSold,
+                pendingCompleteCustomerId: approvedCustomerId,
+                notifyStaffTaskDone: !isPlayerAction);
 
             return true;
         }
@@ -463,16 +480,27 @@ namespace OpenSourceTeam6.UI.Unity
         private void TriggerCheckoutAudioAndRevenueRoll(
             int startRevenueWon,
             int targetRevenueWon,
-            int targetUnitsSold)
+            int targetUnitsSold,
+            int pendingCompleteCustomerId = -1,
+            bool notifyStaffTaskDone = false)
         {
             // 1단계: 바코드 스캔 '삑!' 효과음 즉시 재생
             uiController?.AudioPlayer?.PlaySfx(StoreSfxId.BarcodeCheckout);
 
             if (!isActiveAndEnabled)
             {
+                isCheckoutSoundInProgress = false;
                 displayedTodayRevenueWon = targetRevenueWon;
                 displayedTodayUnitsSold = targetUnitsSold;
                 uiController?.NotifyInventoryRevenueChanged();
+                if (pendingCompleteCustomerId >= 0)
+                {
+                    npcPopulation?.TryCompleteCurrentCheckout(pendingCompleteCustomerId);
+                }
+                if (notifyStaffTaskDone)
+                {
+                    uiController?.NotifyEmployeeTaskCompleted(StaffWorkRole.Checkout);
+                }
                 return;
             }
 
@@ -482,47 +510,44 @@ namespace OpenSourceTeam6.UI.Unity
                 checkoutSoundAndRollCoroutine = null;
             }
 
+            isCheckoutSoundInProgress = pendingCompleteCustomerId >= 0;
             checkoutSoundAndRollCoroutine = StartCoroutine(
-                RunCheckoutSoundAndRevenueRollCoroutine(startRevenueWon, targetRevenueWon, targetUnitsSold));
+                RunCheckoutSoundAndRevenueRollCoroutine(
+                    startRevenueWon,
+                    targetRevenueWon,
+                    targetUnitsSold,
+                    pendingCompleteCustomerId,
+                    notifyStaffTaskDone));
         }
 
         private IEnumerator RunCheckoutSoundAndRevenueRollCoroutine(
             int startRevenueWon,
             int targetRevenueWon,
-            int targetUnitsSold)
+            int targetUnitsSold,
+            int pendingCompleteCustomerId,
+            bool notifyStaffTaskDone)
         {
-            // 1단계('삑!' 소리) 직후 대기 -> 2단계('클릭' 소리) 재생
-            const float delayBeforeClick = 0.28f;
-            float elapsed = 0f;
-            while (elapsed < delayBeforeClick)
-            {
-                elapsed += Time.unscaledDeltaTime;
-                yield return null;
-            }
-
+            // 1단계('삑!' 소리) 직후 대기 -> 2단계('타자/클릭' 소리) 재생
+            yield return WaitUnpausedUnscaled(0.28f);
             uiController?.AudioPlayer?.PlaySfx(StoreSfxId.CheckoutClick);
 
-            // 2단계('클릭' 소리) 직후 대기 -> 3단계('코인' 소리) 재생 + 매출 숫자 카운팅 시작
-            const float delayBeforeCoin = 0.22f;
-            elapsed = 0f;
-            while (elapsed < delayBeforeCoin)
-            {
-                elapsed += Time.unscaledDeltaTime;
-                yield return null;
-            }
-
+            // 2단계('타자/클릭' 소리) 직후 대기 -> 3단계('코인' 소리) 재생 + 매출 숫자 카운팅 시작
+            yield return WaitUnpausedUnscaled(0.22f);
             uiController?.AudioPlayer?.PlaySfx(StoreSfxId.CheckoutCoin);
             displayedTodayUnitsSold = targetUnitsSold;
 
             // 코인 소리가 울리는 동안(약 0.68초) 매출 숫자가 부드럽게 카운팅 상승
             const float coinRollDuration = 0.68f;
-            elapsed = 0f;
+            float elapsed = 0f;
             int lastNotifiedRevenue = displayedTodayRevenueWon;
             uiController?.NotifyInventoryRevenueChanged();
 
             while (elapsed < coinRollDuration)
             {
-                elapsed += Time.unscaledDeltaTime;
+                if (npcPopulation == null || !npcPopulation.IsPaused)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                }
                 float t = Mathf.Clamp01(elapsed / coinRollDuration);
                 float eased = 1f - Mathf.Pow(1f - t, 2.4f);
                 int interpolated = Mathf.RoundToInt(Mathf.Lerp(startRevenueWon, targetRevenueWon, eased) / 10f) * 10;
@@ -541,7 +566,39 @@ namespace OpenSourceTeam6.UI.Unity
             displayedTodayRevenueWon = ledger != null ? ledger.TodayRevenueWon : targetRevenueWon;
             displayedTodayUnitsSold = ledger != null ? ledger.TodayUnitsSold : targetUnitsSold;
             uiController?.NotifyInventoryRevenueChanged();
+
+            // 코인 여운이 마무리될 때까지 짧게 대기 후 손님이 물건을 들고 퇴장
+            yield return WaitUnpausedUnscaled(0.15f);
+            while (npcPopulation != null && npcPopulation.IsPaused)
+            {
+                yield return null;
+            }
+
+            isCheckoutSoundInProgress = false;
             checkoutSoundAndRollCoroutine = null;
+
+            if (pendingCompleteCustomerId >= 0)
+            {
+                npcPopulation?.TryCompleteCurrentCheckout(pendingCompleteCustomerId);
+            }
+
+            if (notifyStaffTaskDone)
+            {
+                uiController?.NotifyEmployeeTaskCompleted(StaffWorkRole.Checkout);
+            }
+        }
+
+        private IEnumerator WaitUnpausedUnscaled(float durationSeconds)
+        {
+            float elapsed = 0f;
+            while (elapsed < durationSeconds)
+            {
+                if (npcPopulation == null || !npcPopulation.IsPaused)
+                {
+                    elapsed += Time.unscaledDeltaTime;
+                }
+                yield return null;
+            }
         }
 
         private void ResolveCounterObjects()
@@ -602,47 +659,102 @@ namespace OpenSourceTeam6.UI.Unity
                 if (monObj != null) counterMonitorTransform = monObj.transform;
             }
 
-            if (secondaryCashRegisterTransform == null)
-            {
-                GameObject subRegObj = GameObject.Find("Secondary_Counter_CashRegister");
-                if (subRegObj != null) secondaryCashRegisterTransform = subRegObj.transform;
-            }
-
-            if (secondaryCounterMonitorTransform == null)
-            {
-                GameObject subMonObj = GameObject.Find("Secondary_Counter_Monitor");
-                if (subMonObj != null)
-                {
-                    secondaryCounterMonitorTransform = subMonObj.transform;
-                    EnsureSecondaryMonitorSignage();
-                }
-            }
-
             if (manualCubeTransform == null)
             {
                 GameObject manObj = GameObject.Find("Counter_ManualCube");
                 if (manObj != null) manualCubeTransform = manObj.transform;
             }
-        }
 
-        private void SyncCheckoutCounterLane(bool assignToEmployeeCounter)
-        {
-            if (secondaryMonitorStatusText != null)
+            if (cashRegisterTransform != null && employeeRegisterTapTarget == null)
             {
-                secondaryMonitorStatusText.text = assignToEmployeeCounter
-                    ? "알바 근무 중 (자동 결제)"
-                    : "대기 중 ('계산대 봐줘' 지시)";
-                secondaryMonitorStatusText.color = assignToEmployeeCounter
-                    ? new Color(0.28f, 0.98f, 0.68f, 1f)
-                    : new Color(1.0f, 0.84f, 0.34f, 1f);
+                Transform existingTap = cashRegisterTransform.Find("Employee_RegisterTapPoint");
+                if (existingTap == null)
+                {
+                    GameObject tapObj = new GameObject("Employee_RegisterTapPoint");
+                    tapObj.transform.SetParent(cashRegisterTransform, false);
+                    tapObj.transform.localPosition = new Vector3(0f, 0.16f, -0.06f);
+                    tapObj.transform.localRotation = Quaternion.identity;
+                    existingTap = tapObj.transform;
+                }
+                employeeRegisterTapTarget = existingTap;
             }
 
-            if (npcPopulation == null || lastQueueAssignedToEmployeeLane == assignToEmployeeCounter)
+            if (employeeAnimation == null)
+            {
+                employeeAnimation = FindAnyObjectByType<NpcEmployeeAnimation>();
+            }
+
+            if (employeeAnimation != null && employeeAnimation.RegisterTarget == null && employeeRegisterTapTarget != null)
+            {
+                employeeAnimation.SetRegisterTarget(employeeRegisterTapTarget);
+            }
+        }
+
+        private void OrientStaffTowardCounter(float deltaTime)
+        {
+            if (employeeAnimation == null || !employeeAnimation.isActiveAndEnabled || employeeAnimation.IsAngerGestureActive)
             {
                 return;
             }
 
-            lastQueueAssignedToEmployeeLane = assignToEmployeeCounter;
+            NavMeshAgent agent = employeeAnimation.GetComponent<NavMeshAgent>();
+            if (agent != null && agent.isActiveAndEnabled && agent.velocity.sqrMagnitude > 0.01f)
+            {
+                return;
+            }
+
+            Transform lookTarget = employeeRegisterTapTarget != null
+                ? employeeRegisterTapTarget
+                : (cashRegisterTransform != null ? cashRegisterTransform : counterMonitorTransform);
+            if (lookTarget == null) return;
+
+            Vector3 dir = lookTarget.position - employeeAnimation.transform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude <= 0.001f) return;
+
+            Quaternion desired = Quaternion.LookRotation(dir.normalized, Vector3.up);
+            employeeAnimation.transform.rotation = Quaternion.RotateTowards(
+                employeeAnimation.transform.rotation,
+                desired,
+                360f * Mathf.Max(0.001f, deltaTime));
+        }
+
+        private void TriggerStaffCheckoutAnimation()
+        {
+            ResolveCounterObjects();
+            if (employeeAnimation == null || !employeeAnimation.isActiveAndEnabled || employeeAnimation.IsAngerGestureActive)
+            {
+                return;
+            }
+
+            Transform tapTarget = employeeRegisterTapTarget != null
+                ? employeeRegisterTapTarget
+                : (cashRegisterTransform != null ? cashRegisterTransform : counterMonitorTransform);
+            if (tapTarget == null) return;
+
+            if (employeeAnimation.RegisterTarget == null)
+            {
+                employeeAnimation.SetRegisterTarget(tapTarget);
+            }
+
+            Vector3 dir = tapTarget.position - employeeAnimation.transform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.001f)
+            {
+                employeeAnimation.transform.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+            }
+
+            employeeAnimation.Play(NpcAnimationState.Checkout);
+        }
+
+        private void EnsureSharedCheckoutCounterLane()
+        {
+            if (npcPopulation == null || isCheckoutSoundInProgress || isCheckoutLaneConfigured)
+            {
+                return;
+            }
+
+            isCheckoutLaneConfigured = true;
 
             Transform checkoutWp = npcPopulation.transform.Find("Customer_Checkout");
             Transform q0 = npcPopulation.transform.Find("QueueSlot_0");
@@ -650,15 +762,60 @@ namespace OpenSourceTeam6.UI.Unity
             Transform q2 = npcPopulation.transform.Find("QueueSlot_2");
             Transform q3 = npcPopulation.transform.Find("QueueSlot_3");
 
-            // 좌측(x=-6.20) = 알바 전용 계산대, 우측(x=-2.55) = 점장(플레이어) 전용 계산대
-            float baseX = assignToEmployeeCounter ? -6.20f : -2.55f;
-            float baseZ = -1.55f;
+            // 민수 계산대(Checkout_1, x=-6.20)를 점장·알바 공용 단일 계산대로 고정
+            SetWaypointOnNavMesh(checkoutWp, new Vector3(SharedCheckoutX, 0f, SharedCheckoutZ));
+            SetWaypointOnNavMesh(q0, new Vector3(SharedCheckoutX + 1.00f, 0f, SharedCheckoutZ));
+            SetWaypointOnNavMesh(q1, new Vector3(SharedCheckoutX + 2.00f, 0f, SharedCheckoutZ));
+            SetWaypointOnNavMesh(q2, new Vector3(SharedCheckoutX + 3.00f, 0f, SharedCheckoutZ));
+            SetWaypointOnNavMesh(q3, new Vector3(SharedCheckoutX + 4.00f, 0f, SharedCheckoutZ));
 
-            SetWaypointOnNavMesh(checkoutWp, new Vector3(baseX, 0f, baseZ));
-            SetWaypointOnNavMesh(q0, new Vector3(baseX + 1.00f, 0f, baseZ));
-            SetWaypointOnNavMesh(q1, new Vector3(baseX + 2.00f, 0f, baseZ));
-            SetWaypointOnNavMesh(q2, new Vector3(baseX + 3.00f, 0f, baseZ));
-            SetWaypointOnNavMesh(q3, new Vector3(baseX + 4.00f, 0f, baseZ));
+            Transform lookWp = npcPopulation.transform.Find("Checkout_LookTarget");
+            if (lookWp == null)
+            {
+                GameObject lookObj = new GameObject("Checkout_LookTarget");
+                lookObj.transform.SetParent(npcPopulation.transform, false);
+                lookWp = lookObj.transform;
+            }
+
+            lookWp.position = ResolveCounterFocusPosition(
+                cashRegisterTransform,
+                counterMonitorTransform,
+                new Vector3(-6.24f, 1.35f, -2.38f));
+            npcPopulation.CheckoutLookTarget = lookWp;
+
+            Transform itemSpotWp = npcPopulation.transform.Find("Checkout_ItemSpot");
+            if (itemSpotWp == null)
+            {
+                GameObject spotObj = new GameObject("Checkout_ItemSpot");
+                spotObj.transform.SetParent(npcPopulation.transform, false);
+                itemSpotWp = spotObj.transform;
+            }
+
+            itemSpotWp.position = new Vector3(SharedCheckoutX, SharedCounterTopY, SharedCheckoutItemSpotZ);
+            itemSpotWp.rotation = Quaternion.identity;
+            itemSpotWp.localScale = Vector3.one;
+            npcPopulation.CheckoutItemSpot = itemSpotWp;
+        }
+
+        private static Vector3 ResolveCounterFocusPosition(Transform registerTr, Transform monitorTr, Vector3 fallback)
+        {
+            if (registerTr != null && monitorTr != null)
+            {
+                Vector3 mid = (registerTr.position + monitorTr.position) * 0.5f;
+                return new Vector3(mid.x, 1.35f, mid.z);
+            }
+
+            if (registerTr != null)
+            {
+                return new Vector3(registerTr.position.x, 1.35f, registerTr.position.z);
+            }
+
+            if (monitorTr != null)
+            {
+                return new Vector3(monitorTr.position.x, 1.35f, monitorTr.position.z);
+            }
+
+            return fallback;
         }
 
         private static void SetWaypointOnNavMesh(Transform wp, Vector3 desiredPos)
@@ -667,93 +824,6 @@ namespace OpenSourceTeam6.UI.Unity
             wp.position = NavMesh.SamplePosition(desiredPos, out NavMeshHit hit, 1.5f, NavMesh.AllAreas)
                 ? hit.position
                 : desiredPos;
-        }
-
-        private void EnsureSecondaryMonitorSignage()
-        {
-            if (secondaryCounterMonitorTransform == null || secondaryMonitorStatusText != null) return;
-
-            Transform existing = secondaryCounterMonitorTransform.Find("SecondaryMonitorScreenCanvas");
-            if (existing != null)
-            {
-                Text[] existingTexts = existing.GetComponentsInChildren<Text>(true);
-                if (existingTexts.Length > 0)
-                {
-                    secondaryMonitorStatusText = existingTexts[existingTexts.Length - 1];
-                }
-                return;
-            }
-
-            GameObject canvasObj = new GameObject("SecondaryMonitorScreenCanvas", typeof(RectTransform));
-            canvasObj.transform.SetParent(secondaryCounterMonitorTransform, false);
-
-            Canvas c = canvasObj.AddComponent<Canvas>();
-            c.renderMode = RenderMode.WorldSpace;
-            c.sortingOrder = 10;
-
-            RectTransform rt = canvasObj.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.5f, 0.5f);
-            rt.anchorMax = new Vector2(0.5f, 0.5f);
-            rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.localPosition = new Vector3(0f, 0.2245f, 0.0082f);
-            rt.localRotation = Quaternion.Euler(2.07f, 180f, 0f);
-            rt.sizeDelta = new Vector2(1072f, 598f);
-            rt.localScale = new Vector3(0.0005f, 0.0005f, 0.0005f);
-
-            GameObject bgObj = new GameObject("Bg", typeof(RectTransform), typeof(Image));
-            bgObj.transform.SetParent(canvasObj.transform, false);
-            RectTransform bgRt = bgObj.GetComponent<RectTransform>();
-            bgRt.anchorMin = Vector2.zero;
-            bgRt.anchorMax = Vector2.one;
-            bgRt.offsetMin = Vector2.zero;
-            bgRt.offsetMax = Vector2.zero;
-            bgObj.GetComponent<Image>().color = new Color(0.05f, 0.10f, 0.14f, 0.96f);
-
-            Font uiFont = ResolveSharedUiFont();
-
-            GameObject titleObj = new GameObject("Title", typeof(RectTransform), typeof(Text));
-            titleObj.transform.SetParent(bgObj.transform, false);
-            RectTransform titleRt = titleObj.GetComponent<RectTransform>();
-            titleRt.anchorMin = new Vector2(0f, 0.55f);
-            titleRt.anchorMax = new Vector2(1f, 0.92f);
-            titleRt.offsetMin = Vector2.zero;
-            titleRt.offsetMax = Vector2.zero;
-            Text titleTxt = titleObj.GetComponent<Text>();
-            titleTxt.font = uiFont;
-            titleTxt.fontSize = 68;
-            titleTxt.fontStyle = FontStyle.Bold;
-            titleTxt.alignment = TextAnchor.MiddleCenter;
-            titleTxt.color = new Color(0.76f, 0.94f, 0.98f, 1f);
-            titleTxt.text = "알바 전용 계산대";
-
-            GameObject statusObj = new GameObject("Status", typeof(RectTransform), typeof(Text));
-            statusObj.transform.SetParent(bgObj.transform, false);
-            RectTransform statusRt = statusObj.GetComponent<RectTransform>();
-            statusRt.anchorMin = new Vector2(0f, 0.15f);
-            statusRt.anchorMax = new Vector2(1f, 0.52f);
-            statusRt.offsetMin = Vector2.zero;
-            statusRt.offsetMax = Vector2.zero;
-            secondaryMonitorStatusText = statusObj.GetComponent<Text>();
-            secondaryMonitorStatusText.font = uiFont;
-            secondaryMonitorStatusText.fontSize = 52;
-            secondaryMonitorStatusText.fontStyle = FontStyle.Bold;
-            secondaryMonitorStatusText.alignment = TextAnchor.MiddleCenter;
-            secondaryMonitorStatusText.color = new Color(1.0f, 0.84f, 0.34f, 1f);
-            secondaryMonitorStatusText.text = "대기 중 ('계산대 봐줘' 지시)";
-        }
-
-        private Font ResolveSharedUiFont()
-        {
-            if (uiController != null)
-            {
-                Text anyText = uiController.GetComponentInChildren<Text>(true);
-                if (anyText != null && anyText.font != null)
-                {
-                    return anyText.font;
-                }
-            }
-
-            return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         }
 
         private bool IsPlayerLookingAtCounter(Transform registerTr, Transform monitorTr, bool hasWaitingCustomer)
@@ -910,6 +980,8 @@ namespace OpenSourceTeam6.UI.Unity
                 StopCoroutine(checkoutSoundAndRollCoroutine);
                 checkoutSoundAndRollCoroutine = null;
             }
+            isCheckoutSoundInProgress = false;
+            isCheckoutLaneConfigured = false;
             pendingCustomerPickedItemIds.Clear();
             customerHiddenShelfVisuals.Clear();
             RestoreAllShelfVisuals();
@@ -933,6 +1005,8 @@ namespace OpenSourceTeam6.UI.Unity
                 StopCoroutine(checkoutSoundAndRollCoroutine);
                 checkoutSoundAndRollCoroutine = null;
             }
+            isCheckoutSoundInProgress = false;
+            isCheckoutLaneConfigured = false;
             pendingCustomerPickedItemIds.Clear();
             customerHiddenShelfVisuals.Clear();
             staffCheckoutTimer = 0f;
@@ -1178,6 +1252,7 @@ namespace OpenSourceTeam6.UI.Unity
             FieldInfo visualPrefabField = optionType.GetField("visualPrefab", BindingFlags.Instance | BindingFlags.Public);
             FieldInfo shelfItemField = optionType.GetField("shelfItem", BindingFlags.Instance | BindingFlags.Public);
             FieldInfo unstockedField = optionType.GetField("unstocked", BindingFlags.Instance | BindingFlags.Public);
+            FieldInfo shelfLookField = optionType.GetField("shelfLookTarget", BindingFlags.Instance | BindingFlags.Public);
             if (catField == null || nameField == null || pickupField == null) return;
 
             (ProductCategory cat, StoreItemCategory storeCat, string repName)[] defaults =
@@ -1208,6 +1283,12 @@ namespace OpenSourceTeam6.UI.Unity
                     pickupField.SetValue(option, pickupTr);
                 }
 
+                Transform lookTr = ResolveOrCreateCategoryShelfLookTarget(defaults[i].storeCat, pickupTr);
+                if (shelfLookField != null && lookTr != null)
+                {
+                    shelfLookField.SetValue(option, lookTr);
+                }
+
                 // 임시 큐브(ProductBox) 대신 실제 매대 3D 물건 복제 템플릿을 손님 휴대용 프리팹으로 연결
                 if (visualPrefabField != null)
                 {
@@ -1233,7 +1314,87 @@ namespace OpenSourceTeam6.UI.Unity
             }
 
             productsField.SetValue(npcPopulation, targetArray);
+            EnsureBrowsingWaypointsAligned();
             isNpcProductsConfigured = true;
+        }
+
+        private Transform ResolveOrCreateCategoryShelfLookTarget(StoreItemCategory category, Transform pickupTr)
+        {
+            if (runtimeShelfLookTargets.TryGetValue(category, out Transform cached) && cached != null)
+            {
+                return cached;
+            }
+
+            if (!shelfVisualsByCategory.TryGetValue(category, out List<GameObject> items) || items == null || items.Count == 0)
+            {
+                return null;
+            }
+
+            Vector3 sumAll = Vector3.zero;
+            int countAll = 0;
+            Vector3 sumNear = Vector3.zero;
+            int countNear = 0;
+            Vector2 pickupXZ = pickupTr != null ? new Vector2(pickupTr.position.x, pickupTr.position.z) : Vector2.zero;
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i] == null) continue;
+                Vector3 pos = items[i].transform.position;
+                sumAll += pos;
+                countAll++;
+
+                if (pickupTr != null)
+                {
+                    Vector2 itemXZ = new Vector2(pos.x, pos.z);
+                    if (Vector2.Distance(itemXZ, pickupXZ) <= 3.2f)
+                    {
+                        sumNear += pos;
+                        countNear++;
+                    }
+                }
+            }
+
+            if (countAll == 0) return null;
+
+            Vector3 avg = countNear > 0 ? (sumNear / countNear) : (sumAll / countAll);
+            avg.y = Mathf.Clamp(avg.y, 0.85f, 1.45f);
+
+            GameObject lookObj = new GameObject($"ShelfLookTarget_{category}");
+            lookObj.transform.SetParent(transform, false);
+            lookObj.transform.position = avg;
+            runtimeShelfLookTargets[category] = lookObj.transform;
+            return lookObj.transform;
+        }
+
+        private void EnsureBrowsingWaypointsAligned()
+        {
+            if (npcPopulation == null) return;
+
+            (string waypointName, StoreItemCategory targetCat)[] mapping =
+            {
+                ("BrowseWaypoint_0", StoreItemCategory.Snack),
+                ("BrowseWaypoint_1", StoreItemCategory.Ramen),
+                ("BrowseWaypoint_2", StoreItemCategory.Daily),
+                ("BrowseWaypoint_3", StoreItemCategory.IceCream)
+            };
+
+            for (int i = 0; i < mapping.Length; i++)
+            {
+                Transform wp = npcPopulation.transform.Find(mapping[i].waypointName);
+                if (wp == null) continue;
+
+                SetWaypointOnNavMesh(wp, wp.position);
+
+                if (runtimeShelfLookTargets.TryGetValue(mapping[i].targetCat, out Transform lookTarget) && lookTarget != null)
+                {
+                    Vector3 flatDir = lookTarget.position - wp.position;
+                    flatDir.y = 0f;
+                    if (flatDir.sqrMagnitude > 0.0025f)
+                    {
+                        wp.rotation = Quaternion.LookRotation(flatDir.normalized, Vector3.up);
+                    }
+                }
+            }
         }
 
         private GameObject GetOrCreateCarriedTemplate(StoreItemCategory category, string preferredItemId)

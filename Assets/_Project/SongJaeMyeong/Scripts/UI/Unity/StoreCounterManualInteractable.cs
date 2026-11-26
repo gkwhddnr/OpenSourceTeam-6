@@ -65,7 +65,7 @@ namespace OpenSourceTeam6.UI.Unity
             Transform oldSpine = transform.Find("ManualSpineAccent");
             if (oldSpine != null) oldSpine.gameObject.SetActive(false);
 
-            transform.position = new Vector3(-3.60f, 1.042f, -2.42f);
+            transform.position = new Vector3(-5.30f, 1.042f, -2.42f);
             transform.localScale = Vector3.one;
             transform.localEulerAngles = new Vector3(0f, -14f, 0f);
 

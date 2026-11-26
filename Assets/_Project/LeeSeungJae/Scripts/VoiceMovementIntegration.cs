@@ -104,6 +104,7 @@ namespace EmployeeVoice
         private string activeWork = null;
         private long lastArrivedMove;
         private bool recordingHoldR;
+        private bool isEmployeeResting;
         private EmployeePersonalityProfile currentProfile = EmployeePersonalityProfile.CreatePreset1Diligent();
         private float stressFloat = 20f;
         private float fatigueFloat = 10f;
@@ -289,6 +290,8 @@ namespace EmployeeVoice
             else Debug.LogWarning("[VoiceIntegration] Player input gate unavailable; UI fallback remains active.", this);
             movement = employee;
             employeeAnimation = employee.GetComponentInChildren<NpcEmployeeAnimation>();
+            if (angerStrikeSurface == null)
+                angerStrikeSurface = ResolveCounterStrikeSurfaceFallback();
             Camera viewCam = playerRig != null ? playerRig.GetComponentInChildren<Camera>() : Camera.main;
             ui.BindEmployeeTarget(employee.transform, viewCam != null ? viewCam.transform : null);
             if (employeeStatusAnchor != null)
@@ -325,7 +328,7 @@ namespace EmployeeVoice
             if (subscribed) return;
             ui.PersonaConfirmed += OnPersonaConfirmed;
             ui.TextCommandSubmitted += SubmitText;
-            ui.CancelWorkRequested += CancelWork;
+            ui.CancelWorkRequested += OnRestWorkRequested;
             ui.VoiceRecordToggleRequested += OnVoiceRecordToggleRequested;
             ui.DayStarted += OnDayStarted;
             ui.EmployeeTaskCompleted += OnEmployeeTaskCompleted;
@@ -336,6 +339,8 @@ namespace EmployeeVoice
         private void OnDayStarted()
         {
             CancelWork();
+            isEmployeeResting = false;
+            employeeAnimation?.SetPaused(false);
             EmotionStatRates demoRates = EmotionStatRates.CreateDemoDefault();
             stressFloat = currentProfile.InitialStress;
             fatigueFloat = demoRates.InitialFatigue;
@@ -516,6 +521,7 @@ namespace EmployeeVoice
                 return false;
             }
 
+            float previousStress = stressFloat;
             stressFloat = StressRules.ClampStat(stressFloat + stressDelta);
             fatigueFloat = StressRules.ClampStat(fatigueFloat + fatigueDelta);
             personality.stress = Mathf.Clamp(Mathf.RoundToInt(stressFloat), 0, 100);
@@ -527,6 +533,9 @@ namespace EmployeeVoice
                 TriggerStressOverflowEnding();
                 return true;
             }
+
+            if (previousStress < StressRules.AngerThreshold && stressFloat >= StressRules.AngerThreshold)
+                StartAngerReaction();
 
             return false;
         }
@@ -584,27 +593,105 @@ namespace EmployeeVoice
                 return true;
             }
 
-            if (previousStress < StressRules.AngerThreshold && stressFloat >= StressRules.AngerThreshold)
+            if ((previousStress < StressRules.AngerThreshold && stressFloat >= StressRules.AngerThreshold) ||
+                (stressFloat >= StressRules.AngerThreshold && delta >= 10f && angerTimeRemaining <= 0f))
                 StartAngerReaction();
             return false;
         }
 
+        public bool TryTriggerNextAngerReactionPreview(out AngerGesture playedGesture, out bool fellBackFromCounterStrike)
+        {
+            playedGesture = default;
+            fellBackFromCounterStrike = false;
+            if (employeeAnimation == null && employee != null)
+                employeeAnimation = employee.GetComponentInChildren<NpcEmployeeAnimation>();
+            if (employee == null || employeeAnimation == null || !employeeAnimation.CanPlay(NpcAnimationState.Anger))
+                return false;
+
+            if (angerTimeRemaining > 0f)
+                EndAngerReaction();
+
+            isEmployeeResting = false;
+            return StartAngerReactionInternal(out playedGesture, out fellBackFromCounterStrike);
+        }
+
         private void StartAngerReaction()
         {
-            if (employeeAnimation == null || !employeeAnimation.CanPlay(NpcAnimationState.Anger))
-                return;
+            StartAngerReactionInternal(out _, out _);
+        }
 
+        private bool StartAngerReactionInternal(out AngerGesture playedGesture, out bool fellBackFromCounterStrike)
+        {
+            playedGesture = default;
+            fellBackFromCounterStrike = false;
+            if (employeeAnimation == null || !employeeAnimation.CanPlay(NpcAnimationState.Anger))
+                return false;
+
+            isEmployeeResting = false;
             employee.SetReactionPaused(true);
-            angerGesture = (AngerGesture)(nextAngerGesture++ % 4);
-            if (angerGesture == AngerGesture.CounterStrike && !TryGetCounterStrikeTarget())
-                angerGesture = AngerGesture.Shout;
+            AngerGesture selected = (AngerGesture)(nextAngerGesture++ % 4);
+            if (selected == AngerGesture.CounterStrike && !TryGetCounterStrikeTarget())
+            {
+                fellBackFromCounterStrike = true;
+                selected = AngerGesture.Shout;
+            }
+
+            angerGesture = selected;
+            playedGesture = selected;
+            if (angerGesture != AngerGesture.CounterStrike)
+                FacePlayerHorizontally();
+
             employeeAnimation.Play(angerGesture == AngerGesture.Shout ? NpcAnimationState.Anger : NpcAnimationState.Idle);
             employeeAnimation.SetAngerGesture(angerGesture, 0f, AngerReactionTarget());
             angerTimeRemaining = angerDuration = Mathf.Max(0.1f, angerReactionSeconds);
+            return true;
+        }
+
+        private void FacePlayerHorizontally()
+        {
+            if (employee == null) return;
+            Camera view = playerRig != null ? playerRig.GetComponentInChildren<Camera>() : Camera.main;
+            Vector3 lookPos = playerRig != null
+                ? playerRig.transform.position
+                : (view != null ? view.transform.position : employee.transform.position + employee.transform.forward);
+            Vector3 toward = lookPos - employee.transform.position;
+            toward.y = 0f;
+            if (toward.sqrMagnitude > 0.001f)
+                employee.transform.rotation = Quaternion.LookRotation(toward.normalized, Vector3.up);
+        }
+
+        private Collider ResolveCounterStrikeSurfaceFallback()
+        {
+            GameObject mapRoot = GameObject.Find("ConvenienceStore_Map");
+            Transform checkout = mapRoot != null ? mapRoot.transform.Find("Checkout_1") : null;
+            if (checkout == null)
+                checkout = GameObject.Find("Checkout_1")?.transform;
+            if (checkout == null)
+                return null;
+
+            foreach (string childName in new[] { "Counter_Top", "Counter_Base" })
+            {
+                Transform child = checkout.Find(childName);
+                Collider col = child != null ? child.GetComponent<Collider>() : null;
+                if (col != null && col.enabled && col.gameObject.activeInHierarchy)
+                    return col;
+            }
+
+            foreach (Collider col in checkout.GetComponentsInChildren<Collider>(false))
+            {
+                if (col == null || !col.enabled || col.isTrigger) continue;
+                float topY = col.bounds.max.y - employee.transform.position.y;
+                if (topY >= 0.65f && topY <= 1.30f)
+                    return col;
+            }
+
+            return null;
         }
 
         private bool TryGetCounterStrikeTarget()
         {
+            if (angerStrikeSurface == null)
+                angerStrikeSurface = ResolveCounterStrikeSurfaceFallback();
             if (angerStrikeSurface == null || !angerStrikeSurface.enabled ||
                 !angerStrikeSurface.gameObject.activeInHierarchy) return false;
 
@@ -612,7 +699,7 @@ namespace EmployeeVoice
             var position = employee.transform.position;
             var edge = bounds.ClosestPoint(new Vector3(position.x, bounds.max.y, position.z));
             var toward = edge - new Vector3(position.x, edge.y, position.z);
-            if (toward.sqrMagnitude < 0.001f || toward.sqrMagnitude > 0.42f ||
+            if (toward.sqrMagnitude < 0.001f || toward.sqrMagnitude > 0.90f ||
                 edge.y - position.y < 0.65f || edge.y - position.y > 1.25f)
                 return false;
 
@@ -623,6 +710,12 @@ namespace EmployeeVoice
 
         private void UpdateEmployeeAnimation()
         {
+            bool animationPaused = ui != null && (ui.IsPauseMenuOpen || ui.IsSettingsOpen || ui.IsTransitionFading);
+            if (employeeAnimation != null)
+                employeeAnimation.SetPaused(animationPaused);
+            if (animationPaused)
+                return;
+
             if (angerTimeRemaining > 0f)
             {
                 angerTimeRemaining -= Time.deltaTime;
@@ -639,11 +732,21 @@ namespace EmployeeVoice
 
             var velocity = employee.Snapshot.ActualVelocity;
             float horizontalSpeedSquared = velocity.X * velocity.X + velocity.Z * velocity.Z;
-            if (horizontalSpeedSquared <= 0.01f && activeMove == 0 &&
-                employeeAnimation.CurrentState == NpcAnimationState.Stock)
+            if (horizontalSpeedSquared > 0.01f)
+            {
+                isEmployeeResting = false;
+                if (employeeAnimation.CurrentState != NpcAnimationState.Walk)
+                    employeeAnimation.Play(NpcAnimationState.Walk);
                 return;
-            var locomotion = horizontalSpeedSquared > 0.01f ? NpcAnimationState.Walk : NpcAnimationState.Idle;
-            if (employeeAnimation.CurrentState != locomotion) employeeAnimation.Play(locomotion);
+            }
+
+            if (activeMove == 0 &&
+                (employeeAnimation.CurrentState == NpcAnimationState.Stock ||
+                 employeeAnimation.CurrentState == NpcAnimationState.Checkout))
+                return;
+
+            var targetState = isEmployeeResting && activeMove == 0 ? NpcAnimationState.Rest : NpcAnimationState.Idle;
+            if (employeeAnimation.CurrentState != targetState) employeeAnimation.Play(targetState);
         }
 
         private Vector3 AngerReactionTarget() => angerGesture == AngerGesture.Finger
@@ -810,6 +913,12 @@ namespace EmployeeVoice
             {
                 bool hadWork = activeMove != 0 || activeWorkRole != StaffWorkRole.Idle || inferenceInFlight;
                 CancelWork();
+                if (isRestRequest)
+                {
+                    isEmployeeResting = true;
+                    currentAction = "REST";
+                    UpdateHud();
+                }
                 LogDecision("CANCEL");
                 Feedback(CommandFeedbackKind.Info, isRestRequest ? "직원이 현재 위치에서 휴식합니다." :
                     hadWork ? "직원에게 진행 중인 작업 중지를 요청했습니다." : "현재 진행 중인 작업이 없습니다.");
@@ -901,6 +1010,7 @@ namespace EmployeeVoice
 
                     MoveReceipt move = movement.RequestMove(new WorldPoint(point.x, point.y, point.z));
                     if (!move.Accepted) { badge = StaffMoveBadge.Failed; UpdateHud(); Fail(CommandFeedbackKind.SystemOrMoveError, "이동 요청 거절: " + move.RejectReason); return; }
+                    isEmployeeResting = false;
                     activeMove = move.RequestId;
                     lastArrivedMove = 0;
                     activeMoveIsRestock = false;
@@ -944,7 +1054,16 @@ namespace EmployeeVoice
                     if (!refuseDialogueOk || !IsCurrent(request)) return;
                     activeWorkRole = StaffWorkRole.Idle;
                     badge = StaffMoveBadge.Idle;
-                    if (action == EmployeeAction.REFUSE_EMOTION) ui.RecordAngerRefusal();
+                    if (action == EmployeeAction.REFUSE_EMOTION)
+                    {
+                        isEmployeeResting = false;
+                        ui.RecordAngerRefusal();
+                        StartAngerReaction();
+                    }
+                    else
+                    {
+                        isEmployeeResting = true;
+                    }
                     UpdateHud();
                     return;
                 }
@@ -961,6 +1080,7 @@ namespace EmployeeVoice
                 MoveReceipt receipt = movement.RequestMove(new WorldPoint(position.x, position.y, position.z));
                 if (!receipt.Accepted)
                 { badge = StaffMoveBadge.Failed; UpdateHud(); Fail(CommandFeedbackKind.SystemOrMoveError, "이동 요청 거절: " + receipt.RejectReason); return; }
+                isEmployeeResting = false;
                 activeMove = receipt.RequestId;
                 lastArrivedMove = 0;
                 activeMoveIsRestock = workAction == EmployeeAction.RESTOCK;
@@ -1610,8 +1730,17 @@ namespace EmployeeVoice
             UpdateHud();
         }
 
+        private void OnRestWorkRequested()
+        {
+            CancelWork();
+            isEmployeeResting = true;
+            currentAction = "REST";
+            UpdateHud();
+        }
+
         private void CancelWork()
         {
+            isEmployeeResting = false;
             generation++;
             lastArrivedMove = 0;
             processing = false;
@@ -1675,6 +1804,8 @@ namespace EmployeeVoice
         private void OnDisable()
         {
             if (angerTimeRemaining > 0f) EndAngerReaction();
+            isEmployeeResting = false;
+            employeeAnimation?.SetPaused(false);
             generation++;
             personaEvaluationClient?.Dispose();
             personaEvaluationClient = null;
@@ -1704,7 +1835,7 @@ namespace EmployeeVoice
             {
                 ui.PersonaConfirmed -= OnPersonaConfirmed;
                 ui.TextCommandSubmitted -= SubmitText;
-                ui.CancelWorkRequested -= CancelWork;
+                ui.CancelWorkRequested -= OnRestWorkRequested;
                 ui.VoiceRecordToggleRequested -= OnVoiceRecordToggleRequested;
                 ui.DayStarted -= OnDayStarted;
                 ui.EmployeeTaskCompleted -= OnEmployeeTaskCompleted;

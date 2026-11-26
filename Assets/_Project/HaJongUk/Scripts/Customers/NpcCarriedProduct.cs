@@ -9,6 +9,7 @@ namespace OpenSourceTeam6.Customers.Unity
 
         private readonly GameObject item;
         private readonly bool returnToDisplay;
+        private readonly Vector3 initialWorldScale;
         private readonly Transform displayParent;
         private readonly Vector3 displayPosition;
         private readonly Quaternion displayRotation;
@@ -18,11 +19,16 @@ namespace OpenSourceTeam6.Customers.Unity
         private readonly Rigidbody[] bodies;
         private readonly bool[] bodyStates;
 
-        private NpcCarriedProduct(GameObject item, bool returnToDisplay, Transform carrier, Transform hand)
+        public bool ReturnsToDisplay => returnToDisplay;
+        public bool IsOnCounter { get; private set; }
+
+        private NpcCarriedProduct(GameObject item, bool returnToDisplay, Transform carrier, Transform hand,
+            NpcCharacterAnimation animation)
         {
             this.item = item;
             this.returnToDisplay = returnToDisplay;
             var itemTransform = item.transform;
+            initialWorldScale = itemTransform.lossyScale;
             colliders = item.GetComponentsInChildren<Collider>(true);
             bodies = item.GetComponentsInChildren<Rigidbody>(true);
             if (returnToDisplay)
@@ -35,29 +41,112 @@ namespace OpenSourceTeam6.Customers.Unity
                 bodyStates = Array.ConvertAll(bodies, body => body.isKinematic);
             }
 
-            if (hand != null)
-            {
-                itemTransform.SetParent(hand, true);
-                itemTransform.SetPositionAndRotation(hand.position, carrier.rotation);
-            }
-            else
-            {
-                itemTransform.SetParent(carrier, false);
-                itemTransform.SetLocalPositionAndRotation(HoldPosition, Quaternion.identity);
-            }
+            AttachToCarrier(carrier, hand, animation);
             foreach (var collider in colliders)
                 collider.enabled = false;
             foreach (var body in bodies)
                 body.isKinematic = true;
         }
 
-        public static NpcCarriedProduct Attach(GameObject shelfItem, GameObject fallbackPrefab, Transform carrier, Transform hand)
+        public static NpcCarriedProduct Attach(GameObject shelfItem, GameObject fallbackPrefab, Transform carrier,
+            Transform hand, NpcCharacterAnimation animation = null)
         {
             if (shelfItem != null)
-                return new NpcCarriedProduct(shelfItem, true, carrier, hand);
+                return new NpcCarriedProduct(shelfItem, true, carrier, hand, animation);
             return fallbackPrefab != null
-                ? new NpcCarriedProduct(UnityEngine.Object.Instantiate(fallbackPrefab), false, carrier, hand)
+                ? new NpcCarriedProduct(UnityEngine.Object.Instantiate(fallbackPrefab), false, carrier, hand, animation)
                 : null;
+        }
+
+        public void PlaceOnCounter(Transform counterSpot)
+        {
+            if (item == null || counterSpot == null)
+                return;
+
+            var itemTransform = item.transform;
+            itemTransform.SetParent(null, true);
+            itemTransform.localScale = initialWorldScale;
+            itemTransform.SetPositionAndRotation(
+                counterSpot.position,
+                Quaternion.Euler(0f, counterSpot.eulerAngles.y, 0f));
+
+            if (TryCalculateRenderBounds(item, out Bounds bounds))
+            {
+                float bottomOffset = counterSpot.position.y - bounds.min.y;
+                itemTransform.position += Vector3.up * bottomOffset;
+            }
+
+            itemTransform.SetParent(counterSpot, true);
+            IsOnCounter = true;
+        }
+
+        public void ReturnToHand(Transform carrier, Transform hand, NpcCharacterAnimation animation = null)
+        {
+            if (item == null)
+                return;
+
+            AttachToCarrier(carrier, hand, animation);
+            IsOnCounter = false;
+        }
+
+        private void AttachToCarrier(Transform carrier, Transform hand, NpcCharacterAnimation animation)
+        {
+            var itemTransform = item.transform;
+            itemTransform.SetParent(null, true);
+            itemTransform.localScale = initialWorldScale;
+
+            if (hand != null)
+            {
+                itemTransform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+                bool hasBounds = TryCalculateRenderBounds(item, out Bounds localBounds);
+                Vector3 centerOffset = hasBounds ? localBounds.center : Vector3.zero;
+
+                Vector3 desiredCenter;
+                Quaternion desiredRot;
+                if (animation != null && animation.TryGetRightHandPalmFrame(out Vector3 palmCenter, out Vector3 fingers, out Vector3 back))
+                {
+                    float halfThickness = hasBounds ? Mathf.Min(localBounds.extents.x, localBounds.extents.z) : 0.035f;
+                    float palmOffset = Mathf.Clamp(halfThickness, 0.022f, 0.055f) + 0.008f;
+                    desiredCenter = palmCenter + fingers * 0.028f - back * palmOffset;
+                    desiredRot = Quaternion.LookRotation(-back, -fingers);
+                }
+                else
+                {
+                    desiredCenter = hand.position;
+                    desiredRot = carrier != null ? carrier.rotation : hand.rotation;
+                }
+
+                itemTransform.SetPositionAndRotation(desiredCenter - desiredRot * centerOffset, desiredRot);
+                itemTransform.SetParent(hand, true);
+            }
+            else if (carrier != null)
+            {
+                itemTransform.SetParent(carrier, false);
+                itemTransform.SetLocalPositionAndRotation(HoldPosition, Quaternion.identity);
+            }
+        }
+
+        private static bool TryCalculateRenderBounds(GameObject root, out Bounds combined)
+        {
+            combined = default;
+            Renderer[] renderers = root.GetComponentsInChildren<Renderer>(false);
+            bool hasBounds = false;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                Renderer r = renderers[i];
+                if (r == null || !r.enabled)
+                    continue;
+                if (!hasBounds)
+                {
+                    combined = r.bounds;
+                    hasBounds = true;
+                }
+                else
+                {
+                    combined.Encapsulate(r.bounds);
+                }
+            }
+            return hasBounds;
         }
 
         public void Release()

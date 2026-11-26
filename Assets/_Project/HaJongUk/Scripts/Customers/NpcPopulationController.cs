@@ -87,6 +87,10 @@ namespace OpenSourceTeam6.Customers.Unity
             public Transform AnswerLocation;
             public ProductOption Product;
             public NpcCarriedProduct CarriedProduct;
+            public int LastAisleIndex = -1;
+            public Vector3? ConsiderLookTarget;
+            public bool AtCheckoutCounter;
+            public float CheckoutWaitSeconds;
 
             public AgentRun(NavMeshAgent agent, Role role, int id, Vector3 sidewalkDestination, bool isRunner)
             {
@@ -109,6 +113,7 @@ namespace OpenSourceTeam6.Customers.Unity
             public GameObject visualPrefab;
             public GameObject shelfItem;
             public bool unstocked;
+            public Transform shelfLookTarget;
         }
 
         [Header("일차별 인원")]
@@ -147,6 +152,8 @@ namespace OpenSourceTeam6.Customers.Unity
         [SerializeField] private Transform[] browsingWaypoints = Array.Empty<Transform>();
         [SerializeField] private Transform shelf;
         [SerializeField] private Transform checkout;
+        [SerializeField] private Transform checkoutLookTarget;
+        [SerializeField] private Transform checkoutItemSpot;
         [SerializeField] private Transform[] queueSlots = Array.Empty<Transform>();
         [SerializeField] private Transform exit;
         [Header("상품 위치 질문 대상 (선택)")]
@@ -218,6 +225,8 @@ namespace OpenSourceTeam6.Customers.Unity
         public Func<string, bool> CanTakeFromShelf { get; set; }
         public event Action<int, string> ProductPickedUp;
         public bool WaitForExternalCheckout { get => waitForExternalCheckout; set => waitForExternalCheckout = value; }
+        public Transform CheckoutLookTarget { get => checkoutLookTarget; set => checkoutLookTarget = value; }
+        public Transform CheckoutItemSpot { get => checkoutItemSpot; set => checkoutItemSpot = value; }
 
         public static string GetProductTag(ProductCategory category)
         {
@@ -488,15 +497,22 @@ namespace OpenSourceTeam6.Customers.Unity
 
             run.Navigation.ClearTarget();
             run.BrowseSeconds = 0f;
+            run.ConsiderLookTarget = null;
+            run.AtCheckoutCounter = false;
+            run.CheckoutWaitSeconds = 0f;
             run.StepIndex++;
             return run.StepIndex == run.Sequence.Length ? Result.Success : Result.Running;
         }
 
-        private static void UpdateAnimation(AgentRun run, Step step, Result result)
+        private void UpdateAnimation(AgentRun run, Step step, Result result)
         {
             var presentation = run.Animation;
             if (presentation == null)
                 return;
+
+            Vector3 velocity = run.Agent.velocity;
+            velocity.y = 0f;
+            float speed = velocity.magnitude;
 
             if (result == Result.Running)
             {
@@ -504,20 +520,52 @@ namespace OpenSourceTeam6.Customers.Unity
                     return;
                 if (step == Step.Browse && run.BrowseSeconds > 0f)
                     return; // The pickup step updates the reach target and progress.
-                if (step == Step.Consider && run.SeekingHelp && run.QuestionAsked)
+                if (step == Step.Consider)
                 {
-                    presentation.Show(NpcAnimationState.Ask);
+                    if (run.SeekingHelp && run.QuestionAsked)
+                    {
+                        Vector3? qTarget = run.QuestionTarget != null
+                            ? (Vector3?)(run.QuestionTarget.position + Vector3.up * 1.4f)
+                            : null;
+                        presentation.Show(NpcAnimationState.Ask, qTarget);
+                        return;
+                    }
+
+                    if (speed <= 0.08f && (run.ConsiderSeconds > 0f || run.ShelfWaitSeconds > 0f))
+                    {
+                        presentation.Show(NpcAnimationState.Consider, run.ConsiderLookTarget);
+                        return;
+                    }
+                }
+                if (step == Step.Checkout && run.AtCheckoutCounter)
+                {
+                    presentation.Show(NpcAnimationState.Wait, GetCheckoutCounterLookTarget());
                     return;
                 }
             }
 
-            Vector3 velocity = run.Agent.velocity;
-            velocity.y = 0f;
-            float speed = velocity.magnitude;
             if (speed > 0.08f)
                 presentation.Show(run.IsRunner ? NpcAnimationState.Run : NpcAnimationState.Walk);
             else
                 presentation.Show(run.Role == Role.Customer ? NpcAnimationState.Wait : NpcAnimationState.Idle);
+        }
+
+        private static Vector3? GetProductLookTarget(ProductOption option)
+        {
+            if (option.shelfItem != null)
+                return option.shelfItem.transform.position;
+            if (option.shelfLookTarget != null)
+                return option.shelfLookTarget.position;
+            return null;
+        }
+
+        private Vector3? GetCheckoutCounterLookTarget()
+        {
+            if (checkoutLookTarget != null)
+                return checkoutLookTarget.position;
+            if (checkout != null)
+                return checkout.position + checkout.forward * 1.5f + Vector3.up * 1.35f;
+            return null;
         }
 
         private static float GetTravelSpeed(float walkSpeed, bool isRunner) =>
@@ -607,7 +655,19 @@ namespace OpenSourceTeam6.Customers.Unity
                 case ShoppingStyle.HesitateAndLeave:
                     customer.ConsiderSeconds += elapsed;
                     if (customer.ConsiderSeconds < customer.RequiredConsiderSeconds)
+                    {
+                        if (shelf != null)
+                        {
+                            FaceInteraction(customer.Agent, shelf.position, elapsed);
+                            customer.ConsiderLookTarget = shelf.position + Vector3.up * 1.35f;
+                        }
+                        else
+                        {
+                            customer.ConsiderLookTarget = customer.Agent.transform.position +
+                                customer.Agent.transform.forward * 2f + Vector3.up * 1.35f;
+                        }
                         return Result.Running;
+                    }
                     if (!customer.Agent.isOnNavMesh)
                         return Result.Failure;
                     customer.Agent.isStopped = false;
@@ -641,7 +701,10 @@ namespace OpenSourceTeam6.Customers.Unity
                 return Result.Running;
             }
             if (movement != Result.Success)
+            {
+                customer.ConsiderLookTarget = null;
                 return Result.Running;
+            }
 
             if (customer.ShelfWaitDuration <= 0f)
             {
@@ -654,7 +717,13 @@ namespace OpenSourceTeam6.Customers.Unity
             }
             customer.ShelfWaitSeconds += elapsed;
             if (customer.ShelfWaitSeconds < customer.ShelfWaitDuration)
+            {
+                Vector3? lookTarget = GetProductLookTarget(product);
+                customer.ConsiderLookTarget = lookTarget;
+                if (lookTarget.HasValue)
+                    FaceInteraction(customer.Agent, lookTarget.Value, elapsed);
                 return Result.Running;
+            }
 
             if (customer.Agent.isOnNavMesh)
                 customer.Agent.isStopped = false;
@@ -687,8 +756,12 @@ namespace OpenSourceTeam6.Customers.Unity
                 Result movement = customer.Navigation.MoveTo(
                     customer.Agent, browsingWaypoints[customer.AisleIndex], elapsed);
                 if (movement == Result.Running)
+                {
+                    customer.ConsiderLookTarget = null;
                     return Result.Running;
+                }
 
+                customer.LastAisleIndex = customer.AisleIndex;
                 customer.AisleIndex = browsingWaypoints.Length;
                 customer.Navigation.ClearTarget();
                 if (customer.Agent.isOnNavMesh)
@@ -700,8 +773,25 @@ namespace OpenSourceTeam6.Customers.Unity
             }
 
             customer.ConsiderSeconds += elapsed;
-            return customer.ConsiderSeconds < customer.RequiredConsiderSeconds
-                ? Result.Running : ChooseDisplayedProduct(customer);
+            if (customer.ConsiderSeconds < customer.RequiredConsiderSeconds)
+            {
+                if (customer.LastAisleIndex >= 0 && customer.LastAisleIndex < browsingWaypoints.Length &&
+                    browsingWaypoints[customer.LastAisleIndex] != null)
+                {
+                    Transform wp = browsingWaypoints[customer.LastAisleIndex];
+                    Vector3 lookPos = wp.position + wp.forward * 2.0f + Vector3.up * 1.25f;
+                    FaceInteraction(customer.Agent, lookPos, elapsed);
+                    customer.ConsiderLookTarget = lookPos;
+                }
+                else if (shelf != null)
+                {
+                    FaceInteraction(customer.Agent, shelf.position, elapsed);
+                    customer.ConsiderLookTarget = shelf.position + Vector3.up * 1.25f;
+                }
+                return Result.Running;
+            }
+
+            return ChooseDisplayedProduct(customer);
         }
 
         private Result SearchShelves(AgentRun customer, float elapsed)
@@ -719,7 +809,10 @@ namespace OpenSourceTeam6.Customers.Unity
             Transform location = option.pickupLocation != null ? option.pickupLocation : shelf;
             Result movement = customer.Navigation.MoveTo(customer.Agent, location, elapsed);
             if (movement == Result.Running)
+            {
+                customer.ConsiderLookTarget = null;
                 return Result.Running;
+            }
 
             if (movement == Result.Success && customer.ShoppingStyle == ShoppingStyle.LeaveWhenMissing)
             {
@@ -734,7 +827,13 @@ namespace OpenSourceTeam6.Customers.Unity
                 }
                 customer.ShelfWaitSeconds += elapsed;
                 if (customer.ShelfWaitSeconds < customer.ShelfWaitDuration)
+                {
+                    Vector3? lookTarget = GetProductLookTarget(option);
+                    customer.ConsiderLookTarget = lookTarget;
+                    if (lookTarget.HasValue)
+                        FaceInteraction(customer.Agent, lookTarget.Value, elapsed);
                     return Result.Running;
+                }
                 if (customer.Agent.isOnNavMesh)
                     customer.Agent.isStopped = false;
                 customer.ShelfWaitSeconds = 0f;
@@ -845,13 +944,12 @@ namespace OpenSourceTeam6.Customers.Unity
 
             float duration = customer.Animation != null ? Mathf.Max(browseDuration, PickupAnimationSeconds) : browseDuration;
             const float pointSeconds = 0.85f;
-            GameObject shelfItem = customer.Product.shelfItem;
-            bool pointBeforePickup = customer.Animation != null && shelfItem != null &&
+            Vector3? target = GetProductLookTarget(customer.Product);
+            bool pointBeforePickup = customer.Animation != null && target.HasValue &&
                 customer.Product.category == ProductCategory.Cigarette;
             customer.BrowseSeconds += elapsed;
             if (customer.Animation != null)
             {
-                Vector3? target = shelfItem != null ? (Vector3?)shelfItem.transform.position : null;
                 if (target.HasValue)
                     FaceInteraction(customer.Agent, target.Value, elapsed);
                 if (pointBeforePickup && customer.BrowseSeconds < pointSeconds)
@@ -881,7 +979,8 @@ namespace OpenSourceTeam6.Customers.Unity
 
             GameObject visual = customer.Product.visualPrefab != null ? customer.Product.visualPrefab : productPrefab;
             customer.CarriedProduct = NpcCarriedProduct.Attach(customer.Product.shelfItem, visual,
-                customer.Agent.transform, customer.Animation != null ? customer.Animation.RightHand : null);
+                customer.Agent.transform, customer.Animation != null ? customer.Animation.RightHand : null,
+                customer.Animation);
 
             ProductPickedUp?.Invoke(customer.Id, GetProductTag(customer.Product.category));
             return Result.Success;
@@ -894,6 +993,12 @@ namespace OpenSourceTeam6.Customers.Unity
                 return Result.Success;
 
             Result movement = customer.Navigation.MoveTo(customer.Agent, queueSlots[position], elapsed);
+            if (movement == Result.Success)
+            {
+                Transform ahead = position == 0 ? checkout : queueSlots[position - 1];
+                if (ahead != null)
+                    FaceInteraction(customer.Agent, ahead.position, elapsed);
+            }
             return movement == Result.Failure ? Result.Failure : Result.Running;
         }
 
@@ -901,7 +1006,21 @@ namespace OpenSourceTeam6.Customers.Unity
         {
             Result movement = customer.Navigation.MoveTo(customer.Agent, checkout, elapsed);
             if (movement != Result.Success)
+            {
+                customer.AtCheckoutCounter = false;
                 return movement;
+            }
+
+            customer.AtCheckoutCounter = true;
+            customer.CheckoutWaitSeconds += elapsed;
+            Vector3? lookTarget = GetCheckoutCounterLookTarget();
+            if (lookTarget.HasValue)
+                FaceInteraction(customer.Agent, lookTarget.Value, elapsed);
+
+            if (checkoutItemSpot != null && customer.CarriedProduct != null && !customer.CarriedProduct.IsOnCounter)
+            {
+                customer.CarriedProduct.PlaceOnCounter(checkoutItemSpot);
+            }
 
             if (waitForExternalCheckout)
             {
@@ -921,7 +1040,22 @@ namespace OpenSourceTeam6.Customers.Unity
 
             ClearCheckoutApproval(customer.Id);
             SuccessfulMockCheckouts++;
-            ReleaseCarriedProduct(customer);
+            if (customer.CarriedProduct != null)
+            {
+                if (customer.CarriedProduct.IsOnCounter)
+                {
+                    customer.CarriedProduct.ReturnToHand(
+                        customer.Agent.transform,
+                        customer.Animation != null ? customer.Animation.RightHand : null,
+                        customer.Animation);
+                }
+
+                // Standalone test scenes without a counter spot that borrow a live shelf item still return it to display immediately.
+                if (customer.CarriedProduct.ReturnsToDisplay && checkoutItemSpot == null)
+                {
+                    ReleaseCarriedProduct(customer);
+                }
+            }
             customer.ProductIndex = -1;
             return Result.Success;
         }

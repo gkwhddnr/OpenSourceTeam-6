@@ -19,7 +19,9 @@ namespace OpenSourceTeam6.Customers.Unity
         SitDown,
         Seated,
         DiscardTrash,
-        CarryTrash
+        CarryTrash,
+        Consider,
+        RequestCheckout
     }
 
     public enum AngerGesture { Shout, Finger, Frown, CounterStrike }
@@ -51,6 +53,10 @@ namespace OpenSourceTeam6.Customers.Unity
         private Vector3 strikeTarget;
         private float angerProgress;
         private NpcFacialExpression facialExpression;
+        private float lookAtSeed;
+        private float smoothedLookWeight;
+        private Vector3 smoothedLookTarget;
+        private bool hasSmoothedLookTarget;
 
         public void SetAngerGesture(AngerGesture gesture, float progress, Vector3 target)
         {
@@ -58,6 +64,12 @@ namespace OpenSourceTeam6.Customers.Unity
             angerProgress = progress;
             strikeTarget = target;
         }
+
+        public bool IsAngerGestureActive =>
+            (shownState == NpcAnimationState.Anger && angerGesture == AngerGesture.Shout) ||
+            angerGesture == AngerGesture.Frown ||
+            angerGesture == AngerGesture.Finger ||
+            angerGesture == AngerGesture.CounterStrike;
 
         private void LateUpdate()
         {
@@ -73,7 +85,12 @@ namespace OpenSourceTeam6.Customers.Unity
             facialExpression.Show(shouting, ReachEnvelope(progress));
         }
 
-        private void OnDisable() => facialExpression?.Clear();
+        private void OnDisable()
+        {
+            facialExpression?.Clear();
+            smoothedLookWeight = 0f;
+            hasSmoothedLookTarget = false;
+        }
 
         public Transform RightHand
         {
@@ -102,9 +119,33 @@ namespace OpenSourceTeam6.Customers.Unity
             return true;
         }
 
+        public bool TryGetRightHandPalmFrame(out Vector3 palmCenter, out Vector3 fingers, out Vector3 back)
+        {
+            CacheRig();
+            palmCenter = Vector3.zero;
+            fingers = -transform.up;
+            back = transform.right;
+            if (rightHand == null) return false;
+
+            if (!TryGetPalmAxes(out fingers, out back))
+            {
+                palmCenter = rightHand.position + transform.forward * 0.045f;
+                fingers = -transform.up;
+                back = transform.right;
+                return true;
+            }
+
+            palmCenter = Vector3.Lerp(rightHand.position, rightMiddleBase.position, 0.78f);
+            return true;
+        }
+
         public NpcAnimationState CurrentState => shownState ?? NpcAnimationState.Idle;
 
-        private void Awake() => CacheRig();
+        private void Awake()
+        {
+            lookAtSeed = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+            CacheRig();
+        }
 
         public bool CanShow(NpcAnimationState state)
         {
@@ -119,6 +160,8 @@ namespace OpenSourceTeam6.Customers.Unity
             {
                 NpcAnimationState.Checkout or NpcAnimationState.DiscardTrash => NpcAnimationState.Idle,
                 NpcAnimationState.CarryTrash => NpcAnimationState.Walk,
+                NpcAnimationState.Consider => NpcAnimationState.Wait,
+                NpcAnimationState.RequestCheckout => NpcAnimationState.Ask,
                 _ => state
             };
             return Animator.StringToHash(animator.GetLayerName(BaseLayer) + "." + clip);
@@ -219,8 +262,12 @@ namespace OpenSourceTeam6.Customers.Unity
                 PoseRightHand(handAxes, finger ? HumanBodyBones.RightMiddleProximal : HumanBodyBones.LastBone, weight);
                 hasSmoothedTarget = false;
                 smoothedWeight = 0f;
+                animator.SetLookAtWeight(0f);
+                smoothedLookWeight = 0f;
+                hasSmoothedLookTarget = false;
                 return;
             }
+            UpdateLookAtIK();
             float blend = paused ? 0f : 1f - Mathf.Exp(-16f * Time.deltaTime);
             Vector3 localTarget = transform.InverseTransformPoint(requested);
             if (!hasSmoothedTarget)
@@ -347,6 +394,82 @@ namespace OpenSourceTeam6.Customers.Unity
 
         private Vector3 TrashCarryPosition(float reach) =>
             upperArm.position + reach * (transform.forward * 0.38f - transform.up * 0.45f);
+
+        private void UpdateLookAtIK()
+        {
+            Vector3 eyeOrigin = upperArm != null
+                ? upperArm.position + transform.up * 0.22f
+                : transform.position + transform.up * 1.45f;
+            float desiredWeight = 0f;
+            float bodyWeight = 0f;
+            Vector3 desiredWorldLookTarget = eyeOrigin + transform.forward * 1.6f;
+
+            switch (shownState)
+            {
+                case NpcAnimationState.Consider:
+                {
+                    Vector3 baseForward = transform.forward;
+                    if (interactionTarget.HasValue)
+                    {
+                        Vector3 horizontal = Vector3.ProjectOnPlane(interactionTarget.Value - eyeOrigin, transform.up);
+                        if (horizontal.sqrMagnitude > 0.0025f)
+                            baseForward = horizontal.normalized;
+                    }
+
+                    float t = Time.time * 1.35f + lookAtSeed;
+                    float yawDeg = Mathf.Sin(t) * 36f;
+                    float pitchDeg = Mathf.Sin(t * 0.67f + 0.8f) * 9f;
+                    Vector3 scanDir = Quaternion.AngleAxis(yawDeg, transform.up) * baseForward;
+                    scanDir = (scanDir + transform.up * Mathf.Sin(pitchDeg * Mathf.Deg2Rad)).normalized;
+                    desiredWorldLookTarget = eyeOrigin + scanDir * 1.8f;
+                    desiredWeight = 0.95f;
+                    bodyWeight = 0.30f;
+                    break;
+                }
+                case NpcAnimationState.RequestCheckout:
+                    desiredWorldLookTarget = interactionTarget ?? (eyeOrigin + transform.forward * 1.6f);
+                    desiredWeight = 0.85f;
+                    bodyWeight = 0.22f;
+                    break;
+                case NpcAnimationState.Wait:
+                case NpcAnimationState.Ask:
+                    if (interactionTarget.HasValue)
+                    {
+                        desiredWorldLookTarget = interactionTarget.Value;
+                        desiredWeight = 0.78f;
+                        bodyWeight = 0.18f;
+                    }
+                    break;
+            }
+
+            float blend = paused ? 0f : 1f - Mathf.Exp(-8f * Time.deltaTime);
+            if (desiredWeight > 0f)
+            {
+                Vector3 localLook = transform.InverseTransformPoint(desiredWorldLookTarget);
+                if (!hasSmoothedLookTarget)
+                {
+                    smoothedLookTarget = localLook;
+                    hasSmoothedLookTarget = true;
+                }
+                else
+                {
+                    smoothedLookTarget = Vector3.Lerp(smoothedLookTarget, localLook, blend);
+                }
+            }
+
+            smoothedLookWeight = Mathf.Lerp(smoothedLookWeight, desiredWeight, blend);
+            if (smoothedLookWeight > 0.005f && hasSmoothedLookTarget)
+            {
+                animator.SetLookAtWeight(smoothedLookWeight, bodyWeight, 0.95f, 1.0f, 0.45f);
+                animator.SetLookAtPosition(transform.TransformPoint(smoothedLookTarget));
+            }
+            else
+            {
+                smoothedLookWeight = 0f;
+                hasSmoothedLookTarget = false;
+                animator.SetLookAtWeight(0f);
+            }
+        }
 
         private Vector3 ClampReach(Vector3 target, float reach)
         {

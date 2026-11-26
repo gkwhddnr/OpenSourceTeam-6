@@ -32,6 +32,9 @@ namespace OpenSourceTeam6.Customers.Unity
         private const float TrashReleasePhase = 0.68f;
 
         public NpcAnimationState CurrentState { get; private set; } = NpcAnimationState.Idle;
+        public bool IsAngerGestureActive => presenter != null && presenter.IsAngerGestureActive;
+        public Transform RegisterTarget => registerTarget;
+        public void SetRegisterTarget(Transform target) => registerTarget = target;
         public event System.Action CheckoutAnimationFinished;
 
         private void Awake()

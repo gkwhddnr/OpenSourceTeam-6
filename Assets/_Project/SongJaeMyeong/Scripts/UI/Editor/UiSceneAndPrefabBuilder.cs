@@ -60,11 +60,14 @@ namespace OpenSourceTeam6.UI.Editor
         private const string ManualSpineMatPath = "Assets/_Project/LeeSeungJae/Assets/ConvenienceStoreMaterials/Dark.mat";
         private const string CustomerCapsulePrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/CustomerCapsule.prefab";
         private const string PedestrianCapsulePrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/PedestrianCapsule.prefab";
+        private const string AnimatedCustomerPrefabPath = "Assets/_Project/HaJongUk/Prefabs/AnimatedNpc/HJU_AnimatedCustomer.prefab";
+        private const string AnimatedPedestrianPrefabPath = "Assets/_Project/HaJongUk/Prefabs/AnimatedNpc/HJU_AnimatedPedestrian.prefab";
+        private const string StoreCharacterRosterPath = "Assets/_Project/HaJongUk/Assets/CharacterAnimation/HJU_StoreCharacterRoster.asset";
+        private const string EmployeeSkeletonPrefabPath = "Assets/ThirdParty/polyperfect/Low Poly Animated People/- Prefabs/man_skeleton.prefab";
+        private const string StoreCharacterControllerPath = "Assets/_Project/HaJongUk/Assets/CharacterAnimation/HJU_StoreCharacter.controller";
         private const string CustomerProductPrefabPath = "Assets/_Project/HaJongUk/Scenes/HJU_CustomerNpc_Test/ProductBox.prefab";
         private const string CounterMonitorPrefabPath = "Assets/ThirdParty/Shared/JustPlay/\u0421omputer devices/Prefabs/Monitor.prefab";
         private const string CounterMonitorPrefabGuid = "eb070747f0511a24aad45f57de2b6f51";
-        private const string CounterSecondaryMonitorPrefabPath = "Assets/ThirdParty/Shared/JustPlay/\u0421omputer devices/Prefabs/Monitor 2.prefab";
-        private const string CounterSecondaryMonitorPrefabGuid = "a7c8d5abfd365bc49914ef428ffdc098";
         private const string CounterCashRegisterPrefabPath = "Assets/ThirdParty/Shared/RetroStyleGames/GasStation/Prefabs/P_RSG_CashRegister.prefab";
         private const string CounterCashRegisterPrefabGuid = "b0cfac3eebc9cc14aab6be8839e98798";
         private const string CounterManualBookPrefabPath = "Assets/ThirdParty/Shared/DanielRiches/BooksEssentials/Prefabs/BookBasicOpenWriting_1.prefab";
@@ -73,6 +76,19 @@ namespace OpenSourceTeam6.UI.Editor
         private const string CounterManualBookFallbackPrefabGuid = "dbfd22a19f49eeb4f90b69c31511ae3c";
         private const string PosReceiptPagePrefabPath = "Assets/ThirdParty/Shared/DanielRiches/BooksEssentials/Prefabs/BookPageWriting.prefab";
         private const string PosReceiptPagePrefabGuid = "4421dcd12f4a79f4597a43cb1179da2d";
+
+        private static readonly Vector3 UnifiedMonitorPos = new Vector3(-5.96f, 1.04f, -2.36f);
+        private static readonly Vector3 UnifiedMonitorEuler = new Vector3(0f, 192f, 0f);
+        private static readonly Vector3 UnifiedRegisterPos = new Vector3(-6.52f, 1.04f, -2.40f);
+        private static readonly Vector3 UnifiedRegisterEuler = new Vector3(0f, 8f, 0f);
+        private static readonly Vector3 UnifiedManualPos = new Vector3(-5.30f, 1.042f, -2.42f);
+        private static readonly Vector3 UnifiedManualEuler = new Vector3(0f, -14f, 0f);
+        private static readonly Vector3 UnifiedPlayerSpawnPos = new Vector3(-5.85f, 0f, -3.08f);
+        private static readonly Vector3 UnifiedPlayerSpawnEuler = new Vector3(0f, 12f, 0f);
+        private static readonly Vector3 UnifiedCheckoutPos = new Vector3(-6.20f, 0f, -1.55f);
+        private static readonly Vector3 UnifiedCheckoutLookPos = new Vector3(-6.24f, 1.35f, -2.38f);
+        private static readonly Vector3 UnifiedCheckoutItemSpotPos = new Vector3(-6.20f, 1.04f, -2.06f);
+        private static readonly Vector3 UnifiedEmployeeCashierPos = new Vector3(-6.155f, 0f, -3.10f);
 
         private static readonly HashSet<string> ConvenienceStoreEnvironmentRoots = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -153,6 +169,9 @@ namespace OpenSourceTeam6.UI.Editor
                 EnsurePrefabTimerTextWidth(prefab);
                 SyncAudioClipsOnPrefabAndActiveScene(prefab);
                 SyncBookAndReceiptModelsOnActiveScene();
+                SyncAnimatedCustomerNpcSystemOnActiveScene();
+                SyncUnifiedSharedCounterOnActiveScene();
+                SyncAnimatedEmployeeSkeletonOnActiveScene();
             };
         }
 
@@ -288,23 +307,30 @@ namespace OpenSourceTeam6.UI.Editor
 
             if (mode == OpenSceneMode.Single &&
                 scene.IsValid() &&
-                scene.path == WorkScenePath &&
-                (Object.FindAnyObjectByType<TimeEnvironmentController>() == null ||
-                 (HasConvenienceStoreMapScene() &&
-                  (GameObject.Find("ConvenienceStore_Map") == null ||
-                   GameObject.Find("Counter_ManualCube") == null ||
-                   GameObject.Find("Counter_PosMonitorRoot") == null ||
-                   GameObject.Find("CounterMonitorScreenCanvas") == null ||
-                   GameObject.Find("LobbyOverviewCamera") == null ||
-                   GameObject.Find("PosSettlementStage") == null ||
-                   GameObject.Find(VoiceIntegrationRootName) == null ||
-                   Object.FindAnyObjectByType<EmployeeMovementController>() == null ||
-                   Object.FindAnyObjectByType<StoreInventoryManager>() == null ||
-                   (ConvenienceStoreProductPopulator.HasSellableAssetsImported() &&
-                    ConvenienceStoreProductPopulator.NeedsProductShelfRefresh(GameObject.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName))) ||
-                   Object.FindAnyObjectByType<PlayerRigController>() == null))))
+                scene.path == WorkScenePath)
             {
-                BuildUiPrefabAndWorkScene();
+                if (Object.FindAnyObjectByType<TimeEnvironmentController>() == null ||
+                    (HasConvenienceStoreMapScene() &&
+                     (GameObject.Find("ConvenienceStore_Map") == null ||
+                      GameObject.Find("Counter_ManualCube") == null ||
+                      GameObject.Find("Counter_PosMonitorRoot") == null ||
+                      GameObject.Find("CounterMonitorScreenCanvas") == null ||
+                      GameObject.Find("LobbyOverviewCamera") == null ||
+                      GameObject.Find("PosSettlementStage") == null ||
+                      GameObject.Find(VoiceIntegrationRootName) == null ||
+                      Object.FindAnyObjectByType<EmployeeMovementController>() == null ||
+                      Object.FindAnyObjectByType<StoreInventoryManager>() == null ||
+                      (ConvenienceStoreProductPopulator.HasSellableAssetsImported() &&
+                       ConvenienceStoreProductPopulator.NeedsProductShelfRefresh(GameObject.Find(ConvenienceStoreProductPopulator.PopulatedMarkerName))) ||
+                      Object.FindAnyObjectByType<PlayerRigController>() == null)))
+                {
+                    BuildUiPrefabAndWorkScene();
+                    return;
+                }
+
+                SyncAnimatedCustomerNpcSystemOnActiveScene();
+                SyncUnifiedSharedCounterOnActiveScene();
+                SyncAnimatedEmployeeSkeletonOnActiveScene();
             }
         }
 
@@ -481,9 +507,9 @@ namespace OpenSourceTeam6.UI.Editor
                 Transform oldBook = manualCube.transform.Find("Counter_ManualBookModel");
                 if (oldBook != null) Object.DestroyImmediate(oldBook.gameObject);
 
-                manualCube.transform.position = new Vector3(-3.60f, 1.042f, -2.42f);
+                manualCube.transform.position = UnifiedManualPos;
                 manualCube.transform.localScale = Vector3.one;
-                manualCube.transform.localEulerAngles = new Vector3(0f, -14f, 0f);
+                manualCube.transform.localEulerAngles = UnifiedManualEuler;
 
                 BoxCollider boxCol = manualCube.GetComponent<BoxCollider>();
                 if (boxCol == null) boxCol = manualCube.AddComponent<BoxCollider>();
@@ -533,7 +559,7 @@ namespace OpenSourceTeam6.UI.Editor
                 Material coverMat = AssetDatabase.LoadAssetAtPath<Material>(ManualCubeMatPath);
                 if (coverMat != null) mr.sharedMaterial = coverMat;
             }
-            manualCube.transform.position = new Vector3(-3.60f, 1.11f, -2.42f);
+            manualCube.transform.position = new Vector3(UnifiedManualPos.x, 1.11f, UnifiedManualPos.z);
             manualCube.transform.localScale = new Vector3(0.28f, 0.14f, 0.22f);
         }
 
@@ -2780,8 +2806,8 @@ namespace OpenSourceTeam6.UI.Editor
                 {
                     GameObject playerInstance = (GameObject)PrefabUtility.InstantiatePrefab(playerRigPrefab);
                     playerInstance.name = "PlayerRig";
-                    playerInstance.transform.position = new Vector3(-3.55f, 0f, -3.08f);
-                    playerInstance.transform.rotation = Quaternion.Euler(0f, 18f, 0f);
+                    playerInstance.transform.position = UnifiedPlayerSpawnPos;
+                    playerInstance.transform.rotation = Quaternion.Euler(UnifiedPlayerSpawnEuler);
 
                     GameObject playerVisual = GameObject.CreatePrimitive(PrimitiveType.Capsule);
                     playerVisual.name = "PlayerVisualCapsule";
@@ -2827,7 +2853,7 @@ namespace OpenSourceTeam6.UI.Editor
                     }
                 }
 
-                counterTarget = CreateEmptyWaypoint(stageRoot.transform, "Target_Counter", new Vector3(-3.80f, 0f, -1.55f));
+                counterTarget = CreateEmptyWaypoint(stageRoot.transform, "Target_Counter", UnifiedEmployeeCashierPos);
                 shelfTarget = CreateEmptyWaypoint(stageRoot.transform, "Target_Shelf", new Vector3(-0.90f, 0f, 0.65f));
                 restTarget = CreateEmptyWaypoint(stageRoot.transform, "Target_Rest", new Vector3(-0.90f, 0f, -1.55f));
             }
@@ -2864,7 +2890,7 @@ namespace OpenSourceTeam6.UI.Editor
 
             NavMeshAgent employeeAgent = npcRoot.AddComponent<NavMeshAgent>();
             employeeAgent.radius = 0.24f;
-            employeeAgent.height = 1.44f;
+            employeeAgent.height = 1.75f;
             employeeAgent.speed = 3.2f;
             employeeAgent.acceleration = 14f;
             employeeAgent.angularSpeed = 480f;
@@ -3050,8 +3076,15 @@ namespace OpenSourceTeam6.UI.Editor
 
                 BuildCounterManualInteractable(stageRoot.transform, uiController, cam, uiFont, paperFont, whiteSprite);
                 BuildCounterPosAndMonitor(storeMapRoot, stageRoot.transform, uiController, uiFont, whiteSprite);
+                Transform posMonitorRoot = stageRoot.transform.Find("Counter_PosMonitorRoot");
+                Transform cashRegisterTr = posMonitorRoot != null ? posMonitorRoot.Find("Counter_CashRegister") : null;
+                ConfigureEmployeeSkeletonVisualAndAnimation(npcRoot, cashRegisterTr != null ? cashRegisterTr.gameObject : null);
                 BuildPosSettlementStage(storeMapRoot, uiController);
                 BuildVoiceAndLlmIntegration(storeMapRoot, uiController, timeController, employeeMovement, npcPopulation);
+            }
+            else
+            {
+                ConfigureEmployeeSkeletonVisualAndAnimation(npcRoot, null);
             }
 
             // Demo driver (실제 VoiceMovementIntegration이 활성일 때는 F6~F8 유틸 단축키 + 마이크 설정 동기화만 수행)
@@ -3120,12 +3153,12 @@ namespace OpenSourceTeam6.UI.Editor
             Font paperFont,
             Sprite whiteSprite)
         {
-            // 1. 계산대 상판(y = 1.04) 왼쪽에 올려둔 점장 설명서 오브젝트 (BooksEssentials 오픈북 에셋 우선 사용)
+            // 1. 공용 계산대 상판(y = 1.04) 옆에 올려둔 점장 설명서 오브젝트 (BooksEssentials 오픈북 에셋 우선 사용)
             GameObject manualCube = new GameObject("Counter_ManualCube");
             manualCube.transform.SetParent(stageRoot, false);
-            manualCube.transform.position = new Vector3(-3.60f, 1.042f, -2.42f);
+            manualCube.transform.position = UnifiedManualPos;
             manualCube.transform.localScale = Vector3.one;
-            manualCube.transform.localEulerAngles = new Vector3(0f, -14f, 0f);
+            manualCube.transform.localEulerAngles = UnifiedManualEuler;
 
             BoxCollider manualBox = manualCube.AddComponent<BoxCollider>();
             manualBox.center = new Vector3(0f, 0.035f, 0f);
@@ -3292,13 +3325,12 @@ namespace OpenSourceTeam6.UI.Editor
             }
 
             GameObject monitorPrefab = LoadPrefabByPathOrGuid(CounterMonitorPrefabPath, CounterMonitorPrefabGuid);
-            GameObject monitor2Prefab = LoadPrefabByPathOrGuid(CounterSecondaryMonitorPrefabPath, CounterSecondaryMonitorPrefabGuid);
             GameObject cashRegisterPrefab = LoadPrefabByPathOrGuid(CounterCashRegisterPrefabPath, CounterCashRegisterPrefabGuid);
 
             GameObject posMonitorRoot = new GameObject("Counter_PosMonitorRoot");
             posMonitorRoot.transform.SetParent(stageRoot, false);
 
-            // 2. 메인 계산대(Checkout_2, 상판 y = 1.04) 위에 모니터와 포스기 배치
+            // 2. 공용 단일 계산대(민수 계산대, Checkout_1 상판 y = 1.04) 위에 모니터와 포스기 배치
             GameObject mainMonitor;
             if (monitorPrefab != null)
             {
@@ -3310,8 +3342,8 @@ namespace OpenSourceTeam6.UI.Editor
                 mainMonitor.transform.SetParent(posMonitorRoot.transform, false);
             }
             mainMonitor.name = "Counter_Monitor";
-            mainMonitor.transform.position = new Vector3(-2.96f, 1.04f, -2.35f);
-            mainMonitor.transform.rotation = Quaternion.Euler(0f, 200f, 0f);
+            mainMonitor.transform.position = UnifiedMonitorPos;
+            mainMonitor.transform.rotation = Quaternion.Euler(UnifiedMonitorEuler);
             mainMonitor.transform.localScale = new Vector3(1.12f, 1.12f, 1.12f);
             ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(mainMonitor);
 
@@ -3319,32 +3351,10 @@ namespace OpenSourceTeam6.UI.Editor
             {
                 GameObject mainCashReg = (GameObject)PrefabUtility.InstantiatePrefab(cashRegisterPrefab, posMonitorRoot.transform);
                 mainCashReg.name = "Counter_CashRegister";
-                mainCashReg.transform.position = new Vector3(-2.34f, 1.04f, -2.40f);
-                mainCashReg.transform.rotation = Quaternion.Euler(0f, 12f, 0f);
+                mainCashReg.transform.position = UnifiedRegisterPos;
+                mainCashReg.transform.rotation = Quaternion.Euler(UnifiedRegisterEuler);
                 mainCashReg.transform.localScale = Vector3.one;
                 ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(mainCashReg);
-            }
-
-            // 3. 보조 계산대(Checkout_1, 상판 y = 1.04) 위에도 서브 모니터 + 포스기 배치
-            GameObject subMonitorAsset = monitor2Prefab != null ? monitor2Prefab : monitorPrefab;
-            if (subMonitorAsset != null)
-            {
-                GameObject subMonitor = (GameObject)PrefabUtility.InstantiatePrefab(subMonitorAsset, posMonitorRoot.transform);
-                subMonitor.name = "Secondary_Counter_Monitor";
-                subMonitor.transform.position = new Vector3(-5.96f, 1.04f, -2.36f);
-                subMonitor.transform.rotation = Quaternion.Euler(0f, 192f, 0f);
-                subMonitor.transform.localScale = Vector3.one;
-                ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(subMonitor);
-            }
-
-            if (cashRegisterPrefab != null)
-            {
-                GameObject subCashReg = (GameObject)PrefabUtility.InstantiatePrefab(cashRegisterPrefab, posMonitorRoot.transform);
-                subCashReg.name = "Secondary_Counter_CashRegister";
-                subCashReg.transform.position = new Vector3(-6.52f, 1.04f, -2.40f);
-                subCashReg.transform.rotation = Quaternion.Euler(0f, 8f, 0f);
-                subCashReg.transform.localScale = Vector3.one;
-                ConvenienceStoreProductPopulator.EnsureUrpMaterialsOnRenderers(subCashReg);
             }
 
             // 4. 메인 모니터 전면 스크린 베젤(0.536m x 0.299m)에 맞춘 World-Space Canvas 부착 (시간 · 매출 실시간 표시)
@@ -3690,13 +3700,18 @@ namespace OpenSourceTeam6.UI.Editor
             Transform cleanDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Clean",
                 isExpandedMap ? new Vector3(6.35f, 0f, 0.50f) : new Vector3(4.20f, 0f, 0.50f));
             Transform cashierDest = CreateEmptyWaypoint(destRoot.transform, "Dest_Cashier",
-                isExpandedMap ? new Vector3(-6.00f, 0f, -1.40f) : new Vector3(-3.80f, 0f, -1.55f));
+                isExpandedMap ? UnifiedEmployeeCashierPos : new Vector3(-3.80f, 0f, -1.55f));
 
             Component voiceComp = voiceRoot.AddComponent(voiceType);
             SerializedObject voiceSo = new SerializedObject(voiceComp);
             SetObjProp(voiceSo, "existingUi", uiController);
             SetObjProp(voiceSo, "businessTime", timeController);
             SetObjProp(voiceSo, "employee", employeeMovement);
+            Collider strikeSurface = FindCheckoutCounterStrikeCollider(storeMapRoot);
+            if (strikeSurface != null)
+            {
+                SetObjProp(voiceSo, "angerStrikeSurface", strikeSurface);
+            }
             SetObjProp(voiceSo, "restockDestination", snackDest);
             SetObjProp(voiceSo, "restockSnackDestination", snackDest);
             SetObjProp(voiceSo, "restockRamenDestination", ramenDest);
@@ -3828,11 +3843,524 @@ namespace OpenSourceTeam6.UI.Editor
             }
         }
 
+        private static void LoadAnimatedCustomerAssets(
+            out GameObject customerPrefab,
+            out GameObject pedestrianPrefab,
+            out NpcCharacterRoster roster,
+            out GameObject productPrefab)
+        {
+            customerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(AnimatedCustomerPrefabPath)
+                             ?? AssetDatabase.LoadAssetAtPath<GameObject>(CustomerCapsulePrefabPath);
+            pedestrianPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(AnimatedPedestrianPrefabPath)
+                               ?? AssetDatabase.LoadAssetAtPath<GameObject>(PedestrianCapsulePrefabPath);
+            roster = AssetDatabase.LoadAssetAtPath<NpcCharacterRoster>(StoreCharacterRosterPath);
+            productPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CustomerProductPrefabPath);
+        }
+
+        [MenuItem("OpenSourceTeam6/UI/Sync Unified Shared Counter & Manual")]
+        private static void SyncUnifiedSharedCounterOnActiveScene()
+        {
+            Scene activeScene = SceneManager.GetActiveScene();
+            if (!activeScene.IsValid() || activeScene.path != WorkScenePath) return;
+
+            bool sceneModified = false;
+
+            GameObject secondaryMonitor = GameObject.Find("Secondary_Counter_Monitor");
+            if (secondaryMonitor != null)
+            {
+                Object.DestroyImmediate(secondaryMonitor);
+                sceneModified = true;
+            }
+
+            GameObject secondaryRegister = GameObject.Find("Secondary_Counter_CashRegister");
+            if (secondaryRegister != null)
+            {
+                Object.DestroyImmediate(secondaryRegister);
+                sceneModified = true;
+            }
+
+            GameObject mainMonitor = GameObject.Find("Counter_Monitor");
+            if (mainMonitor != null)
+            {
+                Quaternion targetRot = Quaternion.Euler(UnifiedMonitorEuler);
+                if (Vector3.Distance(mainMonitor.transform.position, UnifiedMonitorPos) > 0.01f ||
+                    Quaternion.Angle(mainMonitor.transform.rotation, targetRot) > 1f)
+                {
+                    mainMonitor.transform.position = UnifiedMonitorPos;
+                    mainMonitor.transform.rotation = targetRot;
+                    mainMonitor.transform.localScale = new Vector3(1.12f, 1.12f, 1.12f);
+                    sceneModified = true;
+                }
+            }
+
+            GameObject mainRegister = GameObject.Find("Counter_CashRegister");
+            if (mainRegister != null)
+            {
+                Quaternion targetRot = Quaternion.Euler(UnifiedRegisterEuler);
+                if (Vector3.Distance(mainRegister.transform.position, UnifiedRegisterPos) > 0.01f ||
+                    Quaternion.Angle(mainRegister.transform.rotation, targetRot) > 1f)
+                {
+                    mainRegister.transform.position = UnifiedRegisterPos;
+                    mainRegister.transform.rotation = targetRot;
+                    mainRegister.transform.localScale = Vector3.one;
+                    sceneModified = true;
+                }
+            }
+
+            GameObject manualCube = GameObject.Find("Counter_ManualCube");
+            if (manualCube != null && Vector3.Distance(manualCube.transform.position, UnifiedManualPos) > 0.05f)
+            {
+                manualCube.transform.position = UnifiedManualPos;
+                manualCube.transform.localEulerAngles = UnifiedManualEuler;
+                manualCube.transform.localScale = Vector3.one;
+
+                Transform bookModel = manualCube.transform.Find("Counter_ManualBookModel");
+                Renderer bookRenderer = bookModel != null ? bookModel.GetComponentInChildren<Renderer>() : null;
+                if (bookRenderer != null)
+                {
+                    float liftY = manualCube.transform.position.y - bookRenderer.bounds.min.y;
+                    bookModel.position += new Vector3(0f, liftY, 0f);
+                }
+                sceneModified = true;
+            }
+
+            GameObject playerRig = GameObject.Find("PlayerRig");
+            if (playerRig != null && Vector3.Distance(playerRig.transform.position, new Vector3(-3.55f, 0f, -3.08f)) < 0.25f)
+            {
+                playerRig.transform.position = UnifiedPlayerSpawnPos;
+                playerRig.transform.rotation = Quaternion.Euler(UnifiedPlayerSpawnEuler);
+                sceneModified = true;
+            }
+
+            GameObject targetCounter = GameObject.Find("Target_Counter");
+            if (targetCounter != null &&
+                (Vector3.Distance(targetCounter.transform.position, new Vector3(-3.80f, 0f, -1.55f)) < 0.25f ||
+                 Vector3.Distance(targetCounter.transform.position, new Vector3(-6.00f, 0f, -1.40f)) < 0.25f))
+            {
+                targetCounter.transform.position = UnifiedEmployeeCashierPos;
+                sceneModified = true;
+            }
+
+            NpcPopulationController population = Object.FindAnyObjectByType<NpcPopulationController>(FindObjectsInactive.Include);
+            if (population != null)
+            {
+                Transform checkoutWp = population.transform.Find("Customer_Checkout");
+                if (checkoutWp == null || Vector3.Distance(checkoutWp.position, UnifiedCheckoutPos) > 0.05f)
+                {
+                    SyncUnifiedCheckoutWaypoints(population.transform, out Transform lookWp, out Transform itemSpotWp);
+                    SerializedObject popSo = new SerializedObject(population);
+                    SetObjProp(popSo, "checkoutLookTarget", lookWp);
+                    SetObjProp(popSo, "checkoutItemSpot", itemSpotWp);
+                    popSo.ApplyModifiedPropertiesWithoutUndo();
+                    EditorUtility.SetDirty(population);
+                    sceneModified = true;
+                }
+            }
+
+            if (sceneModified)
+            {
+                EditorSceneManager.MarkSceneDirty(activeScene);
+                EditorSceneManager.SaveScene(activeScene);
+                AssetDatabase.SaveAssets();
+                Debug.Log("[OpenSourceTeam6.UI] 공용 계산대(민수 계산대 통일) 및 설명서 위치 동기화 완료!");
+            }
+        }
+
+        [MenuItem("OpenSourceTeam6/UI/Sync Animated Customer NPCs (118종)")]
+        private static void SyncAnimatedCustomerNpcSystemOnActiveScene()
+        {
+            Scene activeScene = SceneManager.GetActiveScene();
+            if (!activeScene.IsValid() || activeScene.path != WorkScenePath) return;
+
+            NpcPopulationController population = Object.FindAnyObjectByType<NpcPopulationController>(FindObjectsInactive.Include);
+            if (population == null) return;
+
+            LoadAnimatedCustomerAssets(
+                out GameObject customerPrefab,
+                out GameObject pedestrianPrefab,
+                out NpcCharacterRoster roster,
+                out GameObject productPrefab);
+            if (customerPrefab == null || pedestrianPrefab == null || roster == null) return;
+
+            GameObject storeMapRoot = GameObject.Find("ConvenienceStore_Map");
+            GameObject employeeObj = GameObject.Find("Demo_Employee_NPC");
+            GameObject playerObj = GameObject.Find("PlayerRig");
+
+            SerializedObject checkSo = new SerializedObject(population);
+            SerializedProperty waypointsProp = checkSo.FindProperty("browsingWaypoints");
+            bool missingWaypoints = waypointsProp == null || waypointsProp.arraySize < 4;
+            if (!missingWaypoints)
+            {
+                for (int i = 0; i < 4; i++)
+                {
+                    if (waypointsProp.GetArrayElementAtIndex(i).objectReferenceValue == null)
+                    {
+                        missingWaypoints = true;
+                        break;
+                    }
+                }
+            }
+
+            bool needsSync =
+                checkSo.FindProperty("customerPrefab")?.objectReferenceValue != customerPrefab ||
+                checkSo.FindProperty("pedestrianPrefab")?.objectReferenceValue != pedestrianPrefab ||
+                checkSo.FindProperty("characterRoster")?.objectReferenceValue != roster ||
+                missingWaypoints ||
+                checkSo.FindProperty("checkoutLookTarget")?.objectReferenceValue == null ||
+                checkSo.FindProperty("checkoutItemSpot")?.objectReferenceValue == null ||
+                (employeeObj != null && checkSo.FindProperty("employeeQuestionTarget")?.objectReferenceValue == null) ||
+                (playerObj != null && checkSo.FindProperty("playerQuestionTarget")?.objectReferenceValue == null);
+
+            if (!needsSync) return;
+
+            ConfigureCustomerNpcSystem(population, storeMapRoot, customerPrefab, pedestrianPrefab, roster, productPrefab);
+            EditorUtility.SetDirty(population);
+            EditorSceneManager.MarkSceneDirty(activeScene);
+            EditorSceneManager.SaveScene(activeScene);
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[OpenSourceTeam6.UI] 118종 Polyperfect 캐릭터 로스터({roster.Count}종) 및 손님/행인 애니메이션 씬 동기화 완료!");
+        }
+
+        [MenuItem("OpenSourceTeam6/UI/Sync Employee Skeleton Model & Animations")]
+        private static void SyncAnimatedEmployeeSkeletonOnActiveScene()
+        {
+            Scene activeScene = SceneManager.GetActiveScene();
+            if (!activeScene.IsValid() || activeScene.path != WorkScenePath) return;
+
+            GameObject npcRoot = GameObject.Find("Demo_Employee_NPC");
+            if (npcRoot == null) return;
+
+            GameObject storeMapRoot = GameObject.Find("ConvenienceStore_Map");
+            GameObject cashRegisterObj = GameObject.Find("Counter_CashRegister");
+            GameObject voiceRoot = GameObject.Find(VoiceIntegrationRootName);
+
+            RuntimeAnimatorController storeController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(StoreCharacterControllerPath);
+            GameObject skeletonPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(EmployeeSkeletonPrefabPath);
+            if (storeController == null || skeletonPrefab == null) return;
+
+            bool needsSync = false;
+
+            Transform visualRoot = npcRoot.transform.Find("EmployeeVisualRoot");
+            Animator skelAnim = visualRoot != null ? visualRoot.GetComponentInChildren<Animator>(true) : null;
+            if (visualRoot == null ||
+                skelAnim == null ||
+                skelAnim.runtimeAnimatorController != storeController ||
+                !skelAnim.gameObject.name.StartsWith(skeletonPrefab.name, StringComparison.Ordinal) ||
+                skelAnim.GetComponent<NpcCharacterAnimation>() == null ||
+                HasActiveImportedSkeletonBehaviours(visualRoot.gameObject))
+            {
+                needsSync = true;
+            }
+
+            Transform capsuleTr = npcRoot.transform.Find("EmployeeVisualCapsule");
+            Renderer capsuleRenderer = capsuleTr != null ? capsuleTr.GetComponent<Renderer>() : null;
+            if (capsuleRenderer != null && capsuleRenderer.enabled)
+            {
+                needsSync = true;
+            }
+
+            NpcEmployeeAnimation empAnim = npcRoot.GetComponent<NpcEmployeeAnimation>();
+            if (empAnim == null)
+            {
+                needsSync = true;
+            }
+            else
+            {
+                SerializedObject empCheckSo = new SerializedObject(empAnim);
+                if (empCheckSo.FindProperty("presenter")?.objectReferenceValue == null ||
+                    empCheckSo.FindProperty("characterRoster")?.objectReferenceValue != null ||
+                    (capsuleRenderer != null && empCheckSo.FindProperty("placeholderRenderer")?.objectReferenceValue != capsuleRenderer) ||
+                    (cashRegisterObj != null && empCheckSo.FindProperty("registerTarget")?.objectReferenceValue == null))
+                {
+                    needsSync = true;
+                }
+            }
+
+            Component voiceComp = null;
+            if (voiceRoot != null)
+            {
+                Type voiceType = Type.GetType("EmployeeVoice.VoiceMovementIntegration, Assembly-CSharp");
+                if (voiceType != null)
+                {
+                    voiceComp = voiceRoot.GetComponent(voiceType);
+                    if (voiceComp != null)
+                    {
+                        SerializedObject voiceCheckSo = new SerializedObject(voiceComp);
+                        if (voiceCheckSo.FindProperty("angerStrikeSurface")?.objectReferenceValue == null &&
+                            FindCheckoutCounterStrikeCollider(storeMapRoot) != null)
+                        {
+                            needsSync = true;
+                        }
+                    }
+                }
+            }
+
+            bool isExpandedMap = storeMapRoot != null && storeMapRoot.transform.Find("Layout_Rebuilt_2026") != null;
+            GameObject destCashier = GameObject.Find("Dest_Cashier");
+            if (isExpandedMap &&
+                destCashier != null &&
+                Vector3.Distance(destCashier.transform.position, UnifiedEmployeeCashierPos) > 0.1f)
+            {
+                needsSync = true;
+            }
+
+            GameObject targetCounter = GameObject.Find("Target_Counter");
+            if (isExpandedMap &&
+                targetCounter != null &&
+                Vector3.Distance(targetCounter.transform.position, UnifiedEmployeeCashierPos) > 0.1f)
+            {
+                needsSync = true;
+            }
+
+            if (!needsSync) return;
+
+            ConfigureEmployeeSkeletonVisualAndAnimation(npcRoot, cashRegisterObj);
+
+            if (isExpandedMap && destCashier != null)
+            {
+                destCashier.transform.position = UnifiedEmployeeCashierPos;
+                EditorUtility.SetDirty(destCashier);
+            }
+
+            if (isExpandedMap && targetCounter != null)
+            {
+                targetCounter.transform.position = UnifiedEmployeeCashierPos;
+                EditorUtility.SetDirty(targetCounter);
+            }
+
+            if (voiceComp != null)
+            {
+                SerializedObject voiceSo = new SerializedObject(voiceComp);
+                SerializedProperty strikeProp = voiceSo.FindProperty("angerStrikeSurface");
+                if (strikeProp != null && strikeProp.objectReferenceValue == null)
+                {
+                    Collider strikeSurface = FindCheckoutCounterStrikeCollider(storeMapRoot);
+                    if (strikeSurface != null)
+                    {
+                        strikeProp.objectReferenceValue = strikeSurface;
+                        voiceSo.ApplyModifiedPropertiesWithoutUndo();
+                        EditorUtility.SetDirty(voiceComp);
+                    }
+                }
+            }
+
+            EditorUtility.SetDirty(npcRoot);
+            EditorSceneManager.MarkSceneDirty(activeScene);
+            EditorSceneManager.SaveScene(activeScene);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[OpenSourceTeam6.UI] 직원(Demo_Employee_NPC) 해골 모델 및 이동·휴식·체크아웃·분노 4종 애니메이션 동기화 완료!");
+        }
+
+        private static bool HasActiveImportedSkeletonBehaviours(GameObject visualRoot)
+        {
+            if (visualRoot == null) return false;
+            foreach (Behaviour behaviour in visualRoot.GetComponentsInChildren<Behaviour>(true))
+            {
+                if (behaviour != null && behaviour.enabled &&
+                    (behaviour is NavMeshAgent ||
+                     behaviour.GetType().Name.EndsWith("_WanderScript", StringComparison.Ordinal)))
+                {
+                    return true;
+                }
+            }
+
+            foreach (Collider col in visualRoot.GetComponentsInChildren<Collider>(true))
+            {
+                if (col != null && col.enabled)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void ConfigureEmployeeSkeletonVisualAndAnimation(GameObject npcRoot, GameObject counterRegisterObj)
+        {
+            if (npcRoot == null) return;
+
+            GameObject skeletonPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(EmployeeSkeletonPrefabPath);
+            RuntimeAnimatorController storeController = AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(StoreCharacterControllerPath);
+            if (skeletonPrefab == null || storeController == null)
+            {
+                Debug.LogWarning("[OpenSourceTeam6.UI] man_skeleton.prefab 또는 HJU_StoreCharacter.controller를 찾지 못해 직원 해골 모델 연결을 건너뜁니다.");
+                return;
+            }
+
+            NavMeshAgent empAgent = npcRoot.GetComponent<NavMeshAgent>();
+            if (empAgent != null)
+            {
+                empAgent.height = 1.75f;
+            }
+
+            Transform capsuleTr = npcRoot.transform.Find("EmployeeVisualCapsule");
+            Renderer capsuleRenderer = capsuleTr != null ? capsuleTr.GetComponent<Renderer>() : null;
+            if (capsuleRenderer != null)
+            {
+                capsuleRenderer.enabled = false;
+            }
+
+            Transform visualRootTr = npcRoot.transform.Find("EmployeeVisualRoot");
+            if (visualRootTr == null)
+            {
+                GameObject visualRootObj = new GameObject("EmployeeVisualRoot");
+                visualRootObj.transform.SetParent(npcRoot.transform, false);
+                visualRootTr = visualRootObj.transform;
+            }
+            visualRootTr.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+            visualRootTr.localScale = Vector3.one;
+
+            Transform existingSkeleton = null;
+            for (int i = visualRootTr.childCount - 1; i >= 0; i--)
+            {
+                Transform child = visualRootTr.GetChild(i);
+                if (existingSkeleton == null &&
+                    child != null &&
+                    child.name.StartsWith(skeletonPrefab.name, StringComparison.Ordinal))
+                {
+                    existingSkeleton = child;
+                }
+                else if (child != null)
+                {
+                    Object.DestroyImmediate(child.gameObject);
+                }
+            }
+
+            GameObject skeletonInstance;
+            if (existingSkeleton != null)
+            {
+                skeletonInstance = existingSkeleton.gameObject;
+            }
+            else
+            {
+                skeletonInstance = (GameObject)PrefabUtility.InstantiatePrefab(skeletonPrefab, visualRootTr);
+                if (skeletonInstance == null)
+                {
+                    skeletonInstance = Object.Instantiate(skeletonPrefab, visualRootTr, false);
+                }
+                skeletonInstance.name = skeletonPrefab.name;
+            }
+
+            skeletonInstance.transform.SetLocalPositionAndRotation(Vector3.zero, Quaternion.identity);
+            skeletonInstance.transform.localScale = Vector3.one;
+            DisableImportedSkeletonMovement(skeletonInstance);
+
+            Animator animator = skeletonInstance.GetComponentInChildren<Animator>(true);
+            if (animator != null)
+            {
+                animator.runtimeAnimatorController = storeController;
+                animator.applyRootMotion = false;
+                animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+                animator.enabled = true;
+            }
+
+            NpcCharacterAnimation presenter = animator != null
+                ? (animator.GetComponent<NpcCharacterAnimation>() ?? animator.gameObject.AddComponent<NpcCharacterAnimation>())
+                : null;
+
+            Transform registerTapPoint = null;
+            if (counterRegisterObj != null)
+            {
+                Transform existingTap = counterRegisterObj.transform.Find("Employee_RegisterTapPoint");
+                if (existingTap == null)
+                {
+                    GameObject tapObj = new GameObject("Employee_RegisterTapPoint");
+                    tapObj.transform.SetParent(counterRegisterObj.transform, false);
+                    tapObj.transform.localPosition = new Vector3(0f, 0.16f, -0.06f);
+                    tapObj.transform.localRotation = Quaternion.identity;
+                    existingTap = tapObj.transform;
+                }
+                registerTapPoint = existingTap;
+            }
+
+            NpcEmployeeAnimation empAnim = npcRoot.GetComponent<NpcEmployeeAnimation>();
+            if (empAnim == null)
+            {
+                empAnim = npcRoot.AddComponent<NpcEmployeeAnimation>();
+            }
+
+            SerializedObject empSo = new SerializedObject(empAnim);
+            SetObjProp(empSo, "presenter", presenter);
+            SetObjProp(empSo, "characterRoster", null);
+            SetObjProp(empSo, "employeeIdentifierPrefab", null);
+            SetObjProp(empSo, "placeholderRenderer", capsuleRenderer);
+            if (registerTapPoint != null)
+            {
+                SetObjProp(empSo, "registerTarget", registerTapPoint);
+            }
+            empSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void DisableImportedSkeletonMovement(GameObject visual)
+        {
+            if (visual == null) return;
+
+            foreach (Behaviour behaviour in visual.GetComponentsInChildren<Behaviour>(true))
+            {
+                if (behaviour != null &&
+                    (behaviour is NavMeshAgent ||
+                     behaviour.GetType().Name.EndsWith("_WanderScript", StringComparison.Ordinal)))
+                {
+                    behaviour.enabled = false;
+                }
+            }
+
+            foreach (Collider col in visual.GetComponentsInChildren<Collider>(true))
+            {
+                if (col != null)
+                {
+                    col.enabled = false;
+                }
+            }
+
+            foreach (Rigidbody body in visual.GetComponentsInChildren<Rigidbody>(true))
+            {
+                if (body != null)
+                {
+                    body.isKinematic = true;
+                }
+            }
+        }
+
+        private static Collider FindCheckoutCounterStrikeCollider(GameObject storeMapRoot)
+        {
+            Transform checkout = storeMapRoot != null ? storeMapRoot.transform.Find("Checkout_1") : null;
+            if (checkout == null)
+            {
+                GameObject checkoutObj = GameObject.Find("Checkout_1");
+                checkout = checkoutObj != null ? checkoutObj.transform : null;
+            }
+            if (checkout == null) return null;
+
+            foreach (string name in new[] { "Counter_Top", "Counter_Base" })
+            {
+                Transform part = checkout.Find(name);
+                Collider col = part != null ? part.GetComponent<Collider>() : null;
+                if (col != null && col.enabled && col.gameObject.activeInHierarchy)
+                {
+                    return col;
+                }
+            }
+
+            foreach (Collider col in checkout.GetComponentsInChildren<Collider>(false))
+            {
+                if (col != null && col.enabled && !col.isTrigger &&
+                    col.bounds.max.y >= 0.65f && col.bounds.max.y <= 1.30f)
+                {
+                    return col;
+                }
+            }
+
+            return null;
+        }
+
         private static NpcPopulationController BuildConvenienceStoreCustomerNpcSystem(Transform parent, GameObject storeMapRoot)
         {
-            GameObject customerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CustomerCapsulePrefabPath);
-            GameObject pedestrianPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(PedestrianCapsulePrefabPath);
-            GameObject productPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(CustomerProductPrefabPath);
+            LoadAnimatedCustomerAssets(
+                out GameObject customerPrefab,
+                out GameObject pedestrianPrefab,
+                out NpcCharacterRoster roster,
+                out GameObject productPrefab);
             if (customerPrefab == null || pedestrianPrefab == null || productPrefab == null)
             {
                 return null;
@@ -3869,22 +4397,19 @@ namespace OpenSourceTeam6.UI.Editor
             Transform rightSidewalk = CreateEmptyWaypoint(npcSysObj.transform, "Sidewalk_Right", rightSidewalkPos);
             Transform entrance = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Entrance", entrancePos);
             Transform shelf = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Shelf", shelfPos);
-            Transform checkout = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Checkout", new Vector3(-2.55f, 0f, -1.55f));
+            Transform checkout = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Checkout", UnifiedCheckoutPos);
             Transform exit = CreateEmptyWaypoint(npcSysObj.transform, "Customer_Exit", exitPos);
 
             Transform[] queueSlots =
             {
-                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_0", new Vector3(-1.55f, 0f, -1.55f)),
-                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_1", new Vector3(-0.55f, 0f, -1.55f)),
-                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_2", new Vector3(0.45f, 0f, -1.55f)),
-                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_3", new Vector3(1.45f, 0f, -1.55f))
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_0", new Vector3(UnifiedCheckoutPos.x + 1.00f, 0f, UnifiedCheckoutPos.z)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_1", new Vector3(UnifiedCheckoutPos.x + 2.00f, 0f, UnifiedCheckoutPos.z)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_2", new Vector3(UnifiedCheckoutPos.x + 3.00f, 0f, UnifiedCheckoutPos.z)),
+                CreateEmptyWaypoint(npcSysObj.transform, "QueueSlot_3", new Vector3(UnifiedCheckoutPos.x + 4.00f, 0f, UnifiedCheckoutPos.z))
             };
 
             NpcPopulationController population = npcSysObj.AddComponent<NpcPopulationController>();
             SerializedObject popSo = new SerializedObject(population);
-            popSo.FindProperty("customerPrefab").objectReferenceValue = customerPrefab;
-            popSo.FindProperty("pedestrianPrefab").objectReferenceValue = pedestrianPrefab;
-            popSo.FindProperty("productPrefab").objectReferenceValue = productPrefab;
             popSo.FindProperty("leftSidewalkZone").objectReferenceValue = leftSidewalk;
             popSo.FindProperty("rightSidewalkZone").objectReferenceValue = rightSidewalk;
             popSo.FindProperty("sidewalkZoneSize").vector2Value = new Vector2(2.2f, 1.3f);
@@ -3901,7 +4426,169 @@ namespace OpenSourceTeam6.UI.Editor
             }
 
             popSo.ApplyModifiedPropertiesWithoutUndo();
+            ConfigureCustomerNpcSystem(population, storeMapRoot, customerPrefab, pedestrianPrefab, roster, productPrefab);
             return population;
+        }
+
+        private static void ConfigureCustomerNpcSystem(
+            NpcPopulationController population,
+            GameObject storeMapRoot,
+            GameObject customerPrefab,
+            GameObject pedestrianPrefab,
+            NpcCharacterRoster roster,
+            GameObject productPrefab)
+        {
+            if (population == null) return;
+
+            Transform root = population.transform;
+            bool isExpandedMap = storeMapRoot != null && storeMapRoot.transform.Find("Layout_Rebuilt_2026") != null;
+
+            (string wpName, Vector3 pos, string shelfObjName)[] aisleSpecs = isExpandedMap
+                ? new[]
+                {
+                    ("BrowseWaypoint_0", new Vector3(-3.25f, 0f, 2.60f), "Snack_Shelf"),
+                    ("BrowseWaypoint_1", new Vector3(-0.75f, 0f, 2.60f), "Ramen_Shelf"),
+                    ("BrowseWaypoint_2", new Vector3(1.75f, 0f, 2.60f), "DailyGoods_Shelf"),
+                    ("BrowseWaypoint_3", new Vector3(4.20f, 0f, 2.60f), "IceCream_Freezer")
+                }
+                : new[]
+                {
+                    ("BrowseWaypoint_0", new Vector3(-2.90f, 0f, 0.65f), "Snack_Shelf"),
+                    ("BrowseWaypoint_1", new Vector3(-0.90f, 0f, 0.65f), "Ramen_Shelf"),
+                    ("BrowseWaypoint_2", new Vector3(1.15f, 0f, 0.65f), "DailyGoods_Shelf"),
+                    ("BrowseWaypoint_3", new Vector3(2.90f, 0f, 0.65f), "IceCream_Freezer")
+                };
+
+            Transform[] browsingWaypoints = new Transform[aisleSpecs.Length];
+            for (int i = 0; i < aisleSpecs.Length; i++)
+            {
+                Transform wp = FindOrCreateWaypoint(root, aisleSpecs[i].wpName, aisleSpecs[i].pos);
+                OrientWaypointTowardObject(wp, storeMapRoot, aisleSpecs[i].shelfObjName, Vector3.forward);
+                browsingWaypoints[i] = wp;
+            }
+
+            SyncUnifiedCheckoutWaypoints(root, out Transform checkoutLookWp, out Transform checkoutItemSpotWp);
+            GameObject employeeObj = GameObject.Find("Demo_Employee_NPC");
+            GameObject playerObj = GameObject.Find("PlayerRig");
+
+            SerializedObject popSo = new SerializedObject(population);
+            SetObjProp(popSo, "customerPrefab", customerPrefab);
+            SetObjProp(popSo, "pedestrianPrefab", pedestrianPrefab);
+            if (roster != null) SetObjProp(popSo, "characterRoster", roster);
+            if (productPrefab != null) SetObjProp(popSo, "productPrefab", productPrefab);
+            SetObjProp(popSo, "checkoutLookTarget", checkoutLookWp);
+            SetObjProp(popSo, "checkoutItemSpot", checkoutItemSpotWp);
+            if (employeeObj != null) SetObjProp(popSo, "employeeQuestionTarget", employeeObj.transform);
+            if (playerObj != null) SetObjProp(popSo, "playerQuestionTarget", playerObj.transform);
+
+            SetFloatProp(popSo, "browseDuration", 1.0f);
+            SetFloatProp(popSo, "hesitationMinSeconds", 2.0f);
+            SetFloatProp(popSo, "hesitationMaxSeconds", 4.0f);
+            SetFloatProp(popSo, "customerRunChance", 0.3f);
+            SetFloatProp(popSo, "pedestrianRunChance", 0.3f);
+
+            SerializedProperty browseProp = popSo.FindProperty("browsingWaypoints");
+            if (browseProp != null)
+            {
+                browseProp.arraySize = browsingWaypoints.Length;
+                for (int i = 0; i < browsingWaypoints.Length; i++)
+                {
+                    browseProp.GetArrayElementAtIndex(i).objectReferenceValue = browsingWaypoints[i];
+                }
+            }
+
+            popSo.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void SyncUnifiedCheckoutWaypoints(
+            Transform root,
+            out Transform checkoutLookWp,
+            out Transform checkoutItemSpotWp)
+        {
+            Transform checkoutWp = FindOrCreateWaypoint(root, "Customer_Checkout", UnifiedCheckoutPos);
+            checkoutWp.rotation = Quaternion.Euler(0f, 180f, 0f);
+
+            for (int i = 0; i < 4; i++)
+            {
+                FindOrCreateWaypoint(
+                    root,
+                    $"QueueSlot_{i}",
+                    new Vector3(UnifiedCheckoutPos.x + (i + 1) * 1.00f, 0f, UnifiedCheckoutPos.z));
+            }
+
+            checkoutLookWp = FindOrCreateWaypoint(root, "Checkout_LookTarget", UnifiedCheckoutLookPos);
+            checkoutItemSpotWp = FindOrCreateWaypoint(root, "Checkout_ItemSpot", UnifiedCheckoutItemSpotPos);
+            checkoutItemSpotWp.rotation = Quaternion.identity;
+            checkoutItemSpotWp.localScale = Vector3.one;
+        }
+
+        private static Transform FindOrCreateWaypoint(Transform parent, string waypointName, Vector3 worldPos)
+        {
+            Transform existing = parent.Find(waypointName);
+            if (existing != null)
+            {
+                existing.position = worldPos;
+                return existing;
+            }
+
+            return CreateEmptyWaypoint(parent, waypointName, worldPos);
+        }
+
+        private static void OrientWaypointTowardObject(
+            Transform wp,
+            GameObject storeMapRoot,
+            string targetObjectName,
+            Vector3 fallbackDir)
+        {
+            if (wp == null) return;
+
+            Transform targetTr = null;
+            if (storeMapRoot != null && !string.IsNullOrEmpty(targetObjectName))
+            {
+                Transform[] children = storeMapRoot.GetComponentsInChildren<Transform>(true);
+                for (int i = 0; i < children.Length; i++)
+                {
+                    if (children[i] != null && children[i].name == targetObjectName)
+                    {
+                        targetTr = children[i];
+                        break;
+                    }
+                }
+            }
+
+            if (targetTr == null && !string.IsNullOrEmpty(targetObjectName))
+            {
+                GameObject fallbackObj = GameObject.Find(targetObjectName);
+                if (fallbackObj != null) targetTr = fallbackObj.transform;
+            }
+
+            Vector3 dir = fallbackDir;
+            if (targetTr != null)
+            {
+                Renderer rend = targetTr.GetComponentInChildren<Renderer>();
+                Vector3 targetPos = rend != null ? rend.bounds.center : targetTr.position;
+                Vector3 candidate = targetPos - wp.position;
+                candidate.y = 0f;
+                if (candidate.sqrMagnitude > 0.0025f)
+                {
+                    dir = candidate;
+                }
+            }
+
+            dir.y = 0f;
+            if (dir.sqrMagnitude > 0.0025f)
+            {
+                wp.rotation = Quaternion.LookRotation(dir.normalized, Vector3.up);
+            }
+        }
+
+        private static void SetFloatProp(SerializedObject so, string propName, float value)
+        {
+            SerializedProperty prop = so.FindProperty(propName);
+            if (prop != null)
+            {
+                prop.floatValue = value;
+            }
         }
 
         private static Transform CreateEmptyWaypoint(Transform parent, string waypointName, Vector3 worldPos)

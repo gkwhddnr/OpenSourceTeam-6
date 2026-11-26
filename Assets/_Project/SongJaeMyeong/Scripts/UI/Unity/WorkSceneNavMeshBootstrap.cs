@@ -1,9 +1,11 @@
 using System;
 using OpenSourceTeam6.Customers.Unity;
+using OpenSourceTeam6.Time.Unity;
 using OpenSourceTeam6.UI.Core;
 using Unity.AI.Navigation;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.Rendering;
 
 namespace OpenSourceTeam6.UI.Unity
 {
@@ -144,27 +146,37 @@ namespace OpenSourceTeam6.UI.Unity
     }
 
     /// <summary>
-    /// URP 환경에서 낮→밤 전환 시 태양 광원이 정확히 0으로 꺼지거나 달빛 추가 광원이 처음 켜질 때
-    /// 셰이더 배리언트(_MAIN_LIGHT_SHADOWS / _ADDITIONAL_LIGHTS)가 런타임 전환되며
-    /// 물건이 0.1초간 파란색(시안)으로 깜빡이는 현상을 방지한다.
+    /// URP 환경에서 낮→밤 전환 시 태양 광원이 정확히 0으로 꺼지거나 컬링 임계치 이하로 떨어져
+    /// 달빛(`LightShadows.None`)이 주광원(`mainLightIndex`)을 탈취하면서 `_MAIN_LIGHT_SHADOWS_CASCADE` 등의
+    /// 셰이더 배리언트가 런타임 전환되어 물체/캐릭터가 시안색으로 컴파일 대기하는 현상을 방지한다.
     /// </summary>
     [DefaultExecutionOrder(200)]
     public sealed class StoreLightingVariantStabilizer : MonoBehaviour
     {
-        private const float MinMainLightIntensityFloor = 0.0005f;
+        private const float MinMainLightIntensityFloor = 0.01f;
+        private const float MinMoonLightIntensityFloor = 0.005f;
+        private const float AnchorLightIntensity = 0.02f;
+
         private Light interiorVariantAnchorLight;
+        private Light cachedMoonLight;
+        private bool capturedSunShadowMode;
+        private LightShadows initialSunShadows = LightShadows.Soft;
+        private float nextMoonSearchTime;
+
+        public bool SuppressDuringWarmup { get; set; }
 
         private void Awake()
         {
+            RenderSettings.ambientMode = AmbientMode.Flat;
             EnsureInteriorVariantAnchorLight();
+            StabilizeSunAndMoonLights();
         }
 
         private void LateUpdate()
         {
-            Light sun = RenderSettings.sun;
-            if (sun != null && sun.enabled && sun.intensity < MinMainLightIntensityFloor)
+            if (!SuppressDuringWarmup)
             {
-                sun.intensity = MinMainLightIntensityFloor;
+                StabilizeSunAndMoonLights();
             }
         }
 
@@ -174,6 +186,53 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 Destroy(interiorVariantAnchorLight.gameObject);
                 interiorVariantAnchorLight = null;
+            }
+        }
+
+        private void StabilizeSunAndMoonLights()
+        {
+            Light sun = RenderSettings.sun;
+            if (sun != null && sun.enabled)
+            {
+                if (!capturedSunShadowMode)
+                {
+                    initialSunShadows = sun.shadows != LightShadows.None ? sun.shadows : LightShadows.Soft;
+                    capturedSunShadowMode = true;
+                }
+
+                if (sun.intensity < MinMainLightIntensityFloor)
+                {
+                    sun.intensity = MinMainLightIntensityFloor;
+                }
+
+                if (sun.shadows != initialSunShadows)
+                {
+                    sun.shadows = initialSunShadows;
+                }
+
+                if (sun.shadowStrength < 0.05f)
+                {
+                    sun.shadowStrength = 0.05f;
+                }
+            }
+
+            if (cachedMoonLight == null && UnityEngine.Time.unscaledTime >= nextMoonSearchTime)
+            {
+                nextMoonSearchTime = UnityEngine.Time.unscaledTime + 0.5f;
+                CelestialBodyPresenter moonPresenter = FindAnyObjectByType<CelestialBodyPresenter>();
+                if (moonPresenter != null)
+                {
+                    Transform moonTr = moonPresenter.transform.Find("Moon Directional Light (runtime)");
+                    if (moonTr != null)
+                    {
+                        cachedMoonLight = moonTr.GetComponent<Light>();
+                    }
+                }
+            }
+
+            if (cachedMoonLight != null && cachedMoonLight.enabled && cachedMoonLight.intensity < MinMoonLightIntensityFloor)
+            {
+                cachedMoonLight.intensity = MinMoonLightIntensityFloor;
             }
         }
 
@@ -188,7 +247,7 @@ namespace OpenSourceTeam6.UI.Unity
             interiorVariantAnchorLight = anchorObj.AddComponent<Light>();
             interiorVariantAnchorLight.type = LightType.Point;
             interiorVariantAnchorLight.color = new Color(1f, 0.98f, 0.94f, 1f);
-            interiorVariantAnchorLight.intensity = 0.01f;
+            interiorVariantAnchorLight.intensity = AnchorLightIntensity;
             interiorVariantAnchorLight.range = 45f;
             interiorVariantAnchorLight.shadows = LightShadows.None;
         }

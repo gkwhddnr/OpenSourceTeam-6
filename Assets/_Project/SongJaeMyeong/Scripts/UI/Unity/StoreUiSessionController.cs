@@ -331,7 +331,7 @@ namespace OpenSourceTeam6.UI.Unity
         private void Update()
         {
             FlushPendingScreenLock();
-            if (isTransitionFading || IsOnboardingBlocking) return;
+            if (isTransitionFading || IsOnboardingBlocking || StoreStartupLoadingWarmup.IsWarmingUp) return;
 
             bool externalModalBlocking = IsExternalModalOpen || externalModalClosedFrame == Time.frameCount;
             if (!externalModalBlocking)
@@ -1542,9 +1542,15 @@ namespace OpenSourceTeam6.UI.Unity
                 activeAudioPlayer?.StopBgm();
             }
 
-            // 2. 암전 상태에서 다음 일차·카메라·상태 전환 수행
+            // 2. 암전 상태에서 다음 일차·카메라·상태 전환 수행 및 1일차 배너 뒤에서 셰이더 사전 워밍업 시작
             onMidpoint?.Invoke();
             SyncTimeSystemPauseState();
+
+            bool startedWarmup = false;
+            if (hasDayBanner && !StoreStartupLoadingWarmup.HasCompletedWarmup)
+            {
+                startedWarmup = StoreStartupLoadingWarmup.BeginSilentWarmup(this);
+            }
 
             // 3. 검은 화면 위 'N일차' 텍스트 페이드 인 → 유지 → 페이드 아웃 (전환 효과음 단독 재생)
             if (hasDayBanner)
@@ -1603,6 +1609,14 @@ namespace OpenSourceTeam6.UI.Unity
                 while (elapsed < holdDuration)
                 {
                     elapsed += Time.unscaledDeltaTime;
+                    yield return null;
+                }
+            }
+
+            if (startedWarmup)
+            {
+                while (StoreStartupLoadingWarmup.IsWarmingUp)
+                {
                     yield return null;
                 }
             }

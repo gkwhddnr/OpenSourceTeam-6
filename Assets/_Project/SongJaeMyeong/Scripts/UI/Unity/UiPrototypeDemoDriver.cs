@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Reflection;
+using OpenSourceTeam6.Customers.Unity;
 using OpenSourceTeam6.UI.Core;
 using UnityEngine;
 using UnityEngine.AI;
@@ -8,6 +9,7 @@ using UnityEngine.InputSystem;
 
 namespace OpenSourceTeam6.UI.Unity
 {
+    using Camera = UnityEngine.Camera;
     using Random = UnityEngine.Random;
     using Time = UnityEngine.Time;
     /// <summary>
@@ -34,6 +36,8 @@ namespace OpenSourceTeam6.UI.Unity
         [SerializeField] private Transform shelfTarget;
         [SerializeField] private Transform restTarget;
         [SerializeField] private float demoWalkSpeed = 3.2f;
+        [SerializeField, Min(0.1f)] private float demoAngerReactionSeconds = 2.0f;
+        [SerializeField] private Collider angerStrikeSurface;
 
         private static readonly string[] SampleVoiceUtterances =
         {
@@ -53,8 +57,15 @@ namespace OpenSourceTeam6.UI.Unity
         private float fallbackArrivalTimer;
         private Transform activeMoveDestination;
         private NavMeshAgent demoEmployeeAgent;
+        private NpcEmployeeAnimation demoEmployeeAnimation;
+        private Transform playerRigTransform;
         private Vector3 lastDispatchedNavTarget;
         private bool hasDispatchedNavTarget;
+        private float angerTimeRemaining;
+        private float angerDuration;
+        private int nextAngerGesture;
+        private AngerGesture angerGesture;
+        private Vector3 angerStrikeTarget;
 
         private bool isRecordingVoice;
         private int sampleUtteranceIndex;
@@ -106,6 +117,11 @@ namespace OpenSourceTeam6.UI.Unity
             }
 
             StopActiveVoiceCoroutine();
+            EndDemoAngerReaction();
+            if (demoEmployeeAnimation != null)
+            {
+                demoEmployeeAnimation.SetPaused(false);
+            }
             isRecordingVoice = false;
         }
 
@@ -183,11 +199,22 @@ namespace OpenSourceTeam6.UI.Unity
         {
             SyncShortcutGuideVisibility();
 
-            if (uiController == null ||
+            bool pausedOrNotInGame = uiController == null ||
                 uiController.CurrentMode != UiScreenMode.InGame ||
                 uiController.IsPauseMenuOpen ||
-                uiController.IsTransitionFading)
+                uiController.IsSettingsOpen ||
+                uiController.IsTransitionFading;
+
+            if (pausedOrNotInGame)
             {
+                if (!externalVoiceActive && demoEmployeeAnimation != null)
+                {
+                    demoEmployeeAnimation.SetPaused(true);
+                }
+                if (uiController == null || (uiController.CurrentMode != UiScreenMode.InGame && angerTimeRemaining > 0f))
+                {
+                    EndDemoAngerReaction();
+                }
                 return;
             }
 
@@ -195,6 +222,11 @@ namespace OpenSourceTeam6.UI.Unity
             {
                 HandleExternalVoiceUtilityHotkeys();
                 return;
+            }
+
+            if (demoEmployeeAnimation != null)
+            {
+                demoEmployeeAnimation.SetPaused(false);
             }
 
             SimulateContinuousWorkAndStats(Time.deltaTime);
@@ -237,6 +269,10 @@ namespace OpenSourceTeam6.UI.Unity
                         ? "비 날씨 이벤트를 켰습니다. 구름이 먼저 차오른 뒤 빗줄기가 내립니다. (2·3일차 날씨 프리뷰)"
                         : "비 날씨 이벤트를 껐습니다. 빗줄기가 먼저 그친 뒤 구름이 걷힙니다."));
             }
+            else if (kb.f9Key.wasPressedThisFrame)
+            {
+                TriggerExternalVoiceAngerPreview();
+            }
         }
 
         private void HandlePersonaConfirmed(EmployeePersonaSetupData persona)
@@ -258,6 +294,11 @@ namespace OpenSourceTeam6.UI.Unity
         private void HandleDayStarted()
         {
             StopActiveVoiceCoroutine();
+            EndDemoAngerReaction();
+            if (demoEmployeeAnimation != null)
+            {
+                demoEmployeeAnimation.SetPaused(false);
+            }
             isRecordingVoice = false;
 
             currentRole = StaffWorkRole.Idle;
@@ -295,7 +336,15 @@ namespace OpenSourceTeam6.UI.Unity
         {
             if (dt <= 0f) return;
 
-            if (currentMoveBadge == StaffMoveBadge.Moving)
+            bool movedNonNavMesh = false;
+            if (angerTimeRemaining > 0f)
+            {
+                if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+                {
+                    demoEmployeeAgent.isStopped = true;
+                }
+            }
+            else if (currentMoveBadge == StaffMoveBadge.Moving)
             {
                 if (demoEmployeeTransform != null && activeMoveDestination != null)
                 {
@@ -309,6 +358,7 @@ namespace OpenSourceTeam6.UI.Unity
 
                     if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
                     {
+                        demoEmployeeAgent.isStopped = false;
                         demoEmployeeAgent.speed = effectiveWalkSpeed;
                         if (!hasDispatchedNavTarget || (targetPos - lastDispatchedNavTarget).sqrMagnitude > 0.01f)
                         {
@@ -327,10 +377,21 @@ namespace OpenSourceTeam6.UI.Unity
                     else
                     {
                         targetPos.y = demoEmployeeTransform.position.y;
-                        demoEmployeeTransform.position = Vector3.MoveTowards(
+                        Vector3 nextPos = Vector3.MoveTowards(
                             demoEmployeeTransform.position,
                             targetPos,
                             effectiveWalkSpeed * dt);
+                        Vector3 moveDelta = nextPos - demoEmployeeTransform.position;
+                        moveDelta.y = 0f;
+                        if (moveDelta.sqrMagnitude > 0.00001f)
+                        {
+                            movedNonNavMesh = true;
+                            demoEmployeeTransform.rotation = Quaternion.RotateTowards(
+                                demoEmployeeTransform.rotation,
+                                Quaternion.LookRotation(moveDelta.normalized, Vector3.up),
+                                480f * dt);
+                        }
+                        demoEmployeeTransform.position = nextPos;
 
                         if (Vector3.Distance(demoEmployeeTransform.position, targetPos) <= 0.08f)
                         {
@@ -356,6 +417,7 @@ namespace OpenSourceTeam6.UI.Unity
                 }
             }
 
+            float prevStress = stress;
             float stressDelta = StressRules.EvaluateContinuousStressDelta(
                 currentRole,
                 isStoreCrowdedOrNoisy: false,
@@ -382,9 +444,18 @@ namespace OpenSourceTeam6.UI.Unity
 
             if (stress >= StoreEndingRules.StressOverflowThreshold)
             {
+                EndDemoAngerReaction();
                 uiController.CompleteDayAndShowSettlement(stress);
                 uiController.ShowEndingScreen();
+                return;
             }
+
+            if (prevStress < StressRules.AngerThreshold && stress >= StressRules.AngerThreshold)
+            {
+                StartDemoAngerReaction();
+            }
+
+            UpdateStandaloneEmployeeAnimation(dt, movedNonNavMesh);
         }
 
         private void HandleVoiceRecordToggleRequested()
@@ -458,12 +529,18 @@ namespace OpenSourceTeam6.UI.Unity
             }
             else if (kb.f5Key.wasPressedThisFrame)
             {
+                float prevStress = stress;
                 stress = Mathf.Clamp(stress + 25f, 0f, 100f);
                 PushSnapshot();
                 if (stress >= StoreEndingRules.StressOverflowThreshold)
                 {
+                    EndDemoAngerReaction();
                     uiController.CompleteDayAndShowSettlement(stress);
                     uiController.ShowEndingScreen();
+                }
+                else if (prevStress < StressRules.AngerThreshold && stress >= StressRules.AngerThreshold)
+                {
+                    StartDemoAngerReaction();
                 }
             }
             else if (kb.f6Key.wasPressedThisFrame)
@@ -495,6 +572,10 @@ namespace OpenSourceTeam6.UI.Unity
                     nextRain
                         ? "비 날씨 이벤트를 켰습니다. 구름이 먼저 차오른 뒤 빗줄기가 내립니다. (2·3일차 날씨 프리뷰)"
                         : "비 날씨 이벤트를 껐습니다. 빗줄기가 먼저 그친 뒤 구름이 걷힙니다."));
+            }
+            else if (kb.f9Key.wasPressedThisFrame)
+            {
+                TriggerStandaloneAngerPreview();
             }
         }
 
@@ -567,6 +648,7 @@ namespace OpenSourceTeam6.UI.Unity
                 currentMoveBadge = StaffMoveBadge.Idle;
                 activeMoveDestination = null;
                 PushSnapshot();
+                StartDemoAngerReaction();
 
                 uiController.RecordAngerRefusal();
                 string refuseQuote = EmotionReactionRules.GetReactionDialogue(StoreCommandIntent.Restock, EmployeeReaction.RefuseEmotion);
@@ -611,6 +693,7 @@ namespace OpenSourceTeam6.UI.Unity
             }
 
             StaffWorkRole targetRole = intent == StoreCommandIntent.Checkout ? StaffWorkRole.Checkout : StaffWorkRole.Restock;
+            float prevStress = stress;
             float commandStressDelta = StressRules.EvaluateCommandStressDelta(
                 intent, tone, currentRole, targetRole, _activeProfile);
             stress = Mathf.Clamp(stress + commandStressDelta, 0f, 100f);
@@ -652,6 +735,7 @@ namespace OpenSourceTeam6.UI.Unity
                 currentMoveBadge = StaffMoveBadge.Idle;
                 activeMoveDestination = null;
                 PushSnapshot();
+                StartDemoAngerReaction();
 
                 uiController.RecordAngerRefusal();
                 uiController.PushCommandFeedback(new VoiceCommandFeedback(
@@ -661,6 +745,11 @@ namespace OpenSourceTeam6.UI.Unity
                     "직원이 스트레스 과부하로 지시를 거부했습니다! 휴식을 지시해 진정시키세요.",
                     dialogue));
                 return;
+            }
+
+            if (prevStress < StressRules.AngerThreshold && stress >= StressRules.AngerThreshold)
+            {
+                StartDemoAngerReaction();
             }
 
             if (reaction == EmployeeReaction.SlackOff)
@@ -762,6 +851,294 @@ namespace OpenSourceTeam6.UI.Unity
                 stress,
                 fatigue,
                 loyalty));
+        }
+
+        private void EnsureDemoEmployeeAnimation()
+        {
+            if (demoEmployeeTransform == null)
+            {
+                GameObject npcObj = GameObject.Find("Demo_Employee_NPC");
+                if (npcObj != null)
+                {
+                    demoEmployeeTransform = npcObj.transform;
+                }
+            }
+
+            if (demoEmployeeAnimation == null && demoEmployeeTransform != null)
+            {
+                demoEmployeeAnimation = demoEmployeeTransform.GetComponentInChildren<NpcEmployeeAnimation>(true);
+            }
+
+            if (demoEmployeeAgent == null && demoEmployeeTransform != null)
+            {
+                demoEmployeeAgent = demoEmployeeTransform.GetComponent<NavMeshAgent>();
+            }
+        }
+
+        private void UpdateStandaloneEmployeeAnimation(float dt, bool movedNonNavMesh)
+        {
+            EnsureDemoEmployeeAnimation();
+            if (demoEmployeeAnimation == null || !demoEmployeeAnimation.isActiveAndEnabled)
+            {
+                return;
+            }
+
+            if (angerTimeRemaining > 0f)
+            {
+                angerTimeRemaining -= dt;
+                if (angerTimeRemaining > 0f)
+                {
+                    demoEmployeeAnimation.SetAngerGesture(
+                        angerGesture,
+                        1f - angerTimeRemaining / Mathf.Max(0.1f, angerDuration),
+                        GetDemoAngerReactionTarget());
+                    return;
+                }
+
+                EndDemoAngerReaction();
+            }
+
+            bool isNavMoving = demoEmployeeAgent != null &&
+                               demoEmployeeAgent.isActiveAndEnabled &&
+                               demoEmployeeAgent.isOnNavMesh &&
+                               demoEmployeeAgent.velocity.sqrMagnitude > 0.01f;
+            if (isNavMoving || movedNonNavMesh)
+            {
+                if (demoEmployeeAnimation.CurrentState != NpcAnimationState.Walk)
+                {
+                    demoEmployeeAnimation.Play(NpcAnimationState.Walk);
+                }
+                return;
+            }
+
+            if (demoEmployeeAnimation.CurrentState == NpcAnimationState.Checkout)
+            {
+                return;
+            }
+
+            bool shouldRest = currentRole == StaffWorkRole.Idle &&
+                              (currentActionCode == "REST" || currentActionCode == "SLACK_OFF") &&
+                              currentMoveBadge != StaffMoveBadge.Moving;
+            NpcAnimationState targetState = shouldRest ? NpcAnimationState.Rest : NpcAnimationState.Idle;
+            if (demoEmployeeAnimation.CurrentState != targetState)
+            {
+                demoEmployeeAnimation.Play(targetState);
+            }
+        }
+
+        private void TriggerExternalVoiceAngerPreview()
+        {
+            if (externalVoiceComponent == null || uiController == null) return;
+
+            MethodInfo previewMethod = externalVoiceComponent.GetType().GetMethod(
+                "TryTriggerNextAngerReactionPreview",
+                BindingFlags.Instance | BindingFlags.Public);
+            if (previewMethod == null) return;
+
+            object[] args = new object[2];
+            object rawResult = previewMethod.Invoke(externalVoiceComponent, args);
+            if (!(rawResult is bool started) || !started) return;
+
+            AngerGesture played = args[0] is AngerGesture g ? g : AngerGesture.Shout;
+            bool fellBack = args[1] is bool b && b;
+            PushAngerPreviewFeedback(played, fellBack);
+        }
+
+        private void TriggerStandaloneAngerPreview()
+        {
+            if (TryTriggerStandaloneAngerReaction(out AngerGesture played, out bool fellBack))
+            {
+                PushAngerPreviewFeedback(played, fellBack);
+            }
+        }
+
+        private void PushAngerPreviewFeedback(AngerGesture played, bool fellBackFromCounterStrike)
+        {
+            if (uiController == null) return;
+
+            string label = played switch
+            {
+                AngerGesture.Shout => "[분노 모션 1/4] 고함 (Shout · 머리 위 '!')",
+                AngerGesture.Finger => "[분노 모션 2/4] 손가락질 (Finger)",
+                AngerGesture.Frown => "[분노 모션 3/4] 찡그림 (Frown · 머리 위 '...')",
+                AngerGesture.CounterStrike => "[분노 모션 4/4] 계산대 내려치기 (CounterStrike)",
+                _ => played.ToString()
+            };
+
+            string msg = fellBackFromCounterStrike
+                ? $"{label} — 계산대에서 멀어 고함으로 대체했습니다. 계산대 옆에서 F9를 누르면 내려치기가 재생됩니다."
+                : $"{label} 모션을 재생합니다. (F9로 4종 순환 확인)";
+
+            uiController.PushCommandFeedback(new VoiceCommandFeedback(
+                CommandFeedbackKind.Info,
+                string.Empty,
+                $"ANGER_PREVIEW: {played}",
+                msg));
+        }
+
+        private void StartDemoAngerReaction()
+        {
+            TryTriggerStandaloneAngerReaction(out _, out _);
+        }
+
+        private bool TryTriggerStandaloneAngerReaction(out AngerGesture playedGesture, out bool fellBackFromCounterStrike)
+        {
+            playedGesture = default;
+            fellBackFromCounterStrike = false;
+
+            EnsureDemoEmployeeAnimation();
+            if (demoEmployeeTransform == null || demoEmployeeAnimation == null ||
+                !demoEmployeeAnimation.CanPlay(NpcAnimationState.Anger))
+            {
+                return false;
+            }
+
+            if (angerTimeRemaining > 0f)
+            {
+                EndDemoAngerReaction();
+            }
+
+            if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+            {
+                demoEmployeeAgent.isStopped = true;
+            }
+
+            AngerGesture selected = (AngerGesture)(nextAngerGesture++ % 4);
+            if (selected == AngerGesture.CounterStrike && !TryGetDemoCounterStrikeTarget())
+            {
+                fellBackFromCounterStrike = true;
+                selected = AngerGesture.Shout;
+            }
+
+            angerGesture = selected;
+            playedGesture = selected;
+            if (angerGesture != AngerGesture.CounterStrike)
+            {
+                FacePlayerHorizontallyForDemo();
+            }
+
+            demoEmployeeAnimation.Play(angerGesture == AngerGesture.Shout ? NpcAnimationState.Anger : NpcAnimationState.Idle);
+            demoEmployeeAnimation.SetAngerGesture(angerGesture, 0f, GetDemoAngerReactionTarget());
+            angerDuration = Mathf.Max(0.1f, demoAngerReactionSeconds);
+            angerTimeRemaining = angerDuration;
+            return true;
+        }
+
+        private void EndDemoAngerReaction()
+        {
+            angerTimeRemaining = 0f;
+            if (demoEmployeeAgent != null && demoEmployeeAgent.isActiveAndEnabled && demoEmployeeAgent.isOnNavMesh)
+            {
+                demoEmployeeAgent.isStopped = false;
+            }
+            if (demoEmployeeAnimation != null)
+            {
+                demoEmployeeAnimation.SetAngerGesture(AngerGesture.Shout, 0f, Vector3.zero);
+                demoEmployeeAnimation.Play(NpcAnimationState.Idle);
+            }
+        }
+
+        private void FacePlayerHorizontallyForDemo()
+        {
+            if (demoEmployeeTransform == null) return;
+            Transform playerTarget = ResolvePlayerTransform();
+            Vector3 lookPos = playerTarget != null
+                ? playerTarget.position
+                : demoEmployeeTransform.position + demoEmployeeTransform.forward;
+            Vector3 toward = lookPos - demoEmployeeTransform.position;
+            toward.y = 0f;
+            if (toward.sqrMagnitude > 0.001f)
+            {
+                demoEmployeeTransform.rotation = Quaternion.LookRotation(toward.normalized, Vector3.up);
+            }
+        }
+
+        private Transform ResolvePlayerTransform()
+        {
+            if (playerRigTransform != null) return playerRigTransform;
+
+            GameObject rigObj = GameObject.Find("PlayerRig");
+            if (rigObj != null)
+            {
+                playerRigTransform = rigObj.transform;
+                return playerRigTransform;
+            }
+
+            Camera mainCam = Camera.main;
+            return mainCam != null ? mainCam.transform : null;
+        }
+
+        private Vector3 GetDemoAngerReactionTarget()
+        {
+            if (angerGesture == AngerGesture.Finger)
+            {
+                Transform playerTarget = ResolvePlayerTransform();
+                return playerTarget != null
+                    ? playerTarget.position
+                    : (demoEmployeeTransform != null ? demoEmployeeTransform.position + demoEmployeeTransform.forward : Vector3.forward);
+            }
+
+            return angerStrikeTarget;
+        }
+
+        private Collider ResolveCounterStrikeSurfaceFallback()
+        {
+            GameObject mapRoot = GameObject.Find("ConvenienceStore_Map");
+            Transform checkout = mapRoot != null ? mapRoot.transform.Find("Checkout_1") : null;
+            if (checkout == null)
+            {
+                checkout = GameObject.Find("Checkout_1")?.transform;
+            }
+            if (checkout == null || demoEmployeeTransform == null) return null;
+
+            foreach (string childName in new[] { "Counter_Top", "Counter_Base" })
+            {
+                Transform child = checkout.Find(childName);
+                Collider col = child != null ? child.GetComponent<Collider>() : null;
+                if (col != null && col.enabled && col.gameObject.activeInHierarchy)
+                {
+                    return col;
+                }
+            }
+
+            foreach (Collider col in checkout.GetComponentsInChildren<Collider>(false))
+            {
+                if (col == null || !col.enabled || col.isTrigger) continue;
+                float topY = col.bounds.max.y - demoEmployeeTransform.position.y;
+                if (topY >= 0.65f && topY <= 1.30f)
+                {
+                    return col;
+                }
+            }
+
+            return null;
+        }
+
+        private bool TryGetDemoCounterStrikeTarget()
+        {
+            if (demoEmployeeTransform == null) return false;
+            if (angerStrikeSurface == null)
+            {
+                angerStrikeSurface = ResolveCounterStrikeSurfaceFallback();
+            }
+            if (angerStrikeSurface == null || !angerStrikeSurface.enabled || !angerStrikeSurface.gameObject.activeInHierarchy)
+            {
+                return false;
+            }
+
+            Bounds bounds = angerStrikeSurface.bounds;
+            Vector3 position = demoEmployeeTransform.position;
+            Vector3 edge = bounds.ClosestPoint(new Vector3(position.x, bounds.max.y, position.z));
+            Vector3 toward = edge - new Vector3(position.x, edge.y, position.z);
+            if (toward.sqrMagnitude < 0.001f || toward.sqrMagnitude > 0.90f ||
+                edge.y - position.y < 0.65f || edge.y - position.y > 1.25f)
+            {
+                return false;
+            }
+
+            demoEmployeeTransform.rotation = Quaternion.LookRotation(toward);
+            angerStrikeTarget = edge + toward.normalized * 0.08f;
+            return true;
         }
     }
 }
