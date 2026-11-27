@@ -25,8 +25,10 @@ namespace OpenSourceTeam6.Customers.Unity
         private bool previewTrashWalk;
         private Vector3 trashPreviewDestination;
         private bool stockOnce;
+        private Transform pointOnceTarget;
         private Renderer stockPropRenderer;
         private Renderer trashPropRenderer;
+        private GameObject employeeIdentifier;
         private const float CheckoutSeconds = 0.75f;
         private const float TrashSeconds = 1.25f;
         private const float TrashReleasePhase = 0.68f;
@@ -66,6 +68,26 @@ namespace OpenSourceTeam6.Customers.Unity
             marker.name = "Employee identifier";
             marker.transform.SetPositionAndRotation(
                 chest.position + presenter.transform.forward * 0.12f, presenter.transform.rotation);
+            employeeIdentifier = marker;
+        }
+
+        public void SetPresenter(NpcCharacterAnimation value)
+        {
+            if (value == null || value == presenter)
+                return;
+
+            if (employeeIdentifier != null)
+            {
+                employeeIdentifier.SetActive(false);
+                Destroy(employeeIdentifier);
+            }
+
+            presenter = value;
+            if (placeholderRenderer != null)
+                placeholderRenderer.enabled = false;
+            AttachEmployeeIdentifier();
+            presenter.SetPaused(paused);
+            ShowCurrentState();
         }
 
         private void OnEnable()
@@ -109,6 +131,7 @@ namespace OpenSourceTeam6.Customers.Unity
                     break;
                 case NpcAnimationState.DiscardTrash:
                 case NpcAnimationState.Stock when stockOnce:
+                case NpcAnimationState.Point when pointOnceTarget != null:
                     Play(NpcAnimationState.Idle);
                     break;
                 default:
@@ -227,6 +250,17 @@ namespace OpenSourceTeam6.Customers.Unity
             return Play(NpcAnimationState.Stock);
         }
 
+        public bool PlayPointOnce(Transform target)
+        {
+            if (target == null || CurrentState != NpcAnimationState.Idle || !CanPlay(NpcAnimationState.Point))
+                return false;
+            Vector3 direction = Vector3.ProjectOnPlane(target.position - transform.position, Vector3.up);
+            if (direction.sqrMagnitude > 0.01f)
+                transform.rotation = Quaternion.LookRotation(direction);
+            pointOnceTarget = target;
+            return Play(NpcAnimationState.Point);
+        }
+
         public bool Play(NpcAnimationState state)
         {
             switch (state)
@@ -258,6 +292,7 @@ namespace OpenSourceTeam6.Customers.Unity
                 cycleElapsed = 0f;
                 previewTrashWalk = false;
                 if (state != NpcAnimationState.Stock) stockOnce = false;
+                if (state != NpcAnimationState.Point) pointOnceTarget = null;
             }
 
             ShowCurrentState();
@@ -284,13 +319,15 @@ namespace OpenSourceTeam6.Customers.Unity
             Transform target = CurrentState switch
             {
                 NpcAnimationState.Stock => stockTarget,
-                NpcAnimationState.Point => pointTarget,
+                NpcAnimationState.Point => pointOnceTarget != null ? pointOnceTarget : pointTarget,
                 NpcAnimationState.Checkout => registerTarget,
                 NpcAnimationState.DiscardTrash => trashTarget,
                 _ => null
             };
-            presenter.Show(CurrentState, target != null ? (Vector3?)target.position : null,
-                cycleElapsed / ActionDuration);
+            Vector3? aim = target != null ? (Vector3?)target.position : null;
+            if (aim.HasValue && CurrentState == NpcAnimationState.Point && pointOnceTarget != null)
+                aim += Vector3.up;
+            presenter.Show(CurrentState, aim, cycleElapsed / ActionDuration);
         }
 
         private float ActionDuration => CurrentState switch
@@ -298,6 +335,7 @@ namespace OpenSourceTeam6.Customers.Unity
             NpcAnimationState.Checkout => CheckoutSeconds,
             NpcAnimationState.SitDown => NpcCharacterAnimation.SitDownSeconds,
             NpcAnimationState.DiscardTrash => TrashSeconds,
+            NpcAnimationState.Point when pointOnceTarget != null => 0.9f,
             _ => Mathf.Max(0.1f, workCycleSeconds)
         };
     }

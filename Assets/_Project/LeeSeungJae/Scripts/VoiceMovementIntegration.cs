@@ -640,7 +640,8 @@ namespace EmployeeVoice
             var velocity = employee.Snapshot.ActualVelocity;
             float horizontalSpeedSquared = velocity.X * velocity.X + velocity.Z * velocity.Z;
             if (horizontalSpeedSquared <= 0.01f && activeMove == 0 &&
-                employeeAnimation.CurrentState == NpcAnimationState.Stock)
+                (employeeAnimation.CurrentState == NpcAnimationState.Stock ||
+                 employeeAnimation.CurrentState == NpcAnimationState.Point))
                 return;
             var locomotion = horizontalSpeedSquared > 0.01f ? NpcAnimationState.Walk : NpcAnimationState.Idle;
             if (employeeAnimation.CurrentState != locomotion) employeeAnimation.Play(locomotion);

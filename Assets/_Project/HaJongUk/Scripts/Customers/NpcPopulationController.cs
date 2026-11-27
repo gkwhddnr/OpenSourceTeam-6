@@ -43,16 +43,17 @@ namespace OpenSourceTeam6.Customers.Unity
         }
 
         private enum Role { Customer, Pedestrian }
-        private enum ShoppingStyle { Direct, Deliberating, Indecisive, AskWhenMissing, LeaveWhenMissing, HesitateAndLeave }
+        private enum ShoppingStyle { Direct, Deliberating, Indecisive, AskWhenMissing, LeaveWhenMissing, HesitateAndLeave, AskForLocation }
         private enum Step { Enter, Consider, Browse, Queue, Checkout, Sit, Exit, Outside, WalkSidewalk }
 
         private static readonly Step[] CustomerSequence =
         {
-            Step.Enter, Step.Consider, Step.Browse, Step.Sit, Step.Queue, Step.Checkout, Step.Exit, Step.Outside
+            Step.Enter, Step.Consider, Step.Browse, Step.Queue, Step.Checkout, Step.Sit, Step.Exit, Step.Outside
         };
 
         [Header("손님 좌석")]
         [SerializeField] private Transform customerSeat;
+        [SerializeField] private Transform customerSeatApproach;
         [SerializeField, Min(0f)] private float customerSeatedSeconds = 2f;
         private AgentRun seatedCustomer;
 
@@ -71,6 +72,7 @@ namespace OpenSourceTeam6.Customers.Unity
             public int StepIndex;
             public float BrowseSeconds;
             public float SitSeconds;
+            public bool Sitting;
             public ShoppingStyle ShoppingStyle;
             public int ProductIndex = -1;
             public int AisleIndex;
@@ -82,8 +84,14 @@ namespace OpenSourceTeam6.Customers.Unity
             public NpcSearchOrder SearchOrder;
             public bool SeekingHelp;
             public Transform QuestionTarget;
+            public Vector3 QuestionTargetPosition;
+            public Vector3 QuestionApproach;
+            public float QuestionTravelSeconds;
             public bool QuestionAsked;
+            public bool QuestionAnsweredUnavailable;
+            public bool DemoQuestion;
             public float QuestionSeconds;
+            public float FollowDirectionsAt;
             public Transform AnswerLocation;
             public ProductOption Product;
             public NpcCarriedProduct CarriedProduct;
@@ -124,6 +132,7 @@ namespace OpenSourceTeam6.Customers.Unity
         [SerializeField] private GameObject customerPrefab;
         [SerializeField] private GameObject pedestrianPrefab;
         [SerializeField] private NpcCharacterRoster characterRoster;
+        [SerializeField] private bool requireRosterCharacter;
         [SerializeField, Range(0f, 1f)] private float customerRunChance = 0.3f;
         [SerializeField, Range(0f, 1f)] private float pedestrianRunChance = 0.3f;
         [SerializeField] private GameObject productPrefab;
@@ -154,6 +163,7 @@ namespace OpenSourceTeam6.Customers.Unity
         [SerializeField] private Transform playerQuestionTarget;
         [SerializeField, Min(1f)] private float questionTimeout = 15f;
         [SerializeField] private string demoMissingProductName;
+        [SerializeField] private bool showcasePurchaseAndQuestion;
         [Header("테스트 시간")]
         [SerializeField, Min(0.25f)] private float spawnInterval = 1f;
         [SerializeField, Min(0)] private float browseDuration = 0.6f;
@@ -173,6 +183,7 @@ namespace OpenSourceTeam6.Customers.Unity
         private NpcSearchOrder shoppingStyles;
         private float nextPedestrianSpawn;
         private int nextId;
+        private int showcaseCustomers;
         private float customerSpeed = 1.5f;
         private float pedestrianSpeed = 1.7f;
 
@@ -194,6 +205,9 @@ namespace OpenSourceTeam6.Customers.Unity
         public int CompletedCustomers { get; private set; }
         public int CompletedPedestrians { get; private set; }
         public int SuccessfulMockCheckouts { get; private set; }
+        public int CompletedSeatVisits { get; private set; }
+        public int CompletedProductQuestions { get; private set; }
+        public int SeatedCustomerId => seatedCustomer != null && seatedCustomer.Sitting ? seatedCustomer.Id : -1;
         public int RouteFailures { get; private set; }
         public bool IsPaused { get; private set; }
         public float CustomerSpeed => customerSpeed;
@@ -202,16 +216,45 @@ namespace OpenSourceTeam6.Customers.Unity
 
         public bool TryAnswerProductQuestion(int customerId, Transform productLocation)
         {
-            if (productLocation == null) return false;
-            foreach (AgentRun customer in customers)
+            AgentRun customer = FindPendingQuestion(customerId);
+            if (customer == null || customer.DemoQuestion || productLocation == null) return false;
+            customer.AnswerLocation = productLocation;
+            CompletedProductQuestions++;
+            return true;
+        }
+
+        public bool IsProductQuestionPending(int customerId) => FindPendingQuestion(customerId) != null;
+
+        public bool TryResolveProductQuestion(int customerId, Transform respondent, out Transform pickupLocation)
+        {
+            pickupLocation = null;
+            AgentRun customer = FindPendingQuestion(customerId);
+            if (IsPaused || customer == null || respondent == null || customer.QuestionTarget != respondent ||
+                (respondent.position - customer.Agent.transform.position).sqrMagnitude > 3f * 3f)
+                return false;
+
+            if (!customer.DemoQuestion)
             {
-                if (customer.Id != customerId || customer.Sequence[customer.StepIndex] != Step.Consider ||
-                    !customer.QuestionAsked || customer.AnswerLocation != null)
-                    continue;
-                customer.AnswerLocation = productLocation;
-                return true;
+                ProductOption desired = products[customer.DesiredProductIndex];
+                if (IsProductInStock(desired))
+                    pickupLocation = desired.pickupLocation != null ? desired.pickupLocation : shelf;
             }
-            return false;
+            customer.AnswerLocation = pickupLocation;
+            customer.QuestionAnsweredUnavailable = pickupLocation == null;
+            if (pickupLocation != null && respondent == employeeQuestionTarget)
+                customer.FollowDirectionsAt = customer.QuestionSeconds + 0.9f;
+            CompletedProductQuestions++;
+            return true;
+        }
+
+        private AgentRun FindPendingQuestion(int customerId)
+        {
+            foreach (AgentRun customer in customers)
+                if (customer.Id == customerId && customer.Agent != null &&
+                    customer.StepIndex < customer.Sequence.Length && customer.Sequence[customer.StepIndex] == Step.Consider &&
+                    customer.QuestionAsked && !customer.QuestionAnsweredUnavailable && customer.AnswerLocation == null)
+                    return customer;
+            return null;
         }
 
         // 선반 재고를 조회만 한다. 실제 재고 차감·매출 반영은 외부 시스템의 책임이다.
@@ -319,6 +362,7 @@ namespace OpenSourceTeam6.Customers.Unity
         {
             if (customerPrefab == null || !customerPrefab.TryGetComponent(out NavMeshAgent _) ||
                 pedestrianPrefab == null || !pedestrianPrefab.TryGetComponent(out NavMeshAgent _) ||
+                (requireRosterCharacter && (characterRoster == null || characterRoster.Count == 0)) ||
                 leftSidewalkZone == null || rightSidewalkZone == null || leftSidewalkZone == rightSidewalkZone ||
                 sidewalkZoneSize.x <= 0f || sidewalkZoneSize.y <= 0f ||
                 entrance == null || shelf == null || checkout == null || exit == null || queueSlots.Length == 0)
@@ -390,7 +434,16 @@ namespace OpenSourceTeam6.Customers.Unity
             agent.speed = GetTravelSpeed(role == Role.Customer ? customerSpeed : pedestrianSpeed, isRunner);
             instance.name += isRunner ? " (뛰기)" : " (걷기)";
             if (characterRoster != null)
-                characterRoster.ApplyRandom(instance.transform, instance.GetComponentInChildren<NpcCharacterAnimation>());
+            {
+                var fallback = instance.GetComponentInChildren<NpcCharacterAnimation>();
+                var visual = characterRoster.ApplyRandom(instance.transform, fallback);
+                if (requireRosterCharacter && (visual == null || visual == fallback))
+                {
+                    Dispose(agent);
+                    RouteFailures++;
+                    return;
+                }
+            }
             var run = new AgentRun(agent, role, id, destination, isRunner);
             if (role == Role.Customer)
             {
@@ -404,9 +457,22 @@ namespace OpenSourceTeam6.Customers.Unity
 
         private void AssignShoppingStyle(AgentRun customer)
         {
+            if (showcasePurchaseAndQuestion && showcaseCustomers < 3)
+            {
+                customer.ShoppingStyle = showcaseCustomers++ switch
+                {
+                    0 => ShoppingStyle.Direct,
+                    1 => ShoppingStyle.AskForLocation,
+                    _ => ShoppingStyle.AskWhenMissing
+                };
+                customer.DemoQuestion = customer.ShoppingStyle == ShoppingStyle.AskWhenMissing &&
+                    !string.IsNullOrWhiteSpace(demoMissingProductName);
+                return;
+            }
+
             // Shuffle each group so all behaviors appear even in short test runs.
             if (shoppingStyles == null || shoppingStyles.IsComplete)
-                shoppingStyles = CreateSearchOrder((int)ShoppingStyle.HesitateAndLeave + 1);
+                shoppingStyles = CreateSearchOrder((int)ShoppingStyle.AskForLocation + 1);
             shoppingStyles.TryGetCurrent(out int index);
             shoppingStyles.Advance();
             customer.ShoppingStyle = (ShoppingStyle)index;
@@ -500,7 +566,7 @@ namespace OpenSourceTeam6.Customers.Unity
 
             if (result == Result.Running)
             {
-                if (step == Step.Sit)
+                if (step == Step.Sit && run.Sitting)
                     return;
                 if (step == Step.Browse && run.BrowseSeconds > 0f)
                     return; // The pickup step updates the reach target and progress.
@@ -553,7 +619,7 @@ namespace OpenSourceTeam6.Customers.Unity
                 case Step.Checkout:
                     return CheckOut(run, elapsed);
                 case Step.Sit:
-                    return SitBeforeCheckout(run, elapsed);
+                    return SitAfterCheckout(run, elapsed);
                 case Step.Exit:
                     return run.Navigation.MoveTo(run.Agent, exit, elapsed);
                 case Step.Outside:
@@ -564,26 +630,44 @@ namespace OpenSourceTeam6.Customers.Unity
             }
         }
 
-        private Result SitBeforeCheckout(AgentRun run, float elapsed)
+        private Result SitAfterCheckout(AgentRun run, float elapsed)
         {
-            if (seatedCustomer != run)
+            if (!run.Sitting)
             {
-                if (seatedCustomer != null || customerSeat == null || customerSeatedSeconds <= 0f ||
+                if ((seatedCustomer != null && seatedCustomer != run) || customerSeat == null || customerSeatedSeconds <= 0f ||
                     run.Animation == null || !run.Animation.CanShow(NpcAnimationState.SitDown) ||
-                    !run.Animation.CanShow(NpcAnimationState.Seated) || !run.Agent.isOnNavMesh ||
-                    !run.Agent.Warp(customerSeat.position))
+                    !run.Animation.CanShow(NpcAnimationState.Seated))
                     return Result.Success;
 
                 seatedCustomer = run;
+                Transform approach = customerSeatApproach != null ? customerSeatApproach : customerSeat;
+                Result arrival = run.Navigation.MoveTo(run.Agent, approach, elapsed);
+                if (arrival == Result.Running) return Result.Running;
+                if (arrival == Result.Failure)
+                {
+                    seatedCustomer = null;
+                    return Result.Success;
+                }
                 run.Agent.ResetPath();
-                run.Agent.transform.rotation = customerSeat.rotation;
+                run.Agent.isStopped = true;
+                run.Agent.updatePosition = false;
+                run.Agent.updateRotation = false;
+                run.Agent.transform.SetPositionAndRotation(customerSeat.position, customerSeat.rotation);
+                run.Sitting = true;
             }
 
             run.SitSeconds += elapsed;
             float sitDownSeconds = NpcCharacterAnimation.SitDownSeconds;
             if (run.SitSeconds >= sitDownSeconds + customerSeatedSeconds)
             {
+                if (!run.Agent.isOnNavMesh) return Result.Failure;
+                run.Agent.transform.position = run.Agent.nextPosition;
+                run.Agent.updatePosition = true;
+                run.Agent.updateRotation = true;
+                run.Agent.isStopped = false;
+                run.Sitting = false;
                 seatedCustomer = null;
+                CompletedSeatVisits++;
                 return Result.Success;
             }
 
@@ -616,6 +700,21 @@ namespace OpenSourceTeam6.Customers.Unity
                     return PauseAndChooseProduct(customer, elapsed);
                 case ShoppingStyle.Indecisive:
                     return ConsiderMultipleProducts(customer, elapsed);
+                case ShoppingStyle.AskForLocation:
+                    int firstProduct = UnityEngine.Random.Range(0, products.Length);
+                    customer.DesiredProductIndex = -1;
+                    for (int offset = 0; offset < products.Length; offset++)
+                    {
+                        int index = (firstProduct + offset) % products.Length;
+                        if (!IsProductInStock(products[index]) || customers.Exists(other => other.ProductIndex == index))
+                            continue;
+                        customer.DesiredProductIndex = index;
+                        break;
+                    }
+                    if (customer.DesiredProductIndex < 0)
+                        customer.DesiredProductIndex = ChooseSearchTarget();
+                    customer.SeekingHelp = true;
+                    return AskForProduct(customer, elapsed);
                 case ShoppingStyle.AskWhenMissing:
                 case ShoppingStyle.LeaveWhenMissing:
                     return SearchShelves(customer, elapsed);
@@ -709,10 +808,11 @@ namespace OpenSourceTeam6.Customers.Unity
             if (customer.SearchOrder == null)
             {
                 customer.SearchOrder = CreateSearchOrder(products.Length);
-                customer.DesiredProductIndex = ChooseSearchTarget();
+                customer.DesiredProductIndex = customer.DemoQuestion ? -1 : ChooseSearchTarget();
             }
 
-            if (!customer.SearchOrder.TryGetCurrent(out int index))
+            if ((customer.DemoQuestion && customer.SearchOrder.VisitedCount >= 2) ||
+                !customer.SearchOrder.TryGetCurrent(out int index))
                 return HandleMissingProduct(customer);
 
             ProductOption option = products[index];
@@ -782,31 +882,23 @@ namespace OpenSourceTeam6.Customers.Unity
 
         private Result AskForProduct(AgentRun customer, float elapsed)
         {
-            if (customer.QuestionTarget == null && !customer.QuestionAsked)
-            {
-                if (employeeQuestionTarget == null) customer.QuestionTarget = playerQuestionTarget;
-                else if (playerQuestionTarget == null) customer.QuestionTarget = employeeQuestionTarget;
-                else customer.QuestionTarget =
-                    (employeeQuestionTarget.position - customer.Agent.transform.position).sqrMagnitude <=
-                    (playerQuestionTarget.position - customer.Agent.transform.position).sqrMagnitude
-                        ? employeeQuestionTarget : playerQuestionTarget;
-                if (customer.QuestionTarget == null)
-                    return LeaveWithoutPurchase(customer);
-            }
             if (!customer.QuestionAsked)
             {
-                Result movement = customer.Navigation.MoveTo(customer.Agent, customer.QuestionTarget, elapsed);
-                if (movement == Result.Failure)
+                customer.QuestionTravelSeconds += elapsed;
+                if (customer.QuestionTravelSeconds >= questionTimeout || !TryFindQuestionApproach(customer))
                     return LeaveWithoutPurchase(customer);
+                Result movement = customer.Navigation.MoveTo(customer.Agent, customer.QuestionApproach, elapsed);
+                if (movement == Result.Failure) return LeaveWithoutPurchase(customer);
                 if (movement != Result.Success) return Result.Running;
                 customer.QuestionAsked = true;
-                CustomerAskedForProduct?.Invoke(customer.Id, products[customer.DesiredProductIndex].productName,
+                string name = customer.DemoQuestion ? demoMissingProductName : products[customer.DesiredProductIndex].productName;
+                CustomerAskedForProduct?.Invoke(customer.Id, name,
                     customer.QuestionTarget);
             }
             float minimumQuestionTime = customer.Animation != null ? Mathf.Min(questionTimeout, QuestionAnimationSeconds) : 0f;
             if (customer.Animation != null && customer.QuestionTarget != null)
                 FaceInteraction(customer.Agent, customer.QuestionTarget.position, elapsed);
-            if (customer.QuestionSeconds >= minimumQuestionTime &&
+            if (customer.QuestionSeconds >= Mathf.Max(minimumQuestionTime, customer.FollowDirectionsAt) &&
                 customer.AnswerLocation != null && IsProductInStock(products[customer.DesiredProductIndex]) &&
                 TryReserveSpecificProduct(customer, customer.DesiredProductIndex))
             {
@@ -815,9 +907,38 @@ namespace OpenSourceTeam6.Customers.Unity
                 customer.Product = product;
                 return Result.Success;
             }
+            if (customer.QuestionAnsweredUnavailable && customer.QuestionSeconds >= minimumQuestionTime)
+                return LeaveWithoutPurchase(customer);
             customer.QuestionSeconds += elapsed;
             if (customer.QuestionSeconds < questionTimeout) return Result.Running;
             return LeaveWithoutPurchase(customer);
+        }
+
+        private bool TryFindQuestionApproach(AgentRun customer)
+        {
+            Transform target = customer.QuestionTarget;
+            if (target != null && target.gameObject.activeInHierarchy &&
+                (target.position - customer.QuestionTargetPosition).sqrMagnitude < 0.6f * 0.6f)
+                return true;
+
+            bool playerCloser = playerQuestionTarget != null && (employeeQuestionTarget == null ||
+                (playerQuestionTarget.position - customer.Agent.transform.position).sqrMagnitude <
+                (employeeQuestionTarget.position - customer.Agent.transform.position).sqrMagnitude);
+            Transform first = playerCloser ? playerQuestionTarget : employeeQuestionTarget;
+            Transform second = playerCloser ? employeeQuestionTarget : playerQuestionTarget;
+            return TrySetQuestionApproach(customer, first) || TrySetQuestionApproach(customer, second);
+        }
+
+        private static bool TrySetQuestionApproach(AgentRun customer, Transform target)
+        {
+            if (target == null || !target.gameObject.activeInHierarchy ||
+                !customer.Navigation.TryFindApproach(customer.Agent, target.position, out Vector3 approach))
+                return false;
+
+            customer.QuestionTarget = target;
+            customer.QuestionTargetPosition = target.position;
+            customer.QuestionApproach = approach;
+            return true;
         }
 
         private bool TryReserveSpecificProduct(AgentRun customer, int index)
@@ -870,7 +991,8 @@ namespace OpenSourceTeam6.Customers.Unity
             if (!IsProductInStock(customer.Product))
             {
                 customer.ProductIndex = -1;
-                if (customer.ShoppingStyle == ShoppingStyle.AskWhenMissing && !customer.QuestionAsked)
+                if ((customer.ShoppingStyle == ShoppingStyle.AskWhenMissing ||
+                    customer.ShoppingStyle == ShoppingStyle.AskForLocation) && !customer.QuestionAsked)
                 {
                     customer.SeekingHelp = true;
                     customer.StepIndex = Array.IndexOf(customer.Sequence, Step.Consider) - 1;
@@ -974,7 +1096,7 @@ namespace OpenSourceTeam6.Customers.Unity
             foreach (AgentRun run in group)
             {
                 if (run.Agent != null && run.Agent.isOnNavMesh)
-                    run.Agent.isStopped = stopped;
+                    run.Agent.isStopped = stopped || run.Sitting;
                 if (run.Animation != null)
                     run.Animation.SetPaused(stopped);
             }

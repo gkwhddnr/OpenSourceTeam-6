@@ -381,32 +381,19 @@ namespace OpenSourceTeam6.UI.Unity
         public bool TryProcessWaitingCheckout(bool isPlayerAction)
         {
             EnsureInitialized();
-            if (npcPopulation == null) return false;
-            if (!npcPopulation.TryGetCurrentCheckout(out int waitingId, out string productTag))
+            if (npcPopulation == null || npcPopulation.IsPaused) return false;
+            if (!npcPopulation.TryGetCurrentCheckout(out int customerId, out string productTag))
             {
                 return false;
             }
 
-            if (!npcPopulation.TryCompleteCurrentCheckout(out int approvedCustomerId) || approvedCustomerId < 0)
+            bool reservedByCustomer = pendingCustomerPickedItemIds.TryGetValue(customerId, out string targetItemId);
+            if (!reservedByCustomer)
             {
-                return false;
-            }
-
-            string targetItemId = null;
-            if (pendingCustomerPickedItemIds.TryGetValue(approvedCustomerId, out string reservedId))
-            {
-                targetItemId = reservedId;
-                pendingCustomerPickedItemIds.Remove(approvedCustomerId);
-                customerHiddenShelfVisuals.Remove(approvedCustomerId);
-            }
-            else
-            {
-                saleRandomSeed = unchecked(saleRandomSeed * 1103515245 + 12345 + approvedCustomerId);
-                if (ledger.TryPickupFromShelfByTag(productTag, saleRandomSeed, out StoreItemRecord fallbackPicked))
-                {
-                    targetItemId = fallbackPicked.ItemId;
-                    HideOneShelfVisual(fallbackPicked.ItemId, fallbackPicked.Category);
-                }
+                saleRandomSeed = unchecked(saleRandomSeed * 1103515245 + 12345 + customerId);
+                if (!ledger.TryPickupFromShelfByTag(productTag, saleRandomSeed, out StoreItemRecord fallbackPicked))
+                    return false;
+                targetItemId = fallbackPicked.ItemId;
             }
 
             if (string.IsNullOrEmpty(targetItemId))
@@ -425,14 +412,23 @@ namespace OpenSourceTeam6.UI.Unity
             if (!ledger.CommitPickedItemCheckout(
                     targetItemId,
                     dayNum,
-                    approvedCustomerId,
+                    customerId,
                     actorCode,
                     clockText,
                     out StoreItemRecord soldItem,
                     out int revenueWon))
             {
+                if (!reservedByCustomer)
+                    ledger.ReturnPickedItemToShelf(targetItemId);
                 return false;
             }
+
+            // Commit is synchronous and has no callbacks. Release this customer only once the sale is recorded.
+            npcPopulation.TryCompleteCurrentCheckout(customerId);
+            pendingCustomerPickedItemIds.Remove(customerId);
+            customerHiddenShelfVisuals.Remove(customerId);
+            if (!reservedByCustomer)
+                HideOneShelfVisual(soldItem.ItemId, soldItem.Category);
 
             SyncInspectorMirror();
             SaveSalesLogToDisk();
@@ -449,7 +445,7 @@ namespace OpenSourceTeam6.UI.Unity
                     CommandFeedbackKind.Accepted,
                     string.Empty,
                     $"POS_CHECKOUT (+{revenueWon:N0}원)",
-                    $"[{actorLabel}] 손님#{approvedCustomerId} · [{soldItem.ProductTag}] {soldItem.DisplayName} +{revenueWon:N0}원 결제 완료! (당일 매출 {ledger.TodayRevenueWon:N0}원)"),
+                    $"[{actorLabel}] 손님#{customerId} · [{soldItem.ProductTag}] {soldItem.DisplayName} +{revenueWon:N0}원 결제 완료! (당일 매출 {ledger.TodayRevenueWon:N0}원)"),
                 playFeedbackSfx: false);
 
             if (!isPlayerAction)

@@ -58,6 +58,29 @@ namespace OpenSourceTeam6.Customers.Unity
             travelSeconds = 0f;
         }
 
+        public bool TryFindApproach(NavMeshAgent agent, Vector3 interactionTarget, out Vector3 approach)
+        {
+            approach = default;
+            if (!agent.isOnNavMesh) return false;
+
+            Vector3 direction = agent.nextPosition - interactionTarget;
+            direction.y = 0f;
+            direction = direction.sqrMagnitude > 0.01f ? direction.normalized : Vector3.forward;
+            NavMeshQueryFilter filter = FilterFor(agent);
+            for (int i = 0; i < 4; i++)
+            {
+                Vector3 candidate = interactionTarget + direction * 1.2f;
+                if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 0.75f, filter) &&
+                    agent.CalculatePath(hit.position, path) && path.status == NavMeshPathStatus.PathComplete)
+                {
+                    approach = hit.position;
+                    return true;
+                }
+                direction = new Vector3(-direction.z, 0f, direction.x);
+            }
+            return false;
+        }
+
         public NpcStepResult MoveTo(NavMeshAgent agent, Transform destination, float elapsed) =>
             destination == null ? NpcStepResult.Failure : MoveTo(agent, destination.position, elapsed);
 
