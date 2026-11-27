@@ -18,6 +18,8 @@ Both TimeSystem_Test and Team_Integration start at 08:00 and advance through mid
 
 SkyOverlay renders the derivative-antialiased moon disk and halo, dense stars, and clouds that remain visible at night. One CelestialMath SunSample drives sky/cloud, rain tint and ambient transitions together. The unused hidden moon mesh/material is no longer created. The cloud shader uses 24 density samples per pixel; target-device GPU performance has not been measured.
 
+For the presentation, set `DayNightPresenter` → `일몰 속도 배율` to `0.25`. The setting ranges from `0.1` to `2`, with `1` reproducing the original motion. It controls the sun and lighting transition near the western horizon. Set the UI's day duration separately to `105` seconds for a 1m 45s play window. The sunrise and sunset clock readings and the moon path keep their configured values.
+
 Unity Procedural Skybox provides the single sun disk. SkyOverlay provides animated clouds, night stars, the luminous moon disk and halo. CelestialBodyPresenter owns lunar art settings and weak moonlight. No external sky textures are required. Runtime materials and objects are released on disable.
 
 External time mode uses BeginDay and ApplyExternalProgress. Connect ClosingRequested to customer cleanup and UI settlement, then ConfirmSettlement before the next day. Actual UI settlement/cursor integration remains pending.

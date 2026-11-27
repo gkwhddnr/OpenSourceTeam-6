@@ -31,6 +31,27 @@ namespace OpenSourceTeam6.Time.Tests
             Assert.That(before, Is.LessThan(after));
         }
 
+        [Test]
+        public void SunsetSpeedExtendsTwilightWithoutChangingHorizonCrossing()
+        {
+            const float sunrise = 6;
+            const float sunset = 18.5f;
+            const float slowerSpeed = .25f;
+            var slowBefore = CelestialMath.SampleSun(sunset - .25f, sunrise, sunset, slowerSpeed);
+            var slowAfter = CelestialMath.SampleSun(sunset + .25f, sunrise, sunset, slowerSpeed);
+            var normalBefore = CelestialMath.SampleSun(sunset - .25f, sunrise, sunset);
+            var normalAfter = CelestialMath.SampleSun(sunset + .25f, sunrise, sunset);
+            Assert.That(slowBefore.Direction.Y, Is.InRange(0, normalBefore.Direction.Y));
+            Assert.That(slowAfter.Direction.Y, Is.InRange(normalAfter.Direction.Y, 0));
+            Assert.That(slowBefore.NightBlend, Is.GreaterThan(normalBefore.NightBlend));
+            Assert.That(slowAfter.NightBlend, Is.LessThan(normalAfter.NightBlend));
+            AssertDirection(CelestialMath.SampleSun(sunset, sunrise, sunset, slowerSpeed).Direction,
+                -.98893635f, 0, .14834045f);
+            AssertDirection(CelestialMath.SampleSun(sunrise, sunrise, sunset, slowerSpeed).Direction,
+                .98893635f, 0, .14834045f);
+            Assert.That(CelestialMath.SampleSun(12.25f, sunrise, sunset, slowerSpeed).Elevation, Is.EqualTo(1));
+        }
+
         [TestCase(17, .9701425f, 0)]
         [TestCase(23, 0, .9701425f)]
         [TestCase(5, -.9701425f, 0)]
@@ -77,6 +98,9 @@ namespace OpenSourceTeam6.Time.Tests
             Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleSun(8, 18, 6));
             Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleSun(8, 6, 6));
             Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleSun(8, 0, 24));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleSun(8, 6, 18, float.NaN));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleSun(8, 6, 18, 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleSun(8, 6, 18, 3));
             Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleMoon(float.PositiveInfinity, 17, 12));
             Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleMoon(8, float.NaN, 12));
             Assert.Throws<ArgumentOutOfRangeException>(() => CelestialMath.SampleMoon(8, 17, float.NaN));

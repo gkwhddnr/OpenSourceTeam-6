@@ -34,27 +34,39 @@ namespace OpenSourceTeam6.Time.Core
     /// </summary>
     public static class CelestialMath
     {
-        public static SunSample SampleSun(float hour, float sunrise, float sunset)
+        public const float MinSunsetSpeedMultiplier = .1f;
+        public const float MaxSunsetSpeedMultiplier = 2f;
+        private const double SunsetHalfArc = .75;
+
+        public static SunSample SampleSun(float hour, float sunrise, float sunset, float sunsetSpeedMultiplier = 1)
         {
             RequireFinite(hour, nameof(hour));
             RequireFinite(sunrise, nameof(sunrise));
             RequireFinite(sunset, nameof(sunset));
+            RequireFinite(sunsetSpeedMultiplier, nameof(sunsetSpeedMultiplier));
             if (sunrise < 0 || sunrise >= 24)
                 throw new ArgumentOutOfRangeException(nameof(sunrise));
             if (sunset > 24 || sunset <= sunrise || sunset - sunrise >= 24)
                 throw new ArgumentOutOfRangeException(nameof(sunset), "Sunrise and sunset must leave both a day and a night interval.");
+            if (sunsetSpeedMultiplier < MinSunsetSpeedMultiplier || sunsetSpeedMultiplier > MaxSunsetSpeedMultiplier)
+                throw new ArgumentOutOfRangeException(nameof(sunsetSpeedMultiplier));
 
             double wrappedHour = WrapHour(hour);
             double daytimeHours = (double)sunset - sunrise;
-            double daytimeFraction = Clamp01((wrappedHour - sunrise) / daytimeHours);
-            double angle = wrappedHour >= sunrise && wrappedHour <= sunset
-                ? daytimeFraction * Math.PI
+            bool isDaytime = wrappedHour >= sunrise && wrappedHour <= sunset;
+            double angle = isDaytime
+                ? (wrappedHour - sunrise) / daytimeHours * Math.PI
                 : Math.PI + ((wrappedHour < sunrise ? wrappedHour + 24 : wrappedHour) - sunset)
                     / (24 - daytimeHours) * Math.PI;
+            double offset = angle - Math.PI;
+            double weight = 1 - Math.Abs(offset) / SunsetHalfArc;
+            if (weight > 0)
+                // Preserve the horizon crossing and blend back to the original speed at the arc boundary.
+                angle += (sunsetSpeedMultiplier - 1) * offset * weight * weight;
             CelestialDirection direction = Direction(angle, .15);
             double nightFraction = Clamp01((direction.Y + .2) / .3);
             double night = 1 - nightFraction * nightFraction * (3 - 2 * nightFraction);
-            float elevation = (float)Math.Max(0, Math.Sin(daytimeFraction * Math.PI));
+            float elevation = isDaytime ? (float)Math.Max(0, Math.Sin(angle)) : 0;
             return new SunSample(direction, elevation, (float)night);
         }
 

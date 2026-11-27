@@ -14,6 +14,9 @@ namespace OpenSourceTeam6.Time.Unity
         [KoreanInspectorLabel("9월 일출·일몰"), Tooltip("X: 일출 시각, Y: 일몰 시각"), SerializeField] private Vector2 september = new Vector2(6, 18.5f);
         [KoreanInspectorLabel("10월 일출·일몰"), Tooltip("X: 일출 시각, Y: 일몰 시각"), SerializeField] private Vector2 october = new Vector2(6.5f, 18);
         [KoreanInspectorLabel("11월 일출·일몰"), Tooltip("X: 일출 시각, Y: 일몰 시각"), SerializeField] private Vector2 november = new Vector2(7, 17.5f);
+        [KoreanInspectorLabel("일몰 속도 배율"), Tooltip("1이 기본 속도입니다. 1보다 낮으면 수평선 근처의 태양과 노을 전환이 느려집니다. 영업 시간과 일몰 시각은 유지됩니다.")]
+        [SerializeField, Range(CelestialMath.MinSunsetSpeedMultiplier, CelestialMath.MaxSunsetSpeedMultiplier)]
+        private float sunsetSpeedMultiplier = 1;
         [KoreanInspectorLabel("낮 햇빛 강도"), SerializeField, Min(0)] private float daylightIntensity = 1;
         [KoreanInspectorLabel("밤 환경광 색상"), SerializeField] private Color nightAmbient = new Color(.08f, .1f, .16f);
         [KoreanInspectorLabel("낮 환경광 색상"), SerializeField] private Color dayAmbient = new Color(.55f, .6f, .7f);
@@ -29,7 +32,7 @@ namespace OpenSourceTeam6.Time.Unity
         public SunSample Evaluate(float gameHour)
         {
             Vector2 range = month == 8 ? august : month == 9 ? september : month == 10 ? october : november;
-            return CelestialMath.SampleSun(gameHour, range.x, range.y);
+            return CelestialMath.SampleSun(gameHour, range.x, range.y, sunsetSpeedMultiplier);
         }
 
         public void Render(Light sun, SunSample sample)
