@@ -56,8 +56,10 @@ namespace OpenSourceTeam6.Time.Unity
             sun.transform.rotation = Quaternion.LookRotation(-SunDirection, Vector3.up);
             sun.intensity = Mathf.Max(0, daylightIntensity) * sample.Elevation;
             sun.color = Color.Lerp(new Color(1, .55f, .3f), Color.white, Mathf.Clamp01(sample.Elevation * 3));
+            sun.color = Color.Lerp(sun.color, new Color(1f, .27f, .12f), sample.SunsetGlow * .85f);
             RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = Color.Lerp(dayAmbient, nightAmbient, NightBlend);
+            Color sunsetAmbient = Color.Lerp(dayAmbient, new Color(.53f, .26f, .25f), sample.SunsetGlow * .65f);
+            RenderSettings.ambientLight = Color.Lerp(sunsetAmbient, nightAmbient, NightBlend);
         }
 
         public void Release()

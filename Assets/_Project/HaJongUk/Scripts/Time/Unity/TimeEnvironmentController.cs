@@ -71,7 +71,7 @@ namespace OpenSourceTeam6.Time.Unity
                 var sunDirection = new Vector3(sun.Direction.X, sun.Direction.Y, sun.Direction.Z);
                 var moonDirection = new Vector3(lunar.X, lunar.Y, lunar.Z);
                 frame = new SkyFrame(sunDirection, moonDirection, sun.NightBlend, moon.MoonAngularRadius,
-                    weather.isActiveAndEnabled ? weather.CloudIntensity : 0, time.ElapsedGameHours);
+                    weather.isActiveAndEnabled ? weather.CloudIntensity : 0, time.ElapsedGameHours, sun.SunsetGlow);
                 hasFrame = true;
             }
             catch (ArgumentOutOfRangeException error)

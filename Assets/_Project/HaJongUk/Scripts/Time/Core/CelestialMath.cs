@@ -18,13 +18,14 @@ namespace OpenSourceTeam6.Time.Core
     public readonly struct SunSample
     {
         public readonly CelestialDirection Direction;
-        public readonly float Elevation, NightBlend;
+        public readonly float Elevation, NightBlend, SunsetGlow;
 
-        public SunSample(CelestialDirection direction, float elevation, float nightBlend)
+        public SunSample(CelestialDirection direction, float elevation, float nightBlend, float sunsetGlow = 0)
         {
             Direction = direction;
             Elevation = elevation;
             NightBlend = nightBlend;
+            SunsetGlow = sunsetGlow;
         }
     }
 
@@ -67,7 +68,10 @@ namespace OpenSourceTeam6.Time.Core
             double nightFraction = Clamp01((direction.Y + .2) / .3);
             double night = 1 - nightFraction * nightFraction * (3 - 2 * nightFraction);
             float elevation = isDaytime ? (float)Math.Max(0, Math.Sin(angle)) : 0;
-            return new SunSample(direction, elevation, (float)night);
+            double glow = direction.X < 0
+                ? Smooth01((direction.Y + .19) / .15) * (1 - Smooth01((direction.Y - .02) / .27))
+                : 0;
+            return new SunSample(direction, elevation, (float)night, (float)glow);
         }
 
         public static CelestialDirection SampleMoon(float hour, float riseHour, float visibleHours)
@@ -101,6 +105,12 @@ namespace OpenSourceTeam6.Time.Core
         }
 
         private static double Clamp01(double value) => Math.Max(0, Math.Min(1, value));
+
+        private static double Smooth01(double value)
+        {
+            double t = Clamp01(value);
+            return t * t * (3 - 2 * t);
+        }
 
         private static void RequireFinite(float value, string parameter)
         {

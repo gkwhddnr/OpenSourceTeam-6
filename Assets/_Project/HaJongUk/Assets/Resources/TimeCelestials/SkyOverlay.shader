@@ -1,11 +1,11 @@
 Shader "OpenSourceTeam6/SkyOverlay" {
- Properties {_Night("Night",Range(0,1))=0 _Drift("Drift",Float)=0 _Rain("Rain",Range(0,1))=0}
+ Properties {_Night("Night",Range(0,1))=0 _Drift("Drift",Float)=0 _Rain("Rain",Range(0,1))=0 _SunsetGlow("Sunset Glow",Range(0,1))=0}
  SubShader {Tags {"Queue"="Transparent-200"} Cull Front ZWrite Off Blend One OneMinusSrcAlpha Pass {HLSLPROGRAM
  #pragma vertex vert
  #pragma fragment frag
  #pragma target 3.0
  #include "UnityCG.cginc"
- float _Night,_Drift,_MoonRadius,_Rain; float4 _MoonDirection,_SunDirection;
+ float _Night,_Drift,_MoonRadius,_Rain,_SunsetGlow; float4 _MoonDirection,_SunDirection;
  struct V{float4 pos:SV_POSITION;float3 d:TEXCOORD0;};
  V vert(float4 v:POSITION){V o;o.pos=UnityObjectToClipPos(v);o.d=v.xyz;return o;}
  float hash(float2 p){p=frac(p*float2(123.34,456.21));p+=dot(p,p+45.32);return frac(p.x*p.y);}
@@ -76,6 +76,11 @@ Shader "OpenSourceTeam6/SkyOverlay" {
  alphaCloud*=horizon;
  float3 nightCloud=cloudColor*float3(.012,.018,.032)+halo*float3(.035,.045,.065);
  float3 litCloud=lerp(cloudColor,nightCloud,night);
+ float3 west=normalize(float3(_SunDirection.x,0,_SunDirection.z));
+ float facing=dot(d,west);
+ float sunset=saturate(_SunsetGlow)*smoothstep(-.38,.88,facing)*lerp(1,.36,saturate(_Rain));
+ float afterglow=sunset*(1-smoothstep(.02,.52,d.y));
+ litCloud=lerp(litCloud,cloudColor*float3(1,.27,.13),sunset*(1-smoothstep(.18,.82,d.y))*.78);
  litCloud*=lerp(float3(1,1,1),lerp(float3(.36,.40,.46),float3(.62,.66,.72),night),saturate(_Rain));
  // Premultiplied composition keeps tenuous cloud edges from turning into
  // opaque white cutouts as the night background fades in.
@@ -90,6 +95,10 @@ Shader "OpenSourceTeam6/SkyOverlay" {
  float3 cloudLayer=litCloud*alphaCloud+cloudBase*(1-alphaCloud);
  float3 clearResult=litCloud*alphaCloud+nightColor*night*(1-alphaCloud);
  float clearAlpha=alphaCloud+night*(1-alphaCloud);
+ float glowOpacity=afterglow*.74*(1-alphaCloud);
+ float3 glowColor=lerp(float3(1.3,.19,.055),float3(.55,.045,.12),smoothstep(.03,.44,d.y));
+ clearResult=glowColor*glowOpacity+clearResult*(1-glowOpacity);
+ clearAlpha=glowOpacity+clearAlpha*(1-glowOpacity);
  float resultAlpha=lerp(clearAlpha,1,overcast)*skyMask;
  float3 resultColor=lerp(clearResult,cloudLayer,overcast)*skyMask;
  // Extend the overcast background below the horizon as well; scene geometry

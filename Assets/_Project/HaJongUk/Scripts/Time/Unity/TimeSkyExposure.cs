@@ -17,12 +17,14 @@ namespace OpenSourceTeam6.Time.Unity
         private static readonly int MoonDirectionId = Shader.PropertyToID("_MoonDirection");
         private static readonly int MoonRadiusId = Shader.PropertyToID("_MoonRadius");
         private static readonly int SunDirectionId = Shader.PropertyToID("_SunDirection");
+        private static readonly int SunsetGlowId = Shader.PropertyToID("_SunsetGlow");
 
         public void Render(SkyFrame frame, Vector3 cameraPosition, float farClipPlane)
         {
             if (!isActiveAndEnabled || failed) return;
             if (!overlay && !CreateResources()) return;
             overlay.SetFloat(NightId, frame.NightBlend);
+            overlay.SetFloat(SunsetGlowId, frame.SunsetGlow);
             overlay.SetFloat(DriftId, frame.ElapsedGameHours * cloudDegreesPerGameHour * .05f);
             overlay.SetFloat(RainId, frame.CloudIntensity);
             overlay.SetVector(MoonDirectionId, frame.MoonDirection);

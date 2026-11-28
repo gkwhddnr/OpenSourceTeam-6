@@ -6,12 +6,14 @@ namespace OpenSourceTeam6.Time.Unity
     public readonly struct SkyFrame
     {
         public readonly Vector3 SunDirection, MoonDirection;
-        public readonly float NightBlend, MoonRadius, CloudIntensity, ElapsedGameHours;
+        public readonly float NightBlend, MoonRadius, CloudIntensity, ElapsedGameHours, SunsetGlow;
 
-        public SkyFrame(Vector3 sun, Vector3 moon, float night, float moonRadius, float clouds, float elapsed)
+        public SkyFrame(Vector3 sun, Vector3 moon, float night, float moonRadius, float clouds, float elapsed,
+            float sunsetGlow = 0)
         {
             SunDirection = sun; MoonDirection = moon; NightBlend = night;
             MoonRadius = moonRadius; CloudIntensity = clouds; ElapsedGameHours = elapsed;
+            SunsetGlow = sunsetGlow;
         }
     }
 }
