@@ -12,6 +12,7 @@ namespace OpenSourceTeam6.UI.Unity
     {
         private const int PreviewLayer = 31;
         private const float DefaultPreviewSize = 1.06f;
+        private static readonly Vector3 PreviewFocus = new(0f, 1.04f, 0f);
         private static readonly Color PanelColor = new(0.08f, 0.14f, 0.18f, 1f);
         private static readonly Color ButtonColor = new(0.17f, 0.29f, 0.34f, 1f);
         private static readonly Color AccentColor = new(0.17f, 0.46f, 0.41f, 1f);
@@ -19,7 +20,7 @@ namespace OpenSourceTeam6.UI.Unity
         private static readonly string[][] OptionLabels =
         {
             new[] { "남성", "여성" },
-            new[] { "기본", "볼륨", "단정" },
+            new[] { "기본", "교체 1", "교체 2" },
             new[] { "기본", "하늘색", "따뜻한색 · 여유핏" },
             new[] { "기본", "남색", "올리브 · 여유핏" }
         };
@@ -43,6 +44,7 @@ namespace OpenSourceTeam6.UI.Unity
         private readonly int[] employeeDraft = new int[4];
         private int[] Draft => selectedRole == player ? playerDraft : employeeDraft;
         private float previewYaw;
+        private float previewPitch;
         private Camera previewCamera;
         private float previewSize = DefaultPreviewSize;
 
@@ -81,6 +83,7 @@ namespace OpenSourceTeam6.UI.Unity
                 employeeDraft[i] = employee.SelectedIndex((AppearancePart)i);
             }
             previewYaw = 0f;
+            previewPitch = 0f;
             previewSize = DefaultPreviewSize;
             if (overlay == null)
                 BuildOverlay();
@@ -144,9 +147,12 @@ namespace OpenSourceTeam6.UI.Unity
             drag.callback.AddListener(data =>
             {
                 if (data is not PointerEventData pointer || pointer.button != PointerEventData.InputButton.Left) return;
-                previewYaw = Mathf.Repeat(previewYaw - pointer.delta.x / canvas.scaleFactor * 0.65f, 360f);
+                Vector2 delta = pointer.delta / canvas.scaleFactor * 0.65f;
+                previewYaw = Mathf.Repeat(previewYaw - delta.x, 360f);
+                previewPitch = Mathf.Clamp(previewPitch + delta.y, -55f, 55f);
                 if (preview != null)
                     preview.transform.localRotation = Quaternion.Euler(0f, previewYaw, 0f);
+                UpdatePreviewCameraPose();
             });
             events.triggers.Add(drag);
             var scroll = new EventTrigger.Entry { eventID = EventTriggerType.Scroll };
@@ -158,7 +164,7 @@ namespace OpenSourceTeam6.UI.Unity
                 previewCamera.orthographicSize = previewSize;
             });
             events.triggers.Add(scroll);
-            var hint = MakeText(card, "드래그로 회전 · 휠로 확대/축소", 13, TextAnchor.MiddleCenter);
+            var hint = MakeText(card, "상하좌우 드래그 · 휠로 확대/축소", 13, TextAnchor.MiddleCenter);
             Place(hint.rectTransform, new Vector2(0.5f, 0.5f), -165f, -162f, 220f, 24f);
 
             for (int i = 0; i < PartLabels.Length; i++)
@@ -239,6 +245,14 @@ namespace OpenSourceTeam6.UI.Unity
             Destroy(staging);
         }
 
+        private void UpdatePreviewCameraPose()
+        {
+            if (previewCamera == null) return;
+            Vector3 offset = Quaternion.Euler(-previewPitch, 0f, 0f) * (Vector3.forward * 3.5f);
+            previewCamera.transform.SetLocalPositionAndRotation(
+                PreviewFocus + offset, Quaternion.LookRotation(-offset, Vector3.up));
+        }
+
         private void BuildPreviewStage()
         {
             if (previewTexture == null)
@@ -253,10 +267,9 @@ namespace OpenSourceTeam6.UI.Unity
 
             var lens = new GameObject("Preview camera", typeof(Camera));
             lens.transform.SetParent(stage.transform, false);
-            lens.transform.localPosition = new Vector3(0f, 1.04f, 3.5f);
-            lens.transform.localRotation = Quaternion.Euler(0f, 180f, 0f);
             var camera = lens.GetComponent<Camera>();
             previewCamera = camera;
+            UpdatePreviewCameraPose();
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = new Color(0.12f, 0.21f, 0.26f, 1f);
             camera.cullingMask = 1 << PreviewLayer;

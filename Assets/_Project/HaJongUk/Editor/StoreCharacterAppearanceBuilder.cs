@@ -12,6 +12,7 @@ namespace OpenSourceTeam6.Customers.Editor
         private const string MeshFolder = "Assets/_Project/HaJongUk/Assets/CharacterAnimation/Appearance";
         private const string PrefabFolder = "Assets/ThirdParty/polyperfect/Low Poly Animated People/- Prefabs";
         private const string ControllerPath = "Assets/_Project/HaJongUk/Assets/CharacterAnimation/HJU_StoreCharacter.controller";
+        private const string HairlessBody = "Hairless body";
         private const string SweptHair = "Swept hair";
         private const string TrimmedHair = "Trimmed hair";
 
@@ -133,15 +134,17 @@ namespace OpenSourceTeam6.Customers.Editor
             var existing = AssetDatabase.LoadAssetAtPath<Mesh>(path);
             if (existing != null)
             {
+                Mesh body = null;
                 Mesh swept = null;
                 Mesh trimmed = null;
                 foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path))
                 {
+                    if (asset is Mesh bodyMesh && bodyMesh.name == HairlessBody) body = bodyMesh;
                     if (asset is Mesh variantMesh && variantMesh.name == SweptHair) swept = variantMesh;
                     if (asset is Mesh variantMesh2 && variantMesh2.name == TrimmedHair) trimmed = variantMesh2;
                 }
-                if (swept != null && trimmed != null)
-                    return new CharacterAppearance.HairMeshes(existing, swept, trimmed);
+                if (body != null && swept != null && trimmed != null)
+                    return new CharacterAppearance.HairMeshes(existing, swept, trimmed, body);
                 throw new InvalidOperationException($"Incomplete hair variants in '{path}'.");
             }
 
@@ -173,12 +176,14 @@ namespace OpenSourceTeam6.Customers.Editor
             AddGarmentShape(mesh, byPart, 2, CharacterAppearance.RelaxedTopShape);
             AddGarmentShape(mesh, byPart, 3, CharacterAppearance.RelaxedTrousersShape);
             AssetDatabase.CreateAsset(mesh, path);
-            var sweptHair = CreateHairVariant(mesh, SweptHair, 1);
-            var trimmedHair = CreateHairVariant(mesh, TrimmedHair, 2);
+            var sweptHair = CreateHairVariant(mesh, variant, SweptHair, 1);
+            var trimmedHair = CreateHairVariant(mesh, variant, TrimmedHair, 2);
+            var hairless = CreateHairlessBody(mesh);
+            AssetDatabase.AddObjectToAsset(hairless, mesh);
             AssetDatabase.AddObjectToAsset(sweptHair, mesh);
             AssetDatabase.AddObjectToAsset(trimmedHair, mesh);
             AssetDatabase.SaveAssetIfDirty(mesh);
-            return new CharacterAppearance.HairMeshes(mesh, sweptHair, trimmedHair);
+            return new CharacterAppearance.HairMeshes(mesh, sweptHair, trimmedHair, hairless);
         }
 
         private static void AddGarmentShape(Mesh mesh, IReadOnlyList<List<int>> byPart, int part, string shapeName)
@@ -209,11 +214,10 @@ namespace OpenSourceTeam6.Customers.Editor
             mesh.AddBlendShapeFrame(shapeName, 100f, delta, zeros, zeros);
         }
 
-        private static Mesh CreateHairVariant(Mesh source, string name, int style)
+        private static Mesh CreateHairVariant(Mesh source, string variant, string name, int style)
         {
-            var mesh = UnityEngine.Object.Instantiate(source);
-            mesh.name = name;
-            ApplyHairShape(source, mesh, style);
+            var mesh = new Mesh { name = name, indexFormat = source.indexFormat };
+            ApplyBorrowedHair(source, mesh, variant, style);
             return mesh;
         }
 
@@ -224,60 +228,197 @@ namespace OpenSourceTeam6.Customers.Editor
             {
                 string path = $"{MeshFolder}/{variant}.asset";
                 var source = AssetDatabase.LoadAssetAtPath<Mesh>(path);
+                if (source == null)
+                    throw new InvalidOperationException($"Missing wardrobe mesh: {path}");
                 foreach (var asset in AssetDatabase.LoadAllAssetsAtPath(path))
                 {
                     if (asset is not Mesh mesh || (mesh.name != SweptHair && mesh.name != TrimmedHair))
                         continue;
-                    ApplyHairShape(source, mesh, mesh.name == SweptHair ? 1 : 2);
+
+                    // Keep the subasset object so scene references and local file IDs survive.
+                    mesh.Clear(false);
+                    ApplyBorrowedHair(source, mesh, variant, mesh.name == SweptHair ? 1 : 2);
                     EditorUtility.SetDirty(mesh);
                 }
-                AssetDatabase.SaveAssetIfDirty(source);
+                bool hasHairless = Array.Exists(AssetDatabase.LoadAllAssetsAtPath(path), asset => asset.name == HairlessBody);
+                if (!hasHairless)
+                    AssetDatabase.AddObjectToAsset(CreateHairlessBody(source), source);
+                AssetDatabase.SaveAssetIfDirty(new GUID(AssetDatabase.AssetPathToGUID(path)));
             }
         }
 
-        private static void ApplyHairShape(Mesh source, Mesh mesh, int style)
+        private static void ApplyBorrowedHair(Mesh source, Mesh mesh, string variant, int style)
+        {
+            string donorName = variant switch
+            {
+                "man_casual" => style == 1 ? "man_paramedic" : "woman_paramedic",
+                "man_paramedic" => style == 1 ? "man_casual" : "woman_casual",
+                "woman_casual" => style == 1 ? "woman_paramedic" : "man_paramedic",
+                "woman_paramedic" => style == 1 ? "woman_casual" : "man_casual",
+                _ => throw new ArgumentOutOfRangeException(nameof(variant))
+            };
+            var donor = AssetDatabase.LoadAssetAtPath<Mesh>($"{MeshFolder}/{donorName}.asset");
+            if (donor == null)
+                throw new InvalidOperationException($"Missing hair donor: {donorName}");
+
+            var recipientHair = source.GetTriangles(1);
+            var donorHair = donor.GetTriangles(1);
+            var donorVertices = donor.vertices;
+            var donorNormals = donor.normals;
+            var donorTangents = donor.tangents;
+            var donorUvs = donor.uv;
+            var positions = new List<Vector3>();
+            var normals = new List<Vector3>();
+            var tangents = new List<Vector4>();
+            var uvs = new List<Vector2>();
+            var sourceVertices = source.vertices;
+            var sourceNormals = source.normals;
+            var sourceTangents = source.tangents;
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>($"{PrefabFolder}/{variant}.prefab");
+            var renderer = prefab.GetComponentInChildren<SkinnedMeshRenderer>(true);
+            int headBone = Array.FindIndex(renderer.bones, bone => bone.name == "Head_M");
+            if (headBone < 0)
+                throw new InvalidOperationException($"Missing head bone for {variant}");
+            Matrix4x4 headSpace = source.bindposes[headBone];
+            Bounds recipientHead = HeadBounds(source);
+            Bounds donorHead = HeadBounds(donor);
+            Vector3 recipientAnchor = HeadAnchor(recipientHead);
+            Vector3 donorAnchor = HeadAnchor(donorHead);
+            // The models use different import units. Compare their heads in mesh space,
+            // where the head width also includes the unit conversion between meshes.
+            float scale = recipientHead.size.x / donorHead.size.x;
+            var coveredScalp = new HashSet<int>(recipientHair);
+            var scalpUv = FindScalpUv(source, coveredScalp, recipientAnchor);
+            var crownUv = FindCrownUv(donor, donorHair);
+            var remap = new Dictionary<int, int>();
+            var hairTriangles = new List<int>(donorHair.Length);
+            foreach (int index in donorHair)
+            {
+                if (!remap.TryGetValue(index, out int mapped))
+                {
+                    mapped = positions.Count;
+                    remap.Add(index, mapped);
+                    Vector3 point = recipientAnchor + (donorVertices[index] - donorAnchor) * scale;
+                    float cheekHeight = Mathf.Lerp(recipientHead.min.y, recipientHead.max.y, .53f);
+                    if (point.y < cheekHeight && Mathf.Abs(point.x) < recipientHead.extents.x * .73f)
+                    {
+                        // Keep long strands from passing through the eyes and cheeks.
+                        point.z = Mathf.Min(point.z, recipientHead.center.z);
+                    }
+                    AddHeadVertex(point, donorNormals[index], donorTangents[index], donorUvs[index]);
+                }
+                hairTriangles.Add(mapped);
+            }
+
+            // Keep the original hairline closed with a skin-colored cap. Only
+            // hair-exclusive vertices are moved so the face seam stays fixed.
+            var shared = new HashSet<Vector3>();
+            foreach (int part in new[] { 0, 2, 3 })
+                foreach (int index in source.GetTriangles(part))
+                    shared.Add(sourceVertices[index]);
+            var cap = new Dictionary<(int, bool), int>();
+            float hairline = Mathf.Lerp(recipientHead.min.y, recipientHead.max.y, .66f);
+            for (int triangle = 0; triangle < recipientHair.Length; triangle += 3)
+            {
+                float centerY = (sourceVertices[recipientHair[triangle]].y + sourceVertices[recipientHair[triangle + 1]].y +
+                    sourceVertices[recipientHair[triangle + 2]].y) / 3;
+                bool crown = centerY >= hairline;
+                for (int corner = 0; corner < 3; corner++)
+                {
+                    int index = recipientHair[triangle + corner];
+                    if (!cap.TryGetValue((index, crown), out int mapped))
+                    {
+                        mapped = positions.Count;
+                        cap.Add((index, crown), mapped);
+                        Vector3 point = sourceVertices[index];
+                        if (!shared.Contains(point))
+                        {
+                            point.x = Mathf.Clamp(point.x, recipientHead.min.x, recipientHead.max.x);
+                            point.y = Mathf.Clamp(point.y, recipientHead.min.y, recipientHead.max.y);
+                            point.z = Mathf.Clamp(point.z, recipientHead.min.z, recipientHead.max.z);
+                        }
+                        AddHeadVertex(point, sourceNormals[index], sourceTangents[index], crown ? crownUv : scalpUv);
+                    }
+                    hairTriangles.Add(mapped);
+                }
+            }
+
+            mesh.SetVertices(positions);
+            mesh.SetNormals(normals);
+            mesh.SetTangents(tangents);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(hairTriangles, 0, true);
+
+            void AddHeadVertex(Vector3 point, Vector3 normal, Vector4 tangent, Vector2 uv)
+            {
+                positions.Add(headSpace.MultiplyPoint3x4(point));
+                normals.Add(headSpace.MultiplyVector(normal).normalized);
+                Vector3 direction = headSpace.MultiplyVector(new Vector3(tangent.x, tangent.y, tangent.z)).normalized;
+                tangents.Add(new Vector4(direction.x, direction.y, direction.z, tangent.w));
+                uvs.Add(uv);
+            }
+        }
+
+        private static Mesh CreateHairlessBody(Mesh source)
+        {
+            var body = UnityEngine.Object.Instantiate(source);
+            body.name = HairlessBody;
+            body.SetTriangles(Array.Empty<int>(), 1, false);
+            return body;
+        }
+
+        private static Bounds HeadBounds(Mesh mesh)
+        {
+            var vertices = mesh.vertices;
+            float headStart = mesh.bounds.max.y - mesh.bounds.size.y * 0.14f;
+            Bounds bounds = default;
+            foreach (int index in mesh.GetTriangles(0))
+            {
+                Vector3 point = vertices[index];
+                if (point.y <= headStart) continue;
+                if (bounds.center.y == 0f) bounds = new Bounds(point, Vector3.zero);
+                else bounds.Encapsulate(point);
+            }
+            if (bounds.size.x <= 0f)
+                throw new InvalidOperationException($"No head geometry found for {mesh.name}");
+            return bounds;
+        }
+
+        private static Vector3 HeadAnchor(Bounds head) =>
+            new Vector3(head.center.x, Mathf.Lerp(head.min.y, head.max.y, 0.78f), head.center.z);
+
+        private static Vector2 FindCrownUv(Mesh donor, int[] triangles)
+        {
+            var vertices = donor.vertices;
+            var uv = donor.uv;
+            float highest = float.NegativeInfinity;
+            Vector2 crown = default;
+            for (int i = 0; i < triangles.Length; i += 3)
+            {
+                int a = triangles[i], b = triangles[i + 1], c = triangles[i + 2];
+                float height = (vertices[a].y + vertices[b].y + vertices[c].y) / 3;
+                if (height <= highest) continue;
+                highest = height;
+                crown = (uv[a] + uv[b] + uv[c]) / 3;
+            }
+            return crown;
+        }
+
+        private static Vector2 FindScalpUv(Mesh source, HashSet<int> hair, Vector3 scalpCenter)
         {
             var vertices = source.vertices;
-            var triangles = mesh.GetTriangles(1);
-            var touched = new HashSet<int>(triangles);
-            // The atlas splits some coincident vertices at the scalp and around the ears.
-            var fixedPositions = new HashSet<Vector3>();
-            for (int part = 0; part < source.subMeshCount; part++)
-                if (part != 1)
-                    foreach (int index in source.GetTriangles(part))
-                        fixedPositions.Add(vertices[index]);
-
-            var bounds = new Bounds(vertices[triangles[0]], Vector3.zero);
-            foreach (int index in touched)
-                bounds.Encapsulate(vertices[index]);
-
-            foreach (int index in touched)
+            var uvs = source.uv;
+            int closest = 0;
+            float distance = float.PositiveInfinity;
+            foreach (int index in source.GetTriangles(0))
             {
-                Vector3 position = vertices[index];
-                float height = Mathf.InverseLerp(bounds.min.y, bounds.max.y, position.y);
-                float distanceSquared = float.PositiveInfinity;
-                foreach (Vector3 fixedPosition in fixedPositions)
-                    distanceSquared = Mathf.Min(distanceSquared, (fixedPosition - position).sqrMagnitude);
-                float weight = Mathf.SmoothStep(0f, 1f, Mathf.Sqrt(distanceSquared) /
-                    Mathf.Max(0.001f, bounds.size.magnitude * 0.22f));
-                if (style == 1)
-                {
-                    // Lift and sweep the crown while retaining the hairline.
-                    float flow = Mathf.SmoothStep(0f, 1f, height) * weight;
-                    position.x += bounds.size.x * 0.12f * flow;
-                    position.y += bounds.size.y * 0.13f * flow;
-                    position.z -= bounds.size.z * 0.09f * flow;
-                }
-                else
-                {
-                    // Draw long tips toward the head and lower the crown.
-                    position.y = Mathf.Lerp(position.y, bounds.center.y, 0.17f * weight);
-                    position.z = Mathf.Lerp(position.z, bounds.center.z, 0.09f * (1f - height) * weight);
-                }
-                vertices[index] = position;
+                if (hair.Contains(index) || vertices[index].y > scalpCenter.y) continue;
+                float candidate = (vertices[index] - scalpCenter).sqrMagnitude;
+                if (candidate >= distance) continue;
+                closest = index;
+                distance = candidate;
             }
-            mesh.vertices = vertices;
-            mesh.RecalculateBounds();
+            return uvs[closest];
         }
 
         // Select the verified atlas islands for each import and disambiguate reused color islands by height.

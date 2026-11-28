@@ -29,15 +29,18 @@ namespace OpenSourceTeam6.Customers.Unity
             [SerializeField] private Mesh original;
             [SerializeField] private Mesh swept;
             [SerializeField] private Mesh trimmed;
+            [SerializeField] private Mesh hairlessBody;
 
-            public HairMeshes(Mesh original, Mesh swept, Mesh trimmed)
+            public HairMeshes(Mesh original, Mesh swept, Mesh trimmed, Mesh hairlessBody)
             {
                 this.original = original;
                 this.swept = swept;
                 this.trimmed = trimmed;
+                this.hairlessBody = hairlessBody;
             }
 
             public Mesh Get(int index) => index == 1 ? swept : index == 2 ? trimmed : original;
+            public Mesh HairlessBody => hairlessBody;
         }
 
         [SerializeField] private HairMeshes[] hairMeshes = Array.Empty<HairMeshes>();
@@ -113,12 +116,44 @@ namespace OpenSourceTeam6.Customers.Unity
             int model = options[(int)AppearancePart.Model];
             if (model < hairMeshes.Length)
             {
-                var hair = hairMeshes[model].Get(options[(int)AppearancePart.Hair]);
-                if (hair != null) skin.sharedMesh = hair;
+                ApplyHair(skin, hairMeshes[model], options[(int)AppearancePart.Hair]);
             }
             if (skin.sharedMesh == null || skin.sharedMesh.subMeshCount != 4) return;
             ApplyGarment(skin, 2, TopColors, options[(int)AppearancePart.Top], RelaxedTopShape);
             ApplyGarment(skin, 3, TrouserColors, options[(int)AppearancePart.Trousers], RelaxedTrousersShape);
+        }
+
+        private static void ApplyHair(SkinnedMeshRenderer skin, HairMeshes meshes, int option)
+        {
+            Transform head = Array.Find(skin.bones, bone => bone != null && bone.name == "Head_M");
+            var hair = option != 0 ? meshes.Get(option) : null;
+            var attachment = head != null ? head.Find("Character hair attachment") : null;
+            bool useAttachment = head != null && hair != null && meshes.HairlessBody != null;
+            var body = useAttachment ? meshes.HairlessBody : meshes.Get(0);
+            if (body != null && skin.sharedMesh != body)
+            {
+                bool wasEnabled = skin.enabled;
+                skin.enabled = false;
+                skin.sharedMesh = null;
+                skin.sharedMesh = body;
+                skin.enabled = wasEnabled;
+            }
+            if (!useAttachment)
+            {
+                if (attachment != null) attachment.gameObject.SetActive(false);
+                return;
+            }
+            if (attachment == null)
+            {
+                attachment = new GameObject("Character hair attachment", typeof(MeshFilter), typeof(MeshRenderer)).transform;
+                attachment.SetParent(head, false);
+                attachment.gameObject.layer = skin.gameObject.layer;
+            }
+            attachment.GetComponent<MeshFilter>().sharedMesh = hair;
+            var hairRenderer = attachment.GetComponent<MeshRenderer>();
+            hairRenderer.sharedMaterial = skin.sharedMaterial;
+            hairRenderer.shadowCastingMode = skin.shadowCastingMode;
+            attachment.gameObject.SetActive(true);
         }
 
         private void ApplyGarment(SkinnedMeshRenderer renderer, int index, Color[] colors, int option, string shapeName)
